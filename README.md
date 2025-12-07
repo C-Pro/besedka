@@ -1,17 +1,10 @@
 # Besedka
 
-Besedka is a modern, self-hosted chat application built with Go and vanilla web technologies. It aims to provide a seamless and responsive communication experience across devices.
+Besedka is a self-hosted chat application for a limited number of users (e.g. for a family or a small group of friends) built with Go and vanilla web technologies.
 
 ## 🚧 Work in Progress
 
-**Note:** This project is currently under active development. Features, APIs, and data structures are subject to change. The current implementation relies on in-memory stub data for demonstration and testing purposes.
-
-## Features
-
-- **Real-time Messaging**: Instant message delivery using WebSockets.
-- **Responsive UI**: A fluid interface that adapts to both desktop and mobile workflows.
-- **User Presence**: Real-time status updates (Online/Offline) and "Last Seen" timestamps.
-- **Chat Management**: Support for Direct Messages (DMs) and Townhall-style group chats.
+**Note:** This project is currently under active development with heavy use of AI (Google Antigravity). Currently it is not functional (most of the features are hardcoded stubs).
 
 ## Tech Stack
 
@@ -32,7 +25,7 @@ To run the application locally:
 
 ## Future Roadmap
 
-- [ ] Persistent storage (Database integration)
+- [ ] Persistent storage
 - [ ] User authentication and session management
 - [ ] File attachments and media support
 - [ ] Rich text editing
