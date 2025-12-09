@@ -1,0 +1,69 @@
+
+name: 'Static analysis'
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  gitleaks:
+    name: GitLeaks credentials scan
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+    - name: GitLeaks
+      uses: gitleaks/gitleaks-action@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        #GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE}}
+  semgrep:
+    name: Semgrep scan
+    runs-on: ubuntu-latest
+    container:
+      image: returntocorp/semgrep
+    if: (github.actor != 'dependabot[bot]')
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - run: semgrep
+        env:
+           SEMGREP_RULES: p/default # more at semgrep.dev/explore
+  osv-scanner:
+    runs-on: ubuntu-latest
+    container: ghcr.io/google/osv-scanner
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+    - name: Scan the code
+      run: /osv-scanner -r . || if [ $? -eq 128 ]; then true; else exit $?; fi
+  golangci-lint:
+    name: Run golangci-lint
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+    - uses: actions/setup-go@v3
+      with:
+        go-version: "1.25"
+    - uses: golangci/golangci-lint-action@v8
+      with:
+          version: v2.1.6
+  eslint:
+    name: Run eslint
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+    - run: npm ci
+    - run: npm run lint

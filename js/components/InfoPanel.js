@@ -1,7 +1,7 @@
 import { store } from '../state.js';
 
 export function createInfoPanel(container) {
-    const render = (state) => {
+    const render = () => {
         container.innerHTML = `
             <div class="info-header">
                 Info
