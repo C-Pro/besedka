@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sync/atomic"
 	"time"
 
 	"github.com/c-pro/geche"
@@ -62,14 +61,14 @@ type UserCredentials struct {
 	LastAttemptTime     int64 `json:"lastAttemptTime"`
 }
 
-func (uc *UserCredentials) ResetFailedLoginAttempts() {
-	atomic.StoreInt64(&uc.FailedLoginAttempts, 0)
-	atomic.StoreInt64(&uc.LastAttemptTime, time.Now().Unix())
+func (uc *UserCredentials) ResetFailedLoginAttempts(now time.Time) {
+	uc.FailedLoginAttempts = 0
+	uc.LastAttemptTime = now.Unix()
 }
 
-func (uc *UserCredentials) IncrementFailedLoginAttempts() {
-	atomic.AddInt64(&uc.FailedLoginAttempts, 1)
-	atomic.StoreInt64(&uc.LastAttemptTime, time.Now().Unix())
+func (uc *UserCredentials) IncrementFailedLoginAttempts(now time.Time) {
+	uc.FailedLoginAttempts++
+	uc.LastAttemptTime = now.Unix()
 }
 
 type Config struct {
@@ -80,8 +79,9 @@ type Config struct {
 
 type AuthService struct {
 	Config
-	users      geche.Geche[string, *UserCredentials]
+	users      *geche.Locker[string, *UserCredentials]
 	liveTokens geche.Geche[string, string]
+	now        func() time.Time
 }
 
 func (c *Config) Validate() error {
@@ -108,8 +108,9 @@ func NewAuthService(ctx context.Context, config Config) (*AuthService, error) {
 	}
 	return &AuthService{
 		Config:     config,
-		users:      geche.NewMapCache[string, *UserCredentials](),
+		users:      geche.NewLocker[string, *UserCredentials](geche.NewMapCache[string, *UserCredentials]()),
 		liveTokens: geche.NewMapTTLCache[string, string](ctx, config.TokenExpiry, time.Minute),
+		now:        time.Now,
 	}, nil
 }
 
@@ -120,17 +121,20 @@ func (as *AuthService) hashPassword(username, password string) string {
 }
 
 func (as *AuthService) AddUser(username, password string) (UserCredentials, error) {
-	if _, err := as.users.Get(username); err == nil {
+	tx := as.users.Lock()
+	defer tx.Unlock()
+	if _, err := tx.Get(username); err == nil {
 		return UserCredentials{}, ErrUserExists
 	}
 
 	userID := uuid.NewString()
 	passwordHash := as.hashPassword(username, password)
-	as.users.Set(username,
+	tx.Set(username,
 		&UserCredentials{
 			UserID:       userID,
 			Username:     username,
 			PasswordHash: passwordHash,
+			LastTOTP:     -1,
 		})
 
 	return UserCredentials{
@@ -140,7 +144,10 @@ func (as *AuthService) AddUser(username, password string) (UserCredentials, erro
 }
 
 func (as *AuthService) Login(req LoginRequest) (LoginResponse, string) {
-	user, err := as.users.Get(req.Username)
+	now := as.now()
+	tx := as.users.Lock()
+	defer tx.Unlock()
+	user, err := tx.Get(req.Username)
 	if err != nil {
 		return LoginResponse{
 			Success: false,
@@ -148,19 +155,23 @@ func (as *AuthService) Login(req LoginRequest) (LoginResponse, string) {
 		}, ""
 	}
 
+	// Check failed login attempts
 	if user.FailedLoginAttempts > 3 {
-		lastAttempt := atomic.LoadInt64(&user.LastAttemptTime)
-		nextAttempt := lastAttempt + 30*(user.FailedLoginAttempts*user.FailedLoginAttempts)
-		if time.Now().Unix() < nextAttempt {
+		lastAttempt := user.LastAttemptTime
+		failedAttempts := user.FailedLoginAttempts
+		nextAttempt := lastAttempt + 30*(failedAttempts*failedAttempts)
+		if now.Unix() < nextAttempt {
 			return LoginResponse{
 				Success: false,
-				Message: fmt.Sprintf("Too many failed login attempts. Next attempt in %d seconds", nextAttempt-time.Now().Unix()),
+				Message: fmt.Sprintf("Too many failed login attempts. Next attempt in %d seconds", nextAttempt-now.Unix()),
 			}, ""
 		}
 	}
 
-	if user.PasswordHash != as.hashPassword(req.Username, req.Password) {
-		user.IncrementFailedLoginAttempts()
+	// Use constant-time comparison for password hashes
+	currentHash := as.hashPassword(req.Username, req.Password)
+	if !hmac.Equal([]byte(user.PasswordHash), []byte(currentHash)) {
+		user.IncrementFailedLoginAttempts(now)
 		return LoginResponse{
 			Success: false,
 			Message: loginFailedMessage,
@@ -175,7 +186,7 @@ func (as *AuthService) Login(req LoginRequest) (LoginResponse, string) {
 	}
 
 	if user.LastTOTP == req.TOTP {
-		user.IncrementFailedLoginAttempts()
+		user.IncrementFailedLoginAttempts(now)
 		return LoginResponse{
 			Success: false,
 			Message: loginFailedMessage,
@@ -183,7 +194,7 @@ func (as *AuthService) Login(req LoginRequest) (LoginResponse, string) {
 	}
 
 	if !as.checkTOTP(user.TOTPSecret, req.TOTP, user.LastTOTP) {
-		user.IncrementFailedLoginAttempts()
+		user.IncrementFailedLoginAttempts(now)
 		return LoginResponse{
 			Success: false,
 			Message: loginFailedMessage,
@@ -200,12 +211,14 @@ func (as *AuthService) Login(req LoginRequest) (LoginResponse, string) {
 	}
 
 	as.liveTokens.Set(token, user.UserID)
-	user.ResetFailedLoginAttempts()
+	user.ResetFailedLoginAttempts(now)
+	// Update LastTOTP to prevent replay attacks
+	user.LastTOTP = req.TOTP
 
 	return LoginResponse{
 		Success:     true,
 		Token:       token,
-		TokenExpiry: time.Now().Unix() + int64(as.TokenExpiry.Seconds()),
+		TokenExpiry: now.Unix() + int64(as.TokenExpiry.Seconds()),
 	}, user.UserID
 }
 
@@ -223,7 +236,7 @@ func (as *AuthService) checkTOTP(secret string, totp int, lastTOTP int) bool {
 	}
 	buf := make([]byte, 8)
 	for i := -1; i <= 1; i++ {
-		t := (time.Now().Unix() + int64(i*30)) / 30
+		t := (as.now().Unix() + int64(i*30)) / 30
 		h := hmac.New(sha1.New, []byte(secret))
 		binary.BigEndian.PutUint64(buf, uint64(t))
 		h.Write(buf)
