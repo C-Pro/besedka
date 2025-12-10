@@ -3,6 +3,7 @@ package api
 import (
 	"besedka/internal/stubs"
 	"encoding/json"
+	"log"
 	"net/http"
 	"time"
 )
@@ -25,10 +26,13 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	// Return dummy user ID "1" (Alice) for now
-	json.NewEncoder(w).Encode(map[string]string{
+	// Return dummy user ID "1" (Alice) for now
+	if err := json.NewEncoder(w).Encode(map[string]string{
 		"token":  token,
 		"userId": "1",
-	})
+	}); err != nil {
+		log.Printf("failed to encode login response: %v", err)
+	}
 }
 
 func LogoffHandler(w http.ResponseWriter, r *http.Request) {
@@ -50,10 +54,14 @@ func LogoffHandler(w http.ResponseWriter, r *http.Request) {
 
 func UsersHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(stubs.Users)
+	if err := json.NewEncoder(w).Encode(stubs.Users); err != nil {
+		log.Printf("failed to encode users response: %v", err)
+	}
 }
 
 func ChatsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(stubs.Chats)
+	if err := json.NewEncoder(w).Encode(stubs.Chats); err != nil {
+		log.Printf("failed to encode chats response: %v", err)
+	}
 }

@@ -20,7 +20,11 @@ func HandleConnections(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer ws.Close()
+	defer func() {
+		if err := ws.Close(); err != nil {
+			log.Printf("error closing websocket: %v", err)
+		}
+	}()
 
 	for {
 		// Read message from client
@@ -35,13 +39,15 @@ func HandleConnections(w http.ResponseWriter, r *http.Request) {
 
 		if msg.Type == models.ClientMessageTypeJoin {
 			// Send stub messages for the joined chat
+
 			var messages []models.Message
-			if msg.ChatID == "townhall" {
+			switch msg.ChatID {
+			case "townhall":
 				messages = []models.Message{
 					{Timestamp: time.Now().Add(-5 * time.Minute).Format(time.RFC3339), UserID: "1", Content: "Hello everyone!"},
 					{Timestamp: time.Now().Format(time.RFC3339), UserID: "2", Content: "Hi Alice!"},
 				}
-			} else if msg.ChatID == "dm_1_2" {
+			case "dm_1_2":
 				messages = []models.Message{
 					{Timestamp: time.Now().Add(-5 * time.Minute).Format(time.RFC3339), UserID: "1", Content: "Hello Alice!"},
 					{Timestamp: time.Now().Format(time.RFC3339), UserID: "2", Content: "Hi User!"},

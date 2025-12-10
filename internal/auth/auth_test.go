@@ -60,7 +60,9 @@ func TestAuthService(t *testing.T) {
 
 	t.Run("Login_FirstTime", func(t *testing.T) {
 		svc, _ := createService(t)
-		svc.AddUser("user1", "pass1")
+		if _, err := svc.AddUser("user1", "pass1"); err != nil {
+			t.Fatalf("failed to setup user: %v", err)
+		}
 
 		// First login - should require registration/setup
 		resp, _ := svc.Login(LoginRequest{
