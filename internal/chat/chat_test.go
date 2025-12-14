@@ -21,7 +21,7 @@ func TestNew(t *testing.T) {
 
 func TestChat_AddRecord_NoWrap(t *testing.T) {
 	c := New(Config{MaxRecords: 10})
-	c.RecordCallback = func(id string, r ChatRecord) {}
+	c.RecordCallback = func(id string, chatID string, r ChatRecord) {}
 
 	for i := 0; i < 5; i++ {
 		c.AddRecord(ChatRecord{UserID: "user", Content: fmt.Sprintf("msg %d", i)})
@@ -49,7 +49,7 @@ func TestChat_AddRecord_Wrap(t *testing.T) {
 	if c.Members == nil {
 		c.Members = make(map[string]bool)
 	}
-	c.RecordCallback = func(id string, r ChatRecord) {}
+	c.RecordCallback = func(id string, chatID string, r ChatRecord) {}
 
 	// Add 3 records (full)
 	for i := 0; i < 3; i++ {
@@ -93,29 +93,29 @@ func TestChat_JoinLeave(t *testing.T) {
 }
 
 func TestChat_Callback(t *testing.T) {
-	c := New(Config{MaxRecords: 10})
+	c := New(Config{ID: "chat1", MaxRecords: 10})
 
 	// Setup members
 	c.Join("online_user")
 	c.Members["offline_user"] = false // Manually set offline user
 
 	received := make(map[string]ChatRecord)
-	c.RecordCallback = func(receiverID string, r ChatRecord) {
-		received[receiverID] = r
+	c.RecordCallback = func(receiverID string, chatID string, r ChatRecord) {
+		received[chatID+":"+receiverID] = r
 	}
 
 	msg := ChatRecord{UserID: "sender", Content: "hello"}
 	c.AddRecord(msg)
 
 	// Check online user received it
-	if rec, ok := received["online_user"]; !ok {
+	if rec, ok := received["chat1:online_user"]; !ok {
 		t.Error("online_user did not receive message")
 	} else if rec.Content != "hello" {
 		t.Errorf("online_user received wrong content: %s", rec.Content)
 	}
 
 	// Check offline user did not receive it
-	if _, ok := received["offline_user"]; ok {
+	if _, ok := received["chat1:offline_user"]; ok {
 		t.Error("offline_user received message but shouldn't have")
 	}
 }

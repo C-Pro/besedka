@@ -23,22 +23,26 @@ type Chat struct {
 	LastIndex  int
 	MaxRecords int
 
-	RecordCallback func(receiverID string, record ChatRecord)
+	RecordCallback func(receiverID string, chatID string, record ChatRecord)
 
 	mux sync.RWMutex
 }
 
 type Config struct {
-	MaxRecords int
+	ID             string
+	MaxRecords     int
+	RecordCallback func(receiverID string, chatID string, record ChatRecord)
 }
 
 func New(config Config) *Chat {
 	return &Chat{
-		MaxRecords: config.MaxRecords,
-		LastIndex:  -1,
-		FirstSeq:   -1,
-		LastSeq:    -1,
-		Members:    make(map[string]bool),
+		ID:             config.ID,
+		MaxRecords:     config.MaxRecords,
+		LastIndex:      -1,
+		FirstSeq:       -1,
+		LastSeq:        -1,
+		Members:        make(map[string]bool),
+		RecordCallback: config.RecordCallback,
 	}
 }
 
@@ -70,7 +74,7 @@ func (c *Chat) AddRecord(record ChatRecord) {
 
 	for receiverID, online := range c.Members {
 		if online && c.RecordCallback != nil {
-			c.RecordCallback(receiverID, record)
+			c.RecordCallback(receiverID, c.ID, record)
 		}
 	}
 }

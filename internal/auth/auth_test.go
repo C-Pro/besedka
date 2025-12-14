@@ -282,4 +282,46 @@ func TestAuthService(t *testing.T) {
 			t.Errorf("Expected standard failure message after backoff, got %q", resp.Message)
 		}
 	})
+
+	t.Run("Logoff", func(t *testing.T) {
+		svc, _ := createService(t)
+
+		// Setup user
+		tx := svc.users.Lock()
+		tx.Set("user1", &UserCredentials{
+			UserID:       "uid",
+			Username:     "user1",
+			PasswordHash: svc.hashPassword("user1", "pass1"),
+			TOTPSecret:   rawSecret,
+			LastTOTP:     0,
+		})
+		tx.Unlock()
+
+		// Login
+		resp, _ := svc.Login(LoginRequest{
+			Username: "user1",
+			Password: "pass1",
+			TOTP:     validCodes[0],
+		})
+		if !resp.Success {
+			t.Fatalf("Login failed")
+		}
+
+		// Verify token exists
+		_, err := svc.liveTokens.Get(resp.Token)
+		if err != nil {
+			t.Fatalf("Token should be valid")
+		}
+
+		// Logoff
+		if err := svc.Logoff(resp.Token); err != nil {
+			t.Errorf("Logoff failed: %v", err)
+		}
+
+		// Verify token is gone
+		_, err = svc.liveTokens.Get(resp.Token)
+		if err == nil {
+			t.Error("Token should be invalid after logoff")
+		}
+	})
 }

@@ -222,6 +222,10 @@ func (as *AuthService) Login(req LoginRequest) (LoginResponse, string) {
 	}, user.UserID
 }
 
+func (as *AuthService) Logoff(token string) error {
+	return as.liveTokens.Del(token)
+}
+
 func (as *AuthService) generateToken() (string, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
@@ -253,4 +257,9 @@ func (as *AuthService) checkTOTP(secret string, totp int, lastTOTP int) bool {
 		}
 	}
 	return false
+}
+
+
+func (as *AuthService) GetUserID(token string) (string, error) {
+	return as.liveTokens.Get(token)
 }

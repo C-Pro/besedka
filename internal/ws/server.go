@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"besedka/internal/auth"
 	"besedka/internal/models"
 	"log"
 	"net/http"
@@ -9,17 +10,40 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		return true // Allow all origins for now
-	},
+type Server struct {
+	auth     *auth.AuthService
+	upgrader *websocket.Upgrader
 }
 
-func HandleConnections(w http.ResponseWriter, r *http.Request) {
-	ws, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Fatal(err)
+func NewServer(auth *auth.AuthService) *Server {
+	return &Server{
+		auth: auth,
+		upgrader: &websocket.Upgrader{
+			CheckOrigin: func(r *http.Request) bool {
+				return true // Allow all origins for now
+			},
+		},
 	}
+}
+
+func (s *Server) HandleConnections(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	_, err := s.auth.GetUserID(r.Header.Get("token"))
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	ws, err := s.upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("error upgrading to websocket: %v", err)
+		return
+	}
+
 	defer func() {
 		if err := ws.Close(); err != nil {
 			log.Printf("error closing websocket: %v", err)
