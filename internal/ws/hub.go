@@ -151,9 +151,7 @@ func (h *Hub) handleRecordCallback(receiverID string, chatID string, record chat
 	}
 
 	// Convert ChatRecord to models.Message (ServerMessage format)
-	// Note: models.Message uses String for Timestamp usually (based on previous file view)
-	// checking chat.go, ChatRecord uses int64. models.go uses string?
-	// Let's check models.go again. Yes, models.Message.Timestamp is string.
+	// models.Message.Timestamp is int64.
 	msg := models.ServerMessage{
 		Type:   models.ServerMessageTypeMessages,
 		ChatID: chatID,
@@ -161,7 +159,7 @@ func (h *Hub) handleRecordCallback(receiverID string, chatID string, record chat
 			{
 				UserID:    record.UserID,
 				Content:   record.Content,
-				Timestamp: time.Unix(record.Timestamp, 0).Format(time.RFC3339),
+				Timestamp: record.Timestamp,
 			},
 		},
 	}

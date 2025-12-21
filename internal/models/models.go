@@ -10,8 +10,8 @@ type User struct {
 
 // Presence represents the online status of a user.
 type Presence struct {
-	Online   bool   `json:"online"`
-	LastSeen string `json:"lastSeen"` // Unix timestamp as string
+	Online   bool  `json:"online"`
+	LastSeen int64 `json:"lastSeen"` // Unix timestamp (seconds)
 }
 
 // Chat represents a chat conversation.
@@ -25,7 +25,7 @@ type Chat struct {
 
 // Message represents a chat message.
 type Message struct {
-	Timestamp string `json:"timestamp"` // Unix timestamp as string
+	Timestamp int64  `json:"timestamp"` // Unix timestamp (seconds)
 	UserID    string `json:"userId"`
 	Content   string `json:"content"`
 }

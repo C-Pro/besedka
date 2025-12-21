@@ -31,13 +31,24 @@ class Store {
     }
 
     // API Actions
-    async login(username, password) {
+    // API Actions
+    async login(username, password, otp = 0) {
         try {
+            const body = `username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}&totp=${otp}`;
             const response = await fetch('/api/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: `username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`
+                body: body
             });
+
+            if (response.status === 401) {
+                const text = await response.text();
+                // Check if it's a NeedRegister case
+                if (text.includes("First login")) {
+                    return { success: false, needRegister: true, message: text };
+                }
+                return { success: false, message: text.replace(/\n/g, '') };
+            }
 
             if (!response.ok) throw new Error('Login failed');
 
@@ -48,9 +59,28 @@ class Store {
             await this.fetchChats();
             this.connectWebSocket();
 
-            return true;
+            return { success: true };
         } catch (error) {
             console.error('Login error:', error);
+            return { success: false, message: error.message };
+        }
+    }
+
+    async register(username, password, secret) {
+        try {
+            const response = await fetch('/api/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password, totpSecret: secret })
+            });
+
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(text);
+            }
+            return true;
+        } catch (error) {
+            console.error('Registration error:', error);
             return false;
         }
     }
@@ -138,7 +168,7 @@ class Store {
             id: m.timestamp + m.userId, // simple unique id
             text: m.content,
             sender: m.userId === this.state.currentUser?.id ? 'me' : m.userId, // We'll resolve names in UI
-            timestamp: new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            timestamp: new Date(m.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             userId: m.userId
         }));
 

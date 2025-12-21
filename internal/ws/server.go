@@ -2,10 +2,8 @@ package ws
 
 import (
 	"besedka/internal/auth"
-	"besedka/internal/models"
 	"log"
 	"net/http"
-	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -13,6 +11,7 @@ import (
 type Server struct {
 	auth     *auth.AuthService
 	upgrader *websocket.Upgrader
+	hub      *Hub
 }
 
 func NewServer(auth *auth.AuthService) *Server {
@@ -23,17 +22,21 @@ func NewServer(auth *auth.AuthService) *Server {
 				return true // Allow all origins for now
 			},
 		},
+		hub: NewHub(),
 	}
 }
 
 func (s *Server) HandleConnections(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
+	token := r.Header.Get("token")
+	if token == "" {
+		if c, err := r.Cookie("token"); err == nil {
+			token = c.Value
+		}
 	}
 
-	_, err := s.auth.GetUserID(r.Header.Get("token"))
+	userID, err := s.auth.GetUserID(token)
 	if err != nil {
+		log.Printf("unauthorized websocket connection attempt")
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -50,57 +53,11 @@ func (s *Server) HandleConnections(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	for {
-		// Read message from client
-		var msg models.ClientMessage
-		err := ws.ReadJSON(&msg)
-		if err != nil {
-			log.Printf("error: %v", err)
-			break
-		}
+	// Create Connection
+	conn := NewConnection(s.hub, ws, userID)
 
-		log.Printf("Received message: %+v", msg)
-
-		if msg.Type == models.ClientMessageTypeJoin {
-			// Send stub messages for the joined chat
-
-			var messages []models.Message
-			switch msg.ChatID {
-			case "townhall":
-				messages = []models.Message{
-					{Timestamp: time.Now().Add(-5 * time.Minute).Format(time.RFC3339), UserID: "1", Content: "Hello everyone!"},
-					{Timestamp: time.Now().Format(time.RFC3339), UserID: "2", Content: "Hi Alice!"},
-				}
-			case "dm_1_2":
-				messages = []models.Message{
-					{Timestamp: time.Now().Add(-5 * time.Minute).Format(time.RFC3339), UserID: "1", Content: "Hello Alice!"},
-					{Timestamp: time.Now().Format(time.RFC3339), UserID: "2", Content: "Hi User!"},
-				}
-			}
-
-			if len(messages) > 0 {
-				response := models.ServerMessage{
-					Type:     models.ServerMessageTypeMessages,
-					ChatID:   msg.ChatID,
-					Messages: messages,
-				}
-				if err := ws.WriteJSON(response); err != nil {
-					log.Printf("error: %v", err)
-					break
-				}
-			}
-		} else if msg.Type == models.ClientMessageTypeSend {
-			response := models.ServerMessage{
-				Type:   models.ServerMessageTypeMessages,
-				ChatID: msg.ChatID,
-				Messages: []models.Message{
-					{Timestamp: time.Now().Format(time.RFC3339), UserID: "me", Content: msg.Content},
-				},
-			}
-			if err := ws.WriteJSON(response); err != nil {
-				log.Printf("error: %v", err)
-				break
-			}
-		}
+	// Handle connection (blocks until closed)
+	if err := conn.Handle(r.Context()); err != nil {
+		log.Printf("connection handler error: %v", err)
 	}
 }

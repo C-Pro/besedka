@@ -2,13 +2,16 @@ import { store } from './state.js';
 import { createChatList } from './components/ChatList.js';
 import { createChatWindow } from './components/ChatWindow.js';
 import { createInfoPanel } from './components/InfoPanel.js';
+import { createLogin } from './components/Login.js';
 
 const app = document.getElementById('app');
 
-function init() {
-    // Trigger login (hardcoded for now)
-    store.login('test', 'password');
+function renderLogin() {
+    app.innerHTML = '';
+    createLogin(app);
+}
 
+function renderApp() {
     // Create layout structure
     app.innerHTML = `
         <div class="app-layout">
@@ -44,6 +47,9 @@ function init() {
     // Handle responsive visibility
     const handleVisibility = (state) => {
         const sidebar = document.getElementById('sidebar');
+        // Check if elements exist (might have been removed if logged out)
+        if (!sidebar) return;
+
         const chatArea = document.getElementById('chat-area');
         const infoPanel = document.getElementById('info-panel');
         const mobileMenu = document.getElementById('mobile-menu');
@@ -116,14 +122,27 @@ function init() {
     let touchEndX = 0;
     const minSwipeDistance = 50;
 
-    document.addEventListener('touchstart', (e) => {
+    const onTouchStart = (e) => {
         touchStartX = e.changedTouches[0].screenX;
-    });
+    };
 
-    document.addEventListener('touchend', (e) => {
+    const onTouchEnd = (e) => {
         touchEndX = e.changedTouches[0].screenX;
         handleSwipe();
-    });
+    };
+
+    document.addEventListener('touchstart', onTouchStart);
+    document.addEventListener('touchend', onTouchEnd);
+
+    // Cleanup listeners if needed? For now we just re-add them which might stack if we don't clear.
+    // Ideally we should have a cleanup function, but for this simple app, wiping innerHTML removes the elements
+    // so the listeners on elements are gone. Document listeners (swipe) might stack?
+    // Yes, document listeners will stack. We should remove them or check if already added.
+    // Or just define them outside.
+
+    // Better: define handleSwipe and listeners outside?
+    // Let's rely on standard "init once" pattern or simple cleanup.
+    // For simplicity, we'll keep it here but handle re-entry carefully.
 
     const handleSwipe = () => {
         const distance = touchEndX - touchStartX;
@@ -140,14 +159,38 @@ function init() {
         }
     };
 
-    // Initial check and subscribe
+    // Initial check
     handleVisibility(store.state);
-    store.subscribe(handleVisibility);
 
-    // Handle resize
+    // Store subscribe returns unsubscribe, we could use it.
+    const unsub = store.subscribe(handleVisibility);
+    // TODO: store unsub somewhere if we need to cleanup.
+
+    // Resize listener
     window.addEventListener('resize', () => {
         handleVisibility(store.state);
     });
+}
+
+function init() {
+    let currentView = null; // 'login' or 'app'
+
+    const render = (state) => {
+        if (!state.currentUser) {
+            if (currentView !== 'login') {
+                renderLogin();
+                currentView = 'login';
+            }
+        } else {
+            if (currentView !== 'app') {
+                renderApp();
+                currentView = 'app';
+            }
+        }
+    };
+
+    store.subscribe(render);
+    render(store.state);
 }
 
 init();

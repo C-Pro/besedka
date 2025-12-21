@@ -6,9 +6,9 @@ import (
 )
 
 var Users = []models.User{
-	{ID: "1", DisplayName: "Alice", AvatarURL: "https://api.dicebear.com/7.x/avataaars/svg?seed=Alice", Presence: models.Presence{Online: true, LastSeen: time.Now().Format(time.RFC3339)}},
-	{ID: "2", DisplayName: "Bob", AvatarURL: "https://api.dicebear.com/7.x/avataaars/svg?seed=Bob", Presence: models.Presence{Online: false, LastSeen: time.Now().Add(-1 * time.Hour).Format(time.RFC3339)}},
-	{ID: "3", DisplayName: "Charlie", AvatarURL: "https://api.dicebear.com/7.x/avataaars/svg?seed=Charlie", Presence: models.Presence{Online: true, LastSeen: time.Now().Format(time.RFC3339)}},
+	{ID: "1", DisplayName: "Alice", AvatarURL: "https://api.dicebear.com/7.x/avataaars/svg?seed=Alice", Presence: models.Presence{Online: true, LastSeen: time.Now().Unix()}},
+	{ID: "2", DisplayName: "Bob", AvatarURL: "https://api.dicebear.com/7.x/avataaars/svg?seed=Bob", Presence: models.Presence{Online: false, LastSeen: time.Now().Add(-1 * time.Hour).Unix()}},
+	{ID: "3", DisplayName: "Charlie", AvatarURL: "https://api.dicebear.com/7.x/avataaars/svg?seed=Charlie", Presence: models.Presence{Online: true, LastSeen: time.Now().Unix()}},
 }
 
 var Chats = []models.Chat{

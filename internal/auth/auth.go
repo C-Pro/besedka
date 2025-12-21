@@ -121,13 +121,16 @@ func (as *AuthService) hashPassword(username, password string) string {
 }
 
 func (as *AuthService) AddUser(username, password string) (UserCredentials, error) {
+	return as.SeedUser(uuid.NewString(), username, password)
+}
+
+func (as *AuthService) SeedUser(userID, username, password string) (UserCredentials, error) {
 	tx := as.users.Lock()
 	defer tx.Unlock()
 	if _, err := tx.Get(username); err == nil {
 		return UserCredentials{}, ErrUserExists
 	}
 
-	userID := uuid.NewString()
 	passwordHash := as.hashPassword(username, password)
 	tx.Set(username,
 		&UserCredentials{
@@ -234,31 +237,64 @@ func (as *AuthService) generateToken() (string, error) {
 	return base64.StdEncoding.EncodeToString(b), nil
 }
 
+func (as *AuthService) Register(req RegistrationRequest) (bool, string) {
+	tx := as.users.Lock()
+	defer tx.Unlock()
+
+	user, err := tx.Get(req.Username)
+	if err != nil {
+		return false, "User not found"
+	}
+
+	if user.LastTOTP != -1 {
+		return false, "User already registered"
+	}
+
+	user.PasswordHash = as.hashPassword(req.Username, req.Password)
+	user.TOTPSecret = req.TOTPSecret
+	user.LastTOTP = 0 // Activate user
+
+	tx.Set(req.Username, user)
+
+	return true, ""
+}
+
+func GenerateTOTP(secret string, t time.Time) (int, error) {
+	buf := make([]byte, 8)
+	counter := t.Unix() / 30
+	h := hmac.New(sha1.New, []byte(secret))
+	binary.BigEndian.PutUint64(buf, uint64(counter))
+	h.Write(buf)
+	sum := h.Sum(nil)
+
+	off := sum[len(sum)-1] & 0xf
+	trunc := (int(sum[off])&0x7f)<<24 |
+		int(sum[off+1])<<16 |
+		int(sum[off+2])<<8 |
+		int(sum[off+3])
+
+	return trunc % 1e6, nil
+}
+
 func (as *AuthService) checkTOTP(secret string, totp int, lastTOTP int) bool {
 	if totp == lastTOTP {
 		return false
 	}
-	buf := make([]byte, 8)
+
+	// Check current, prev, next windows to allow for clock skew
 	for i := -1; i <= 1; i++ {
-		t := (as.now().Unix() + int64(i*30)) / 30
-		h := hmac.New(sha1.New, []byte(secret))
-		binary.BigEndian.PutUint64(buf, uint64(t))
-		h.Write(buf)
-		sum := h.Sum(nil)
+		t := as.now().Add(time.Duration(i*30) * time.Second)
+		code, err := GenerateTOTP(secret, t)
+		if err != nil {
+			continue
+		}
 
-		off := sum[len(sum)-1] & 0xf
-		trunc := (int(sum[off])&0x7f)<<24 |
-			int(sum[off+1])<<16 |
-			int(sum[off+2])<<8 |
-			int(sum[off+3])
-
-		if totp == trunc%1e6 {
+		if totp == code {
 			return true
 		}
 	}
 	return false
 }
-
 
 func (as *AuthService) GetUserID(token string) (string, error) {
 	return as.liveTokens.Get(token)
