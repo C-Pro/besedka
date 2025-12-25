@@ -37,8 +37,11 @@ func main() {
 		}
 	}
 
-	server := ws.NewServer(authService)
-	apiHandlers := api.New(authService)
+	// Initialize Hub
+	hub := ws.NewHub()
+
+	server := ws.NewServer(authService, hub)
+	apiHandlers := api.New(authService, hub)
 
 	// API endpoints
 	http.HandleFunc("/api/login", apiHandlers.LoginHandler)

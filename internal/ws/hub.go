@@ -21,6 +21,9 @@ type Hub struct {
 	// List of all known users (for creating DMs)
 	knownUsers map[string]bool
 
+	// Map of userID -> DisplayName
+	userNames map[string]string
+
 	mu sync.RWMutex
 }
 
@@ -29,6 +32,7 @@ func NewHub() *Hub {
 		chats:          make(map[string]*chat.Chat),
 		connectedUsers: make(map[string]chan models.ServerMessage),
 		knownUsers:     make(map[string]bool),
+		userNames:      make(map[string]string),
 	}
 
 	// Create Townhall
@@ -37,6 +41,7 @@ func NewHub() *Hub {
 	// Populate users from stubs
 	for _, u := range stubs.Users {
 		h.AddUser(u.ID)
+		h.userNames[u.ID] = u.DisplayName
 	}
 
 	return h
@@ -59,18 +64,7 @@ func (h *Hub) AddUser(userID string) {
 	if h.knownUsers[userID] {
 		return
 	}
-	h.knownUsers[userID] = true
-
-	// Add to Townhall
-	if ch, ok := h.chats["townhall"]; ok {
-		// We don't strictly need to "add" them to internal list if it's open,
-		// but chat.go uses Members map to track online status.
-		// We'll treat all known users as potentially "offline" members initially?
-		// Actually chat.go only tracks members for dispatching.
-		// We need to ensure that when a user Joins, they join the chat.
-		// For now, just ensuring the chat exists is enough.
-		_ = ch
-	}
+	h.knownUsers[userID] = true	
 
 	// Create DMs with all other existing users
 	for otherID := range h.knownUsers {
@@ -139,6 +133,50 @@ func (h *Hub) Dispatch(userID string, msg models.ClientMessage) {
 		Content:   msg.Content,
 		Timestamp: time.Now().Unix(),
 	})
+}
+
+func (h *Hub) GetChats(userID string) []models.Chat {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	var result []models.Chat
+
+	for id, c := range h.chats {
+		if id == "townhall" {
+			result = append(result, models.Chat{
+				ID:   c.ID,
+				Name: "Town Square", // Or keep "townhall" but UI might want pretty name
+			})
+			continue
+		}
+
+		if isUserInDM(userID, id) {
+			// Find other user name
+			parts := strings.Split(id[3:], "_")
+			otherID := parts[0]
+			if otherID == userID {
+				otherID = parts[1]
+			}
+
+			name := h.userNames[otherID]
+			if name == "" {
+				name = "Unknown User"
+			}
+
+			result = append(result, models.Chat{
+				ID:   c.ID,
+				Name: name,
+				IsDM: true,
+			})
+		}
+	}
+
+	// Sort by name for consistency
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Name < result[j].Name
+	})
+
+	return result
 }
 
 func (h *Hub) handleRecordCallback(receiverID string, chatID string, record chat.ChatRecord) {

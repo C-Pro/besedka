@@ -296,9 +296,17 @@ func (as *AuthService) Register(req RegistrationRequest) RegistrationResponse {
 }
 
 func GenerateTOTP(secret string, t time.Time) (int, error) {
+	key, err := base32.StdEncoding.DecodeString(secret)
+	if err != nil {
+		// Fallback for non-base32 secrets (legacy tests or backward compat if needed)
+		// But strictly speaking, we expect base32 now.
+		// For the bug fix, strictly expect base32.
+		return 0, fmt.Errorf("invalid base32 secret: %w", err)
+	}
+
 	buf := make([]byte, 8)
 	counter := t.Unix() / 30
-	h := hmac.New(sha1.New, []byte(secret))
+	h := hmac.New(sha1.New, key)
 	binary.BigEndian.PutUint64(buf, uint64(counter))
 	h.Write(buf)
 	sum := h.Sum(nil)

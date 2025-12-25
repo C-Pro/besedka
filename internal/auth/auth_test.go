@@ -12,7 +12,7 @@ func TestAuthService(t *testing.T) {
 	// RawSecret: 12345678901234567890
 	// T0: 1700000000
 	const (
-		rawSecret = "12345678901234567890"
+		rawSecret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
 		t0Unix    = 1700000000
 	)
 

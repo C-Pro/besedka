@@ -3,6 +3,7 @@ package api
 import (
 	"besedka/internal/auth"
 	"besedka/internal/stubs"
+	"besedka/internal/ws"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -12,10 +13,14 @@ import (
 
 type API struct {
 	auth *auth.AuthService
+	hub  *ws.Hub
 }
 
-func New(auth *auth.AuthService) *API {
-	return &API{auth: auth}
+func New(auth *auth.AuthService, hub *ws.Hub) *API {
+	return &API{
+		auth: auth,
+		hub:  hub,
+	}
 }
 
 func (a *API) LoginHandler(w http.ResponseWriter, r *http.Request) {
@@ -152,8 +157,12 @@ func (a *API) ChatsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userID, _ := a.auth.GetUserID(token) // Error checked above
+
+	chats := a.hub.GetChats(userID)
+
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(stubs.Chats); err != nil {
+	if err := json.NewEncoder(w).Encode(chats); err != nil {
 		log.Printf("failed to encode chats response: %v", err)
 	}
 }

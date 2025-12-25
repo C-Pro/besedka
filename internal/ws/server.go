@@ -14,7 +14,7 @@ type Server struct {
 	hub      *Hub
 }
 
-func NewServer(auth *auth.AuthService) *Server {
+func NewServer(auth *auth.AuthService, hub *Hub) *Server {
 	return &Server{
 		auth: auth,
 		upgrader: &websocket.Upgrader{
@@ -22,7 +22,7 @@ func NewServer(auth *auth.AuthService) *Server {
 				return true // Allow all origins for now
 			},
 		},
-		hub: NewHub(),
+		hub: hub,
 	}
 }
 
