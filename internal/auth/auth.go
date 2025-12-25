@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/sha1"
 	"crypto/sha512"
+	"encoding/base32"
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
@@ -32,13 +33,16 @@ type LoginRequest struct {
 	TOTP     int    `json:"totp"`
 }
 
-// RegistrationRequest is sent by a user to finalize
-// the registration after their first login
-// with a one-time password.
 type RegistrationRequest struct {
-	Username   string `json:"username"`
-	Password   string `json:"password"`
-	TOTPSecret string `json:"totpSecret"`
+	Username    string `json:"username"`
+	Password    string `json:"password"`
+	NewPassword string `json:"newPassword"`
+}
+
+type RegistrationResponse struct {
+	Success    bool   `json:"success"`
+	Message    string `json:"message,omitempty"`
+	TOTPSecret string `json:"totpSecret,omitempty"`
 }
 
 type LoginResponse struct {
@@ -237,26 +241,58 @@ func (as *AuthService) generateToken() (string, error) {
 	return base64.StdEncoding.EncodeToString(b), nil
 }
 
-func (as *AuthService) Register(req RegistrationRequest) (bool, string) {
+func (as *AuthService) generateTOTPSecret() (string, error) {
+	b := make([]byte, 20)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("failed to generate secret: %w", err)
+	}
+	return base32.StdEncoding.EncodeToString(b), nil
+}
+
+func (as *AuthService) Register(req RegistrationRequest) RegistrationResponse {
 	tx := as.users.Lock()
 	defer tx.Unlock()
 
 	user, err := tx.Get(req.Username)
 	if err != nil {
-		return false, "User not found"
+		return RegistrationResponse{
+			Success: false,
+			Message: "User not found",
+		}
 	}
 
 	if user.LastTOTP != -1 {
-		return false, "User already registered"
+		return RegistrationResponse{
+			Success: false,
+			Message: "User already registered",
+		}
 	}
 
-	user.PasswordHash = as.hashPassword(req.Username, req.Password)
-	user.TOTPSecret = req.TOTPSecret
+	hash := as.hashPassword(req.Username, req.Password)
+	if !hmac.Equal([]byte(user.PasswordHash), []byte(hash)) {
+		return RegistrationResponse{
+			Success: false,
+			Message: "Invalid password",
+		}
+	}
+
+	secret, err := as.generateTOTPSecret()
+	if err != nil {
+		return RegistrationResponse{
+			Success: false,
+			Message: "Internal error",
+		}
+	}
+	user.PasswordHash = as.hashPassword(req.Username, req.NewPassword)
+	user.TOTPSecret = secret
 	user.LastTOTP = 0 // Activate user
 
 	tx.Set(req.Username, user)
 
-	return true, ""
+	return RegistrationResponse{
+		Success:    true,
+		TOTPSecret: secret,
+	}
 }
 
 func GenerateTOTP(secret string, t time.Time) (int, error) {

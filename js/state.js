@@ -66,22 +66,23 @@ class Store {
         }
     }
 
-    async register(username, password, secret) {
+    async register(username, oldPassword, newPassword) {
         try {
             const response = await fetch('/api/register', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password, totpSecret: secret })
+                body: JSON.stringify({ username, password: oldPassword, newPassword })
             });
 
-            if (!response.ok) {
-                const text = await response.text();
-                throw new Error(text);
+            const data = await response.json();
+
+            if (!response.ok || !data.success) {
+                throw new Error(data.message || 'Registration failed');
             }
-            return true;
+            return { success: true, totpSecret: data.totpSecret };
         } catch (error) {
             console.error('Registration error:', error);
-            return false;
+            return { success: false, message: error.message };
         }
     }
 

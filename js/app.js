@@ -162,9 +162,8 @@ function renderApp() {
     // Initial check
     handleVisibility(store.state);
 
-    // Store subscribe returns unsubscribe, we could use it.
-    const unsub = store.subscribe(handleVisibility);
-    // TODO: store unsub somewhere if we need to cleanup.
+    // Subscribe to state changes
+    store.subscribe(handleVisibility);
 
     // Resize listener
     window.addEventListener('resize', () => {

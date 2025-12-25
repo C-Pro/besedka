@@ -324,4 +324,53 @@ func TestAuthService(t *testing.T) {
 			t.Error("Token should be invalid after logoff")
 		}
 	})
+
+	t.Run("Register", func(t *testing.T) {
+		svc, now := createService(t)
+		_, err := svc.AddUser("user1", "pass1")
+		if err != nil {
+			t.Fatalf("Failed to add user: %v", err)
+		}
+
+		// Register with correct old password
+		resp := svc.Register(RegistrationRequest{
+			Username:    "user1",
+			Password:    "pass1",
+			NewPassword: "pass2",
+		})
+
+		if !resp.Success {
+			t.Fatalf("Registration failed: %s", resp.Message)
+		}
+		if resp.TOTPSecret == "" {
+			t.Error("Expected TOTP secret in registration response")
+		}
+
+		// Try logging in with OLD password - should fail
+		loginResp, _ := svc.Login(LoginRequest{
+			Username: "user1",
+			Password: "pass1",
+			TOTP:     0,
+		})
+		if loginResp.Success {
+			t.Error("Login with old password should fail")
+		}
+
+		// Generate valid code for new secret
+		code, err := GenerateTOTP(resp.TOTPSecret, *now)
+		if err != nil {
+			t.Fatalf("Failed to generate TOTP: %v", err)
+		}
+
+		// Login with NEW password and TOTP
+		loginResp, _ = svc.Login(LoginRequest{
+			Username: "user1",
+			Password: "pass2",
+			TOTP:     code,
+		})
+
+		if !loginResp.Success {
+			t.Errorf("Login with new password failed: %s", loginResp.Message)
+		}
+	})
 }

@@ -67,7 +67,7 @@ func (c *Connection) Handle(ctx context.Context) error {
 	case err = <-c.errorCh:
 	case <-ctx.Done():
 	}
-	c.ws.Close()
+	_ = c.ws.Close()
 	wg.Wait()
 
 	if err != nil && !errors.Is(err, context.Canceled) {

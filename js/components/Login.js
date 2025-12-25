@@ -1,12 +1,12 @@
 import { store } from '../state.js';
 
 export function createLogin(container) {
-    let mode = 'login'; // 'login' or 'setup'
+    let mode = 'login'; // 'login', 'setup', 'setup_success'
     let username = '';
     let password = '';
     let otp = '';
     let setupPassword = '';
-    let setupSecret = '';
+    let totpSecret = '';
     let error = '';
 
     const render = () => {
@@ -24,16 +24,28 @@ export function createLogin(container) {
                     </div>
                 </div>
             `;
-        } else {
+        } else if (mode === 'setup') {
             container.innerHTML = `
                 <div class="login-container">
                     <div class="login-card">
                         <h2>Complete Setup</h2>
                          ${error ? `<div class="error-message">${error}</div>` : ''}
-                        <p class="info-message">Please set a new password and configure 2FA.</p>
+                        <p class="info-message">Please set a new password.</p>
                         <input type="password" id="setup-pass" placeholder="New Password" value="${setupPassword}">
-                        <input type="text" id="setup-secret" placeholder="TOTP Secret (e.g. 20 chars)" value="${setupSecret}">
                         <button id="setup-btn">Complete Setup</button>
+                    </div>
+                </div>
+            `;
+        } else {
+            // setup_success
+            container.innerHTML = `
+                <div class="login-container">
+                    <div class="login-card">
+                        <h2>Setup Complete</h2>
+                        <p class="info-message">Registration successful. Please add this secret to your Authenticator App:</p>
+                        <div style="background: #f0f0f0; padding: 10px; margin: 10px 0; border-radius: 4px; font-family: monospace; font-weight: bold; text-align: center; color: #333;">${totpSecret}</div>
+                        <p class="hint">Then return to login and use your new password and the generated code.</p>
+                        <button id="back-btn">Back to Login</button>
                     </div>
                 </div>
             `;
@@ -73,32 +85,36 @@ export function createLogin(container) {
             };
 
             btn.addEventListener('click', handleLogin);
-        } else {
+        } else if (mode === 'setup') {
             const passIn = container.querySelector('#setup-pass');
-            const secretIn = container.querySelector('#setup-secret');
             const btn = container.querySelector('#setup-btn');
 
             passIn.addEventListener('input', e => setupPassword = e.target.value);
-            secretIn.addEventListener('input', e => setupSecret = e.target.value);
 
             const handleSetup = async () => {
                 error = '';
-                const success = await store.register(username, setupPassword, setupSecret);
-                if (success) {
-                    mode = 'login';
+                const result = await store.register(username, password, setupPassword);
+                if (result.success) {
+                    mode = 'setup_success';
+                    totpSecret = result.totpSecret;
                     error = '';
-                    password = '';
-                    otp = '';
-                    username = username; // keep
-                    alert('Setup complete. Please login with new password and OTP.');
                     render();
                 } else {
-                    error = 'Setup failed';
+                    error = result.message || 'Setup failed';
                     render();
                 }
             };
 
             btn.addEventListener('click', handleSetup);
+        } else {
+            const btn = container.querySelector('#back-btn');
+            btn.addEventListener('click', () => {
+                mode = 'login';
+                password = ''; // Clear old password
+                otp = '';
+                error = '';
+                render();
+            });
         }
     };
 

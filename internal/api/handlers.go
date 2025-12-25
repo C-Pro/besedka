@@ -44,23 +44,21 @@ func (a *API) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		req.Username = r.FormValue("username")
 		req.Password = r.FormValue("password")
 		if t := r.FormValue("totp"); t != "" {
-			fmt.Sscanf(t, "%d", &req.TOTP)
+			_, _ = fmt.Sscanf(t, "%d", &req.TOTP)
 		}
 	}
 
-	// Call Auth Service
-	loginResp, userID := a.auth.Login(auth.LoginRequest{
+	loginResp, _ := a.auth.Login(auth.LoginRequest{
 		Username: req.Username,
 		Password: req.Password,
 		TOTP:     req.TOTP,
 	})
 
 	if !loginResp.Success {
-		if loginResp.NeedRegister {
-			// Handle first time login / registration if needed, but for now just fail or return message
-			// The frontend expects success: true/false.
+		w.WriteHeader(http.StatusUnauthorized)
+		if err := json.NewEncoder(w).Encode(loginResp); err != nil {
+			log.Printf("failed to encode login response: %v", err)
 		}
-		http.Error(w, loginResp.Message, http.StatusUnauthorized)
 		return
 	}
 
@@ -73,12 +71,19 @@ func (a *API) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	})
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(map[string]interface{}{
-		"token":  loginResp.Token,
-		"userId": userID,
-	}); err != nil {
+	if err := json.NewEncoder(w).Encode(loginResp); err != nil {
 		log.Printf("failed to encode login response: %v", err)
 	}
+}
+
+func (a *API) getToken(r *http.Request) string {
+	token := r.Header.Get("token")
+	if token == "" {
+		if c, err := r.Cookie("token"); err == nil {
+			token = c.Value
+		}
+	}
+	return token
 }
 
 func (a *API) LogoffHandler(w http.ResponseWriter, r *http.Request) {
@@ -87,14 +92,7 @@ func (a *API) LogoffHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token := r.Header.Get("token")
-	// Also check cookie
-	if token == "" {
-		if c, err := r.Cookie("token"); err == nil {
-			token = c.Value
-		}
-	}
-
+	token := a.getToken(r)
 	if token != "" {
 		_ = a.auth.Logoff(token)
 	}
@@ -122,19 +120,25 @@ func (a *API) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	success, msg := a.auth.Register(req)
-	if !success {
-		http.Error(w, msg, http.StatusBadRequest)
+	resp := a.auth.Register(req)
+	if !resp.Success {
+		http.Error(w, resp.Message, http.StatusBadRequest)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(map[string]bool{"success": true}); err != nil {
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		log.Printf("failed to encode register response: %v", err)
 	}
 }
 
 func (a *API) UsersHandler(w http.ResponseWriter, r *http.Request) {
+	token := a.getToken(r)
+	if _, err := a.auth.GetUserID(token); err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(stubs.Users); err != nil {
 		log.Printf("failed to encode users response: %v", err)
@@ -142,6 +146,12 @@ func (a *API) UsersHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) ChatsHandler(w http.ResponseWriter, r *http.Request) {
+	token := a.getToken(r)
+	if _, err := a.auth.GetUserID(token); err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(stubs.Chats); err != nil {
 		log.Printf("failed to encode chats response: %v", err)
