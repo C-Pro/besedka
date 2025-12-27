@@ -9,8 +9,8 @@ import (
 func TestHub_Lifecycle(t *testing.T) {
 	h := NewHub()
 
-	user1 := "u1"
-	user2 := "u2"
+	user1 := models.User{ID: "u1", DisplayName: "User 1"}
+	user2 := models.User{ID: "u2", DisplayName: "User 2"}
 
 	// 1. Add Users
 	h.AddUser(user1)
@@ -22,25 +22,25 @@ func TestHub_Lifecycle(t *testing.T) {
 		t.Error("Townhall not created")
 	}
 	// DM
-	dmID := getDMID(user1, user2)
+	dmID := getDMID(user1.ID, user2.ID)
 	if _, ok := h.chats[dmID]; !ok {
 		t.Errorf("DM %s not created", dmID)
 	}
 
 	// 2. Join
-	ch1 := h.Join(user1)
+	ch1 := h.Join(user1.ID)
 	if ch1 == nil {
 		t.Fatal("Join returned nil channel")
 	}
 
-	ch2 := h.Join(user2)
+	ch2 := h.Join(user2.ID)
 	if ch2 == nil {
 		t.Fatal("Join returned nil channel")
 	}
 
 	// 3. Dispatch & Receive (Townhall)
 	msgContent := "hello townhall"
-	h.Dispatch(user1, models.ClientMessage{
+	h.Dispatch(user1.ID, models.ClientMessage{
 		Type:    models.ClientMessageTypeSend,
 		ChatID:  "townhall",
 		Content: msgContent,
@@ -74,7 +74,7 @@ func TestHub_Lifecycle(t *testing.T) {
 
 	// 4. Dispatch & Receive (DM)
 	dmContent := "secret"
-	h.Dispatch(user2, models.ClientMessage{
+	h.Dispatch(user2.ID, models.ClientMessage{
 		Type:    models.ClientMessageTypeSend,
 		ChatID:  dmID,
 		Content: dmContent,
@@ -93,9 +93,9 @@ func TestHub_Lifecycle(t *testing.T) {
 	}
 
 	// 5. Leave
-	h.Leave(user1)
+	h.Leave(user1.ID)
 
-	h.Dispatch(user2, models.ClientMessage{
+	h.Dispatch(user2.ID, models.ClientMessage{
 		ChatID:  dmID,
 		Content: "are you there?",
 	})

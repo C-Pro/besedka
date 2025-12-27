@@ -1,5 +1,5 @@
 {
-  "name": "antigravity",
+  "name": "besedka",
   "version": "1.0.0",
   "description": "Besedka is a self-hosted chat application for a limited number of users (e.g. for a family or a small group of friends) built with Go and vanilla web technologies.",
   "main": "index.js",

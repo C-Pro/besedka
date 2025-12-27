@@ -21,11 +21,12 @@ This document defines the client-server JSON-based protocol for the chat applica
   ```json
   {
     "token": "jwt_token_string",
-    "tokenExpiry": 1234567890
+    "tokenExpiry": 1234567890,
+    "needRegister": false
   }
   ```
-- **First Login (401 Unauthorized):** Indicates user needs to complete setup/registration.
-  - Body text contains "First login matches".
+- **First Login (401 Unauthorized):** Body contains `needRegister: true`
+- **Invalid Credentials (401 Unauthorized):** Body contains `needRegister: false`
 
 ### Register (Setup)
 **Endpoint:** `POST /api/register`

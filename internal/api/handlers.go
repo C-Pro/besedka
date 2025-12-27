@@ -2,8 +2,6 @@ package api
 
 import (
 	"besedka/internal/auth"
-	"besedka/internal/models"
-	"besedka/internal/stubs"
 	"besedka/internal/ws"
 	"encoding/json"
 	"fmt"
@@ -128,7 +126,11 @@ func (a *API) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 
 	resp := a.auth.Register(req)
 	if !resp.Success {
-		http.Error(w, resp.Message, http.StatusBadRequest)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			log.Printf("failed to encode register response: %v", err)
+		}
 		return
 	}
 
@@ -145,8 +147,10 @@ func (a *API) UsersHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	users := a.hub.GetUsers()
+
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(stubs.Users); err != nil {
+	if err := json.NewEncoder(w).Encode(users); err != nil {
 		log.Printf("failed to encode users response: %v", err)
 	}
 }
@@ -176,15 +180,7 @@ func (a *API) MeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var currentUser models.User
-	found := false
-	for _, u := range stubs.Users {
-		if u.ID == userID {
-			currentUser = u
-			found = true
-			break
-		}
-	}
+	currentUser, found := a.hub.GetUser(userID)
 
 	if !found {
 		http.Error(w, "User not found", http.StatusNotFound)

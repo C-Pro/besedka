@@ -1,7 +1,18 @@
 import { store } from '../state.js';
 
 export function createChatWindow(container) {
+    let lastChatId = null;
+
     const render = (state) => {
+        // preserve input state
+        const oldInput = container.querySelector('#message-input');
+        let currentText = '';
+        // Only preserve text if we are in the same chat (e.g. re-render due to new message)
+        if (oldInput && lastChatId === state.activeChatId) {
+            currentText = oldInput.value;
+        }
+        lastChatId = state.activeChatId;
+
         const activeChat = state.chats.find(c => c.id === state.activeChatId);
         const messages = state.messages[state.activeChatId] || [];
 
@@ -59,6 +70,15 @@ export function createChatWindow(container) {
         // Event listeners
         const input = container.querySelector('#message-input');
         const sendBtn = container.querySelector('#send-btn');
+
+        // Restore state and focus
+        if (input) {
+            input.value = currentText;
+            input.focus();
+            // set cursor to end
+            const len = input.value.length;
+            input.setSelectionRange(len, len);
+        }
 
         const handleSend = () => {
             const text = input.value.trim();

@@ -19,10 +19,7 @@ type Hub struct {
 	connectedUsers map[string]chan models.ServerMessage
 
 	// List of all known users (for creating DMs)
-	knownUsers map[string]bool
-
-	// Map of userID -> DisplayName
-	userNames map[string]string
+	knownUsers map[string]models.User
 
 	mu sync.RWMutex
 }
@@ -31,8 +28,7 @@ func NewHub() *Hub {
 	h := &Hub{
 		chats:          make(map[string]*chat.Chat),
 		connectedUsers: make(map[string]chan models.ServerMessage),
-		knownUsers:     make(map[string]bool),
-		userNames:      make(map[string]string),
+		knownUsers:     make(map[string]models.User),
 	}
 
 	// Create Townhall
@@ -40,8 +36,7 @@ func NewHub() *Hub {
 
 	// Populate users from stubs
 	for _, u := range stubs.Users {
-		h.AddUser(u.ID)
-		h.userNames[u.ID] = u.DisplayName
+		h.AddUser(u)
 	}
 
 	return h
@@ -57,22 +52,22 @@ func (h *Hub) createChat(id string, maxRecords int) *chat.Chat {
 	return c
 }
 
-func (h *Hub) AddUser(userID string) {
+func (h *Hub) AddUser(user models.User) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if h.knownUsers[userID] {
+	if _, ok := h.knownUsers[user.ID]; ok {
 		return
 	}
-	h.knownUsers[userID] = true	
+	h.knownUsers[user.ID] = user
 
 	// Create DMs with all other existing users
 	for otherID := range h.knownUsers {
-		if otherID == userID {
+		if otherID == user.ID {
 			continue
 		}
 		// Create deterministic ID for DM
-		dmID := getDMID(userID, otherID)
+		dmID := getDMID(user.ID, otherID)
 		if _, exists := h.chats[dmID]; !exists {
 			h.createChat(dmID, 50) // DM limit 50?
 		}
@@ -82,6 +77,17 @@ func (h *Hub) AddUser(userID string) {
 func (h *Hub) Join(userID string) chan models.ServerMessage {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+
+	user, ok := h.knownUsers[userID]
+	if !ok {
+		return nil
+	}
+
+	user.Presence = models.Presence{
+		Online:   true,
+		LastSeen: time.Now().Unix(),
+	}
+	h.knownUsers[userID] = user
 
 	ch := make(chan models.ServerMessage, 100)
 	h.connectedUsers[userID] = ch
@@ -100,6 +106,17 @@ func (h *Hub) Join(userID string) chan models.ServerMessage {
 func (h *Hub) Leave(userID string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+
+	user, ok := h.knownUsers[userID]
+	if !ok {
+		return
+	}
+
+	user.Presence = models.Presence{
+		Online:   false,
+		LastSeen: time.Now().Unix(),
+	}
+	h.knownUsers[userID] = user
 
 	if ch, ok := h.connectedUsers[userID]; ok {
 		close(ch)
@@ -145,7 +162,7 @@ func (h *Hub) GetChats(userID string) []models.Chat {
 		if id == "townhall" {
 			result = append(result, models.Chat{
 				ID:   c.ID,
-				Name: "Town Square", // Or keep "townhall" but UI might want pretty name
+				Name: "Town Hall",
 			})
 			continue
 		}
@@ -158,7 +175,7 @@ func (h *Hub) GetChats(userID string) []models.Chat {
 				otherID = parts[1]
 			}
 
-			name := h.userNames[otherID]
+			name := h.knownUsers[otherID].DisplayName
 			if name == "" {
 				name = "Unknown User"
 			}
@@ -171,12 +188,41 @@ func (h *Hub) GetChats(userID string) []models.Chat {
 		}
 	}
 
-	// Sort by name for consistency
 	sort.Slice(result, func(i, j int) bool {
+		// Townhall always first.
+		if result[i].Name == "Town Hall" {
+			return true
+		}
+		if result[j].Name == "Town Hall" {
+			return false
+		}
 		return result[i].Name < result[j].Name
 	})
 
 	return result
+}
+
+func (h *Hub) GetUsers() []models.User {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	users := make([]models.User, 0, len(h.knownUsers))
+	for _, u := range h.knownUsers {
+		users = append(users, u)
+	}
+
+	sort.Slice(users, func(i, j int) bool {
+		return users[i].DisplayName < users[j].DisplayName
+	})
+
+	return users
+}
+
+func (h *Hub) GetUser(id string) (models.User, bool) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	u, ok := h.knownUsers[id]
+	return u, ok
 }
 
 func (h *Hub) handleRecordCallback(receiverID string, chatID string, record chat.ChatRecord) {

@@ -42,6 +42,11 @@ document.addEventListener('DOMContentLoaded', () => {
         errorDiv.textContent = '';
     };
 
+    // Auto-focus username
+    if (usernameInput) {
+        usernameInput.focus();
+    }
+
     usernameInput.addEventListener('input', (e) => username = e.target.value);
     currentPasswordInput.addEventListener('input', (e) => currentPassword = e.target.value);
     newPasswordInput.addEventListener('input', (e) => newPassword = e.target.value);
@@ -73,8 +78,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 // Generate QR Code
                 // The OTP Auth URL format: otpauth://totp/Label?secret=SECRET&issuer=Issuer
-                const label = `Antigravity:${username}`;
-                const issuer = 'AntigravityChat';
+                const label = `Besedka:${username}`;
+                const issuer = 'Besedka';
                 const otpAuthUrl = `otpauth://totp/${encodeURIComponent(label)}?secret=${result.totpSecret}&issuer=${encodeURIComponent(issuer)}`;
 
                 // Clear previous if any

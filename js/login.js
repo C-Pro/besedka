@@ -16,6 +16,11 @@ document.addEventListener('DOMContentLoaded', () => {
         errorDiv.style.display = 'block';
     };
 
+    // Auto-focus username
+    if (usernameInput) {
+        usernameInput.focus();
+    }
+
     const hideError = () => {
         errorDiv.style.display = 'none';
         errorDiv.textContent = '';
