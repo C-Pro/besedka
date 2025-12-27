@@ -2,6 +2,7 @@ package api
 
 import (
 	"besedka/internal/auth"
+	"besedka/internal/models"
 	"besedka/internal/stubs"
 	"besedka/internal/ws"
 	"encoding/json"
@@ -164,5 +165,45 @@ func (a *API) ChatsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(chats); err != nil {
 		log.Printf("failed to encode chats response: %v", err)
+	}
+}
+
+func (a *API) MeHandler(w http.ResponseWriter, r *http.Request) {
+	token := a.getToken(r)
+	userID, err := a.auth.GetUserID(token)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var currentUser models.User
+	found := false
+	for _, u := range stubs.Users {
+		if u.ID == userID {
+			currentUser = u
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		http.Error(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	// Return a simplified structure or the full user struct.
+	// The frontend expects { id: ... } at minimum based on existing logic,
+	// but having name is good too.
+	resp := struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}{
+		ID:   currentUser.ID,
+		Name: currentUser.DisplayName,
+	}
+
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("failed to encode me response: %v", err)
 	}
 }

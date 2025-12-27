@@ -30,6 +30,22 @@ class Store {
         this.listeners.forEach(listener => listener(this.state));
     }
 
+    async checkSession() {
+        try {
+            // We use /api/me to check session and get current user info at the same time
+            const response = await fetch('/api/me');
+            if (response.status === 401) return false;
+            if (response.ok) {
+                const user = await response.json();
+                this.setState({ currentUser: user });
+                return true;
+            }
+            return false;
+        } catch {
+            return false;
+        }
+    }
+
     // API Actions
     // API Actions
     async login(username, password, otp = 0) {

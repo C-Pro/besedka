@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register - Chat App</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/layout.css">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/login.css">
+</head>
+
+<body>
+    <div id="register-app">
+        <div class="login-container">
+            <div class="login-card">
+                <h2>Setup / Register</h2>
+                <div id="error-message" class="error-message" style="display: none;"></div>
+
+                <div id="register-form">
+                    <p class="info-message">To set up your account or change password, please enter your details.</p>
+
+                    <form onsubmit="event.preventDefault();">
+                        <input type="text" id="username" placeholder="Username">
+                        <input type="password" id="current-password" placeholder="Current Password">
+                        <input type="password" id="new-password" placeholder="New Password">
+
+                        <button type="submit" id="register-btn">Complete Setup</button>
+                    </form>
+                    <button id="back-btn" class="secondary-btn"
+                        style="margin-top: 10px; background: transparent; color: #666; border: 1px solid #ccc;">Back to
+                        Login</button>
+                </div>
+
+                <div id="success-view" style="display: none;">
+                    <h3>Setup Complete!</h3>
+                    <p class="info-message">Registration successful. Please scan this QR code with your Authenticator
+                        App:</p>
+
+                    <div id="qrcode" style="display: flex; justify-content: center; margin: 15px 0;"></div>
+
+                    <p class="info-message">Or manually enter this secret:</p>
+                    <div id="secret-display"
+                        style="background: #f0f0f0; padding: 10px; margin: 10px 0; border-radius: 4px; font-family: monospace; font-weight: bold; text-align: center; color: #333; word-break: break-all;">
+                    </div>
+
+                    <p class="hint">Then return to login and use your new password and the generated code.</p>
+                    <button id="success-back-btn">Back to Login</button>
+                </div>
+
+            </div>
+        </div>
+    </div>
+    <script src="js/qrcode.min.js"></script>
+    <script type="module" src="js/register.js"></script>
+</body>
+
+</html>

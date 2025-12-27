@@ -5,13 +5,14 @@ This document defines the client-server JSON-based protocol for the chat applica
 ## Authentication
 
 ### Login
-**Endpoint:** `POST /login`
+**Endpoint:** `POST /api/login`
 
 **Request Body:**
 ```json
 {
   "username": "string",
-  "password": "string"
+  "password": "string",
+  "totp": 123456 // Optional: required if user is fully registered
 }
 ```
 
@@ -19,14 +20,36 @@ This document defines the client-server JSON-based protocol for the chat applica
 - **Success (200 OK):** Returns the JWT token in the body and sets it as a cookie.
   ```json
   {
-    "token": "jwt_token_string"
+    "token": "jwt_token_string",
+    "tokenExpiry": 1234567890
   }
   ```
-  **Headers:**
-  `Set-Cookie: token=jwt_token_string; HttpOnly; Path=/;`
+- **First Login (401 Unauthorized):** Indicates user needs to complete setup/registration.
+  - Body text contains "First login matches".
+
+### Register (Setup)
+**Endpoint:** `POST /api/register`
+
+**Request Body:**
+```json
+{
+  "username": "string",
+  "password": "old_password",
+  "newPassword": "new_password"
+}
+```
+
+**Response:**
+- **Success (200 OK):** Returns the TOTP secret.
+  ```json
+  {
+    "success": true,
+    "totpSecret": "BASE32_SECRET_STRING"
+  }
+  ```
 
 ### Logoff
-**Endpoint:** `POST /logoff`
+**Endpoint:** `POST /api/logoff`
 
 **Description:** Invalidates the JWT on the server and unsets the cookie.
 
@@ -37,8 +60,21 @@ This document defines the client-server JSON-based protocol for the chat applica
 
 All endpoints below require a valid JWT token.
 
+### Get Current User
+**Endpoint:** `GET /api/me`
+
+**Description:** Returns the currently authenticated user.
+
+**Response:**
+```json
+{
+  "id": "string",
+  "name": "string"
+}
+```
+
 ### Get Users
-**Endpoint:** `GET /users`
+**Endpoint:** `GET /api/users`
 
 **Description:** Returns all users of the system.
 
@@ -58,7 +94,7 @@ All endpoints below require a valid JWT token.
 ```
 
 ### Get Chats
-**Endpoint:** `GET /chats`
+**Endpoint:** `GET /api/chats`
 
 **Description:** Returns a list of chats.
 - **Townhall:** Fixed ID.
@@ -80,7 +116,7 @@ All endpoints below require a valid JWT token.
 
 ## WebSocket Protocol
 
-**Endpoint:** `GET /chat`
+**Endpoint:** `GET /api/chat`
 
 **Description:** Opens a WebSocket connection. Requires authentication.
 

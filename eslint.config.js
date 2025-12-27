@@ -2,6 +2,7 @@ const globals = require("globals");
 const js = require("@eslint/js");
 
 module.exports = [
+    { ignores: ["js/qrcode.min.js"] },
     js.configs.recommended,
     {
         languageOptions: {

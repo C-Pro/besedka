@@ -2,14 +2,8 @@ import { store } from './state.js';
 import { createChatList } from './components/ChatList.js';
 import { createChatWindow } from './components/ChatWindow.js';
 import { createInfoPanel } from './components/InfoPanel.js';
-import { createLogin } from './components/Login.js';
 
 const app = document.getElementById('app');
-
-function renderLogin() {
-    app.innerHTML = '';
-    createLogin(app);
-}
 
 function renderApp() {
     // Create layout structure
@@ -47,7 +41,7 @@ function renderApp() {
     // Handle responsive visibility
     const handleVisibility = (state) => {
         const sidebar = document.getElementById('sidebar');
-        // Check if elements exist (might have been removed if logged out)
+        // Check if elements exist
         if (!sidebar) return;
 
         const chatArea = document.getElementById('chat-area');
@@ -134,16 +128,6 @@ function renderApp() {
     document.addEventListener('touchstart', onTouchStart);
     document.addEventListener('touchend', onTouchEnd);
 
-    // Cleanup listeners if needed? For now we just re-add them which might stack if we don't clear.
-    // Ideally we should have a cleanup function, but for this simple app, wiping innerHTML removes the elements
-    // so the listeners on elements are gone. Document listeners (swipe) might stack?
-    // Yes, document listeners will stack. We should remove them or check if already added.
-    // Or just define them outside.
-
-    // Better: define handleSwipe and listeners outside?
-    // Let's rely on standard "init once" pattern or simple cleanup.
-    // For simplicity, we'll keep it here but handle re-entry carefully.
-
     const handleSwipe = () => {
         const distance = touchEndX - touchStartX;
         if (Math.abs(distance) < minSwipeDistance) return;
@@ -172,24 +156,20 @@ function renderApp() {
 }
 
 function init() {
-    let currentView = null; // 'login' or 'app'
+    // Check authentication logic is primarily handled by the server (sending back 401 on data fetch).
+    // However, we can try to fetch the initial data. If it fails with 401, redirect to login.
 
-    const render = (state) => {
-        if (!state.currentUser) {
-            if (currentView !== 'login') {
-                renderLogin();
-                currentView = 'login';
-            }
+    // We can add a simple check method to store to verify session validity
+    store.checkSession().then(isValid => {
+        if (!isValid) {
+            window.location.href = '/login.html';
         } else {
-            if (currentView !== 'app') {
-                renderApp();
-                currentView = 'app';
-            }
+            renderApp();
+            store.fetchUsers();
+            store.fetchChats();
+            store.connectWebSocket();
         }
-    };
-
-    store.subscribe(render);
-    render(store.state);
+    });
 }
 
 init();

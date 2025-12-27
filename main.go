@@ -9,14 +9,45 @@ import (
 	"encoding/base64"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 )
 
-func main() {
-	// Serve static files
-	fs := http.FileServer(http.Dir("."))
-	http.Handle("/", fs)
+func rootHandler(authService *auth.AuthService, fs http.Handler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// public paths that don't need auth
+		publicPaths := []string{"/login.html", "/register.html", "/css/", "/js/"}
 
+		// If it matches a public path prefix, serve it directly
+		for _, prefix := range publicPaths {
+			if strings.HasPrefix(r.URL.Path, prefix) {
+				fs.ServeHTTP(w, r)
+				return
+			}
+		}
+
+		// Specific check for exactly root "/" or "/index.html"
+		if r.URL.Path == "/" || r.URL.Path == "/index.html" {
+			// Check cookie
+			cookie, err := r.Cookie("token")
+			if err != nil || cookie.Value == "" {
+				http.Redirect(w, r, "/login.html", http.StatusFound)
+				return
+			}
+
+			// Validate token
+			if _, err := authService.GetUserID(cookie.Value); err != nil {
+				http.Redirect(w, r, "/login.html", http.StatusFound)
+				return
+			}
+		}
+
+		// Default to file server
+		fs.ServeHTTP(w, r)
+	}
+}
+
+func main() {
 	// Initialize services
 	ctx := context.Background()
 	authConfig := auth.Config{
@@ -37,6 +68,10 @@ func main() {
 		}
 	}
 
+	// Serve static files with Auth check
+	fs := http.FileServer(http.Dir("."))
+	http.HandleFunc("/", rootHandler(authService, fs))
+
 	// Initialize Hub
 	hub := ws.NewHub()
 
@@ -49,6 +84,7 @@ func main() {
 	http.HandleFunc("/api/logoff", apiHandlers.LogoffHandler)
 	http.HandleFunc("/api/users", apiHandlers.UsersHandler)
 	http.HandleFunc("/api/chats", apiHandlers.ChatsHandler)
+	http.HandleFunc("/api/me", apiHandlers.MeHandler)
 
 	// WebSocket endpoint
 	http.HandleFunc("/api/chat", server.HandleConnections)
