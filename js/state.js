@@ -181,15 +181,37 @@ class Store {
 
     handleNewMessages(msg) {
         const chatId = msg.chatId;
-        const newMessages = msg.messages.map(m => ({
-            id: m.timestamp + m.userId, // simple unique id
-            text: m.content,
-            sender: m.userId === this.state.currentUser?.id ? 'me' : m.userId, // We'll resolve names in UI
-            timestamp: new Date(m.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            userId: m.userId
-        }));
-
         const currentMessages = this.state.messages[chatId] || [];
+
+        // Find the maximum sequence number we currently have for this chat
+        let maxSeq = -1;
+        if (currentMessages.length > 0) {
+            // Assuming messages are stored in order, but let's be safe
+            for (const m of currentMessages) {
+                if (m.seq > maxSeq) maxSeq = m.seq;
+            }
+        }
+
+        // Filter out messages that we already have (seq <= maxSeq)
+        // Note: m.seq comes from server and should be present.
+        const newMessages = [];
+        for (const m of msg.messages) {
+            if (m.seq > maxSeq) {
+                newMessages.push({
+                    id: m.timestamp + m.userId + m.seq, // unique id
+                    seq: m.seq,
+                    text: m.content,
+                    sender: m.userId === this.state.currentUser?.id ? 'me' : m.userId,
+                    timestamp: new Date(m.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    userId: m.userId
+                });
+            }
+        }
+
+        if (newMessages.length === 0) return;
+
+        // Sort new messages by seq just in case
+        newMessages.sort((a, b) => a.seq - b.seq);
 
         this.setState({
             messages: {

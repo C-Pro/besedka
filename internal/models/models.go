@@ -3,6 +3,7 @@ package models
 // User represents a user in the system.
 type User struct {
 	ID          string   `json:"id"`
+	UserName    string   `json:"userName"`
 	DisplayName string   `json:"displayName"`
 	AvatarURL   string   `json:"avatarUrl"`
 	Presence    Presence `json:"presence"`
@@ -16,16 +17,18 @@ type Presence struct {
 
 // Chat represents a chat conversation.
 type Chat struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	UnreadCount int    `json:"unreadCount"`
-	IsDM        bool   `json:"isDm"`
-	Online      bool   `json:"online,omitempty"` // Optional, for DMs
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	LastSeq int    `json:"lastSeq"` // Last message sequence number (used to backfill messages and show unread count)
+	IsDM    bool   `json:"isDm"`
+	Online  bool   `json:"online,omitempty"` // Optional, for DMs
 }
 
 // Message represents a chat message.
 type Message struct {
+	Seq       int64  `json:"seq"`
 	Timestamp int64  `json:"timestamp"` // Unix timestamp (seconds)
+	ChatID    string `json:"chatId"`
 	UserID    string `json:"userId"`
 	Content   string `json:"content"`
 }

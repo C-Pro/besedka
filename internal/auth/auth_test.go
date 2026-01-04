@@ -1,11 +1,30 @@
 package auth
 
 import (
+	"besedka/internal/models"
 	"context"
 	"encoding/base64"
+	"strings"
 	"testing"
 	"time"
 )
+
+type MockStorage struct {
+	creds map[string]UserCredentials
+}
+
+func (m *MockStorage) UpsertCredentials(c UserCredentials) error {
+	m.creds[c.ID] = c
+	return nil
+}
+
+func (m *MockStorage) ListCredentials() ([]UserCredentials, error) {
+	var list []UserCredentials
+	for _, c := range m.creds {
+		list = append(list, c)
+	}
+	return list, nil
+}
 
 func TestAuthService(t *testing.T) {
 	// Test Vectors generated using github.com/pquerna/otp
@@ -20,14 +39,18 @@ func TestAuthService(t *testing.T) {
 	validCodes := []int{921300, 732303, 136087}
 
 	// Helper to create service with fixed time
-	createService := func(t *testing.T) (*AuthService, *time.Time) {
+	createService := func(t *testing.T) (*AuthService, *time.Time, *MockStorage) {
 		cfg := Config{
 			Secret:      base64.StdEncoding.EncodeToString([]byte("server-secret")),
 			TokenExpiry: time.Hour,
 		}
 
+		store := &MockStorage{
+			creds: make(map[string]UserCredentials),
+		}
+
 		ctx := context.Background()
-		svc, err := NewAuthService(ctx, cfg)
+		svc, err := NewAuthService(ctx, cfg, store)
 		if err != nil {
 			t.Fatalf("Failed to create service: %v", err)
 		}
@@ -38,18 +61,24 @@ func TestAuthService(t *testing.T) {
 			return currentTime
 		}
 
-		return svc, &currentTime
+		return svc, &currentTime, store
 	}
 
+	// Implement MockStorage interface methods
+	// We can't define methods inside a function, so we'll have to define the struct and methods outside TestAuthService or assuming go structure allows methods on types defined inside function?
+	// Go methods must be defined at package level (top level).
+	// So I must define MockStorage outside.
+	// I will restart the replacement to correct this.
+
 	t.Run("AddUser", func(t *testing.T) {
-		svc, _ := createService(t)
+		svc, _, _ := createService(t)
 
 		u1, err := svc.AddUser("user1", "pass1")
 		if err != nil {
 			t.Fatalf("Failed to add user: %v", err)
 		}
-		if u1.Username != "user1" {
-			t.Errorf("Expected username user1, got %s", u1.Username)
+		if u1.UserName != "user1" {
+			t.Errorf("Expected username user1, got %s", u1.UserName)
 		}
 
 		_, err = svc.AddUser("user1", "pass2")
@@ -59,7 +88,7 @@ func TestAuthService(t *testing.T) {
 	})
 
 	t.Run("Login_FirstTime", func(t *testing.T) {
-		svc, _ := createService(t)
+		svc, _, _ := createService(t)
 		if _, err := svc.AddUser("user1", "pass1"); err != nil {
 			t.Fatalf("failed to setup user: %v", err)
 		}
@@ -80,18 +109,21 @@ func TestAuthService(t *testing.T) {
 	})
 
 	t.Run("Login_Success", func(t *testing.T) {
-		svc, now := createService(t)
+		svc, now, _ := createService(t)
 
 		// Manually setup user with TOTP secret to simulate registered user
 		tx := svc.users.Lock()
 		userID := "user-id-1"
-		tx.Set("user1", &UserCredentials{
-			UserID:       userID,
-			Username:     "user1",
+		tx.Set(userID, &UserCredentials{
+			User: models.User{
+				ID:       userID,
+				UserName: "user1",
+			},
 			PasswordHash: svc.hashPassword("user1", "pass1"),
 			TOTPSecret:   rawSecret,
 			LastTOTP:     0, // Initialized
 		})
+		svc.usernames.Set("user1", userID)
 		tx.Unlock()
 
 		// Attempt login with valid code
@@ -127,17 +159,20 @@ func TestAuthService(t *testing.T) {
 	})
 
 	t.Run("Login_Failures", func(t *testing.T) {
-		svc, _ := createService(t)
+		svc, _, _ := createService(t)
 
 		// Setup user
 		tx := svc.users.Lock()
-		tx.Set("user1", &UserCredentials{
-			UserID:       "uid",
-			Username:     "user1",
+		tx.Set("uid", &UserCredentials{
+			User: models.User{
+				ID:       "uid",
+				UserName: "user1",
+			},
 			PasswordHash: svc.hashPassword("user1", "pass1"),
 			TOTPSecret:   rawSecret,
 			LastTOTP:     0,
 		})
+		svc.usernames.Set("user1", "uid")
 		tx.Unlock()
 
 		tests := []struct {
@@ -188,17 +223,20 @@ func TestAuthService(t *testing.T) {
 	})
 
 	t.Run("Security_ReplayAttack", func(t *testing.T) {
-		svc, _ := createService(t)
+		svc, _, _ := createService(t)
 
 		// Setup user
 		tx := svc.users.Lock()
-		tx.Set("user1", &UserCredentials{
-			UserID:       "uid",
-			Username:     "user1",
+		tx.Set("uid", &UserCredentials{
+			User: models.User{
+				ID:       "uid",
+				UserName: "user1",
+			},
 			PasswordHash: svc.hashPassword("user1", "pass1"),
 			TOTPSecret:   rawSecret,
 			LastTOTP:     0,
 		})
+		svc.usernames.Set("user1", "uid")
 		tx.Unlock()
 
 		// First login success
@@ -223,17 +261,20 @@ func TestAuthService(t *testing.T) {
 	})
 
 	t.Run("Security_Throttling", func(t *testing.T) {
-		svc, now := createService(t)
+		svc, now, _ := createService(t)
 
 		// Setup user
 		tx := svc.users.Lock()
-		tx.Set("user1", &UserCredentials{
-			UserID:       "uid",
-			Username:     "user1",
+		tx.Set("uid", &UserCredentials{
+			User: models.User{
+				ID:       "uid",
+				UserName: "user1",
+			},
 			PasswordHash: svc.hashPassword("user1", "pass1"),
 			TOTPSecret:   rawSecret,
 			LastTOTP:     0,
 		})
+		svc.usernames.Set("user1", "uid")
 		tx.Unlock()
 
 		// Fail 4 times (threshold is > 3)
@@ -257,7 +298,7 @@ func TestAuthService(t *testing.T) {
 		}
 		// Check for throttling message
 		// "Too many failed login attempts"
-		if len(resp.Message) < 20 {
+		if !strings.Contains(resp.Message, "Too many failed login attempts") {
 			t.Errorf("Expected throttling message, got %q", resp.Message)
 		}
 
@@ -284,17 +325,20 @@ func TestAuthService(t *testing.T) {
 	})
 
 	t.Run("Logoff", func(t *testing.T) {
-		svc, _ := createService(t)
+		svc, _, _ := createService(t)
 
 		// Setup user
 		tx := svc.users.Lock()
-		tx.Set("user1", &UserCredentials{
-			UserID:       "uid",
-			Username:     "user1",
+		tx.Set("uid", &UserCredentials{
+			User: models.User{
+				ID:       "uid",
+				UserName: "user1",
+			},
 			PasswordHash: svc.hashPassword("user1", "pass1"),
 			TOTPSecret:   rawSecret,
 			LastTOTP:     0,
 		})
+		svc.usernames.Set("user1", "uid")
 		tx.Unlock()
 
 		// Login
@@ -326,7 +370,7 @@ func TestAuthService(t *testing.T) {
 	})
 
 	t.Run("Register", func(t *testing.T) {
-		svc, now := createService(t)
+		svc, now, _ := createService(t)
 		_, err := svc.AddUser("user1", "pass1")
 		if err != nil {
 			t.Fatalf("Failed to add user: %v", err)
@@ -371,6 +415,68 @@ func TestAuthService(t *testing.T) {
 
 		if !loginResp.Success {
 			t.Errorf("Login with new password failed: %s", loginResp.Message)
+		}
+	})
+
+	t.Run("Persistence_Integration", func(t *testing.T) {
+		svc, now, store := createService(t)
+
+		// 1. AddUser (UpsertCredentials)
+		_, err := svc.AddUser("persist_user", "pass")
+		if err != nil {
+			t.Fatalf("Failed to add user: %v", err)
+		}
+
+		// Verify stored
+		found := false
+		for _, creds := range store.creds {
+			if creds.UserName == "persist_user" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Error("User not found in storage after AddUser")
+		}
+
+		// 2. Register (UpsertCredentials) -> verify Secret persisted
+		// Setup another user manually to register
+		if _, err := svc.AddUser("reg_user", "pass"); err != nil {
+			t.Fatalf("failed to setup reg_user: %v", err)
+		}
+
+		regResp := svc.Register(RegistrationRequest{
+			Username:    "reg_user",
+			Password:    "pass",
+			NewPassword: "newpass",
+		})
+		if !regResp.Success {
+			t.Fatalf("Register failed: %v", regResp.Message)
+		}
+
+		// Verify secret in store
+		foundSecret := false
+		for _, creds := range store.creds {
+			if creds.UserName == "reg_user" {
+				if creds.TOTPSecret == regResp.TOTPSecret {
+					foundSecret = true
+				}
+				break
+			}
+		}
+		if !foundSecret {
+			t.Error("Registered user TOTP secret not found or mismatch in storage")
+		}
+
+		svc.SetOnline("reg_user")
+
+		for _, creds := range store.creds {
+			if creds.UserName == "reg_user" {
+				if creds.Presence.LastSeen != now.Unix() {
+					t.Errorf("expected last seen to be %d, got %d", now.Unix(), creds.Presence.LastSeen)
+				}
+				break
+			}
 		}
 	})
 }

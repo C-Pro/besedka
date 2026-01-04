@@ -1,0 +1,127 @@
+package storage
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"besedka/internal/auth"
+	"besedka/internal/models"
+)
+
+func TestStorage(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "storage_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	dbPath := filepath.Join(tmpDir, "test.db")
+	store, err := NewBboltStorage(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer func() { _ = store.Close() }()
+
+	t.Run("Credentials", func(t *testing.T) {
+		creds := auth.UserCredentials{
+			User: models.User{
+				ID:          "user1",
+				UserName:    "alice",
+				DisplayName: "Alice",
+			},
+			PasswordHash: "hash",
+			TOTPSecret:   "secret",
+		}
+
+		if err := store.UpsertCredentials(creds); err != nil {
+			t.Fatalf("UpsertCredentials failed: %v", err)
+		}
+
+		listCreds, err := store.ListCredentials()
+		if err != nil {
+			t.Fatalf("ListCredentials failed: %v", err)
+		}
+		if len(listCreds) != 1 {
+			t.Errorf("expected 1 credential, got %d", len(listCreds))
+		}
+		if listCreds[0].ID != creds.ID {
+			t.Errorf("expected ID %s, got %s", creds.ID, listCreds[0].ID)
+		}
+		if listCreds[0].TOTPSecret != creds.TOTPSecret {
+			t.Errorf("expected TOTPSecret %s, got %s", creds.TOTPSecret, listCreds[0].TOTPSecret)
+		}
+	})
+
+	t.Run("Chat", func(t *testing.T) {
+		chat := models.Chat{
+			ID:   "chat1",
+			Name: "General",
+		}
+		if err := store.UpsertChat(chat); err != nil {
+			t.Fatalf("UpsertChat failed: %v", err)
+		}
+
+		listChats, err := store.ListChats()
+		if err != nil {
+			t.Fatalf("ListChats failed: %v", err)
+		}
+		if len(listChats) != 1 {
+			t.Errorf("expected 1 chat, got %d", len(listChats))
+		}
+	})
+
+	t.Run("Messages", func(t *testing.T) {
+		msg1 := models.Message{
+			Seq:       1,
+			Timestamp: time.Now().Unix(),
+			ChatID:    "chat1",
+			UserID:    "user1",
+			Content:   "hello",
+		}
+		if err := store.UpsertMessage(msg1); err != nil {
+			t.Fatalf("UpsertMessage 1 failed: %v", err)
+		}
+
+		msg2 := models.Message{
+			Seq:       2,
+			Timestamp: time.Now().Unix(),
+			ChatID:    "chat1",
+			UserID:    "user1",
+			Content:   "world",
+		}
+		if err := store.UpsertMessage(msg2); err != nil {
+			t.Fatalf("UpsertMessage 2 failed: %v", err)
+		}
+
+		msgs, err := store.ListMessages("chat1", 0, 100)
+		if err != nil {
+			t.Fatalf("ListMessages failed: %v", err)
+		}
+		if len(msgs) != 2 {
+			t.Errorf("expected 2 messages, got %d", len(msgs))
+		}
+		if msgs[0].Content != "hello" {
+			t.Errorf("expected msg1 content 'hello', got %s", msgs[0].Content)
+		}
+
+		// Check range
+		msgsRange, err := store.ListMessages("chat1", 2, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(msgsRange) != 1 {
+			t.Errorf("expected 1 message in range [2, 10), got %d", len(msgsRange))
+		}
+		if msgsRange[0].Seq != 2 {
+			t.Errorf("expected msg seq 2, got %d", msgsRange[0].Seq)
+		}
+
+		// Check chat update (LastSeq)
+		listChats3, _ := store.ListChats()
+		if listChats3[0].LastSeq != 2 {
+			t.Errorf("expected chat LastSeq 2, got %d", listChats3[0].LastSeq)
+		}
+	})
+}

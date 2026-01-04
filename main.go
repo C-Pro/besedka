@@ -3,6 +3,7 @@ package main
 import (
 	"besedka/internal/api"
 	"besedka/internal/auth"
+	"besedka/internal/storage"
 	"besedka/internal/stubs"
 	"besedka/internal/ws"
 	"context"
@@ -54,7 +55,14 @@ func main() {
 		Secret:      base64.StdEncoding.EncodeToString([]byte("very-secure-secret-key-for-development-mode")),
 		TokenExpiry: 24 * time.Hour,
 	}
-	authService, err := auth.NewAuthService(ctx, authConfig)
+
+	bbStorage, err := storage.NewBboltStorage("besedka.db")
+	if err != nil {
+		log.Fatalf("Failed to initialize storage: %v", err)
+	}
+	defer func() { _ = bbStorage.Close() }()
+
+	authService, err := auth.NewAuthService(ctx, authConfig, bbStorage)
 	if err != nil {
 		log.Fatalf("Failed to initialize auth service: %v", err)
 	}
@@ -62,7 +70,7 @@ func main() {
 	// Seed users from stubs
 	for _, u := range stubs.Users {
 		// Default password is "password"
-		_, err := authService.SeedUser(u.ID, u.DisplayName, "password")
+		_, err := authService.SeedUser(u.ID, u.DisplayName, "password", u.DisplayName, u.AvatarURL)
 		if err != nil {
 			log.Printf("Warning: failed to seed user %s: %v", u.DisplayName, err)
 		}
@@ -73,7 +81,7 @@ func main() {
 	http.HandleFunc("/", rootHandler(authService, fs))
 
 	// Initialize Hub
-	hub := ws.NewHub()
+	hub := ws.NewHub(authService, bbStorage)
 
 	server := ws.NewServer(authService, hub)
 	apiHandlers := api.New(authService, hub)

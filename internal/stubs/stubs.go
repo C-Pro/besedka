@@ -12,7 +12,7 @@ var Users = []models.User{
 }
 
 var Chats = []models.Chat{
-	{ID: "townhall", Name: "Townhall", UnreadCount: 0, IsDM: false},
-	{ID: "dm_1_2", Name: "Alice", UnreadCount: 2, IsDM: true, Online: true},
-	{ID: "dm_1_3", Name: "Charlie", UnreadCount: 0, IsDM: true, Online: true},
+	{ID: "townhall", Name: "Townhall", LastSeq: 0, IsDM: false},
+	{ID: "dm_1_2", Name: "Alice", LastSeq: 2, IsDM: true, Online: true},
+	{ID: "dm_1_3", Name: "Charlie", LastSeq: 0, IsDM: true, Online: true},
 }

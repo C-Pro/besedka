@@ -111,9 +111,7 @@ func (c *Connection) mainLoop(ctx context.Context) error {
 
 func (c *Connection) processClientMessage(msg models.ClientMessage) error {
 	switch msg.Type {
-	case models.ClientMessageTypeJoin:
-		// TODO: remove join message
-	case models.ClientMessageTypeSend:
+	case models.ClientMessageTypeJoin, models.ClientMessageTypeSend:
 		c.hub.Dispatch(c.userID, msg)
 	}
 

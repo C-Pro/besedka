@@ -147,7 +147,11 @@ func (a *API) UsersHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	users := a.hub.GetUsers()
+	users, err := a.auth.GetUsers()
+	if err != nil {
+		http.Error(w, "Failed to fetch users", http.StatusInternalServerError)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(users); err != nil {
@@ -180,9 +184,9 @@ func (a *API) MeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	currentUser, found := a.hub.GetUser(userID)
+	currentUser, err := a.auth.GetUser(userID)
 
-	if !found {
+	if err != nil {
 		http.Error(w, "User not found", http.StatusNotFound)
 		return
 	}

@@ -14,6 +14,8 @@ import (
 	"log/slog"
 	"time"
 
+	"besedka/internal/models"
+
 	"github.com/c-pro/geche"
 	"github.com/google/uuid"
 )
@@ -26,6 +28,11 @@ const (
 var (
 	ErrUserExists = errors.New("user already exists")
 )
+
+type storage interface {
+	UpsertCredentials(credentials UserCredentials) error
+	ListCredentials() ([]UserCredentials, error)
+}
 
 type LoginRequest struct {
 	Username string `json:"username"`
@@ -54,13 +61,13 @@ type LoginResponse struct {
 }
 
 type UserCredentials struct {
-	UserID       string `json:"userId"`
-	Username     string `json:"username"`
+	models.User
+
 	PasswordHash string `json:"passwordHash"`
 	TOTPSecret   string `json:"totpSecret"`
 	// Remember last TOTP to prevent replay attacks
 	LastTOTP int `json:"lastTOTP"`
-	// CounterForConsecutive failed login attempts to throttle brute force attacks.
+	// Counter for consecutive failed login attempts to throttle brute force attacks.
 	FailedLoginAttempts int64 `json:"failedLoginAttempts"`
 	LastAttemptTime     int64 `json:"lastAttemptTime"`
 }
@@ -83,7 +90,12 @@ type Config struct {
 
 type AuthService struct {
 	Config
-	users      *geche.Locker[string, *UserCredentials]
+	storage storage
+	// Map of userID to user credentials
+	users *geche.Locker[string, *UserCredentials]
+	// Map of username to userID
+	usernames geche.Geche[string, string]
+	// Map of token to user ID
 	liveTokens geche.Geche[string, string]
 	now        func() time.Time
 }
@@ -106,16 +118,35 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-func NewAuthService(ctx context.Context, config Config) (*AuthService, error) {
+func NewAuthService(ctx context.Context, config Config, storage storage) (*AuthService, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	return &AuthService{
+
+	as := &AuthService{
 		Config:     config,
-		users:      geche.NewLocker[string, *UserCredentials](geche.NewMapCache[string, *UserCredentials]()),
+		storage:    storage,
+		users:      geche.NewLocker(geche.NewMapCache[string, *UserCredentials]()),
+		usernames:  geche.NewMapCache[string, string](),
 		liveTokens: geche.NewMapTTLCache[string, string](ctx, config.TokenExpiry, time.Minute),
 		now:        time.Now,
-	}, nil
+	}
+
+	// Load users from storage
+	creds, err := storage.ListCredentials()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list credentials: %w", err)
+	}
+
+	tx := as.users.Lock()
+	defer tx.Unlock()
+
+	for _, c := range creds {
+		tx.Set(c.ID, &c)
+		as.usernames.Set(c.UserName, c.ID)
+	}
+
+	return as, nil
 }
 
 func (as *AuthService) hashPassword(username, password string) string {
@@ -124,37 +155,72 @@ func (as *AuthService) hashPassword(username, password string) string {
 	return base64.StdEncoding.EncodeToString(h.Sum(nil))
 }
 
-func (as *AuthService) AddUser(username, password string) (UserCredentials, error) {
-	return as.SeedUser(uuid.NewString(), username, password)
+func (as *AuthService) AddUser(username, password string) (*models.User, error) {
+	return as.SeedUser(uuid.NewString(), username, password, username, "")
 }
 
-func (as *AuthService) SeedUser(userID, username, password string) (UserCredentials, error) {
+func (as *AuthService) SeedUser(userID, username, password, displayName, avatarURL string) (*models.User, error) {
 	tx := as.users.Lock()
 	defer tx.Unlock()
-	if _, err := tx.Get(username); err == nil {
-		return UserCredentials{}, ErrUserExists
+	if _, err := as.usernames.Get(username); err == nil {
+		return nil, ErrUserExists
 	}
 
-	passwordHash := as.hashPassword(username, password)
-	tx.Set(username,
-		&UserCredentials{
-			UserID:       userID,
-			Username:     username,
-			PasswordHash: passwordHash,
-			LastTOTP:     -1,
-		})
+	creds := UserCredentials{
+		User: models.User{
+			ID:          userID,
+			UserName:    username,
+			DisplayName: displayName,
+			AvatarURL:   avatarURL,
+		},
+		PasswordHash: as.hashPassword(username, password),
+		LastTOTP:     -1,
+	}
 
-	return UserCredentials{
-		UserID:   userID,
-		Username: username,
-	}, nil
+	if err := as.storage.UpsertCredentials(creds); err != nil {
+		return nil, fmt.Errorf("failed to persist user: %w", err)
+	}
+
+	tx.Set(userID, &creds)
+	as.usernames.Set(username, userID)
+
+	return &creds.User, nil
+}
+
+func (as *AuthService) GetUser(id string) (models.User, error) {
+	tx := as.users.RLock()
+	defer tx.Unlock()
+	if creds, err := tx.Get(id); err == nil {
+		return creds.User, nil
+	}
+	return models.User{}, errors.New("user not found")
+}
+
+func (as *AuthService) GetUsers() ([]models.User, error) {
+	tx := as.users.RLock()
+	defer tx.Unlock()
+	snap := tx.Snapshot()
+	users := make([]models.User, 0, len(snap))
+	for _, creds := range snap {
+		users = append(users, creds.User)
+	}
+	return users, nil
 }
 
 func (as *AuthService) Login(req LoginRequest) (LoginResponse, string) {
 	now := as.now()
-	tx := as.users.Lock()
+	tx := as.users.RLock()
 	defer tx.Unlock()
-	user, err := tx.Get(req.Username)
+
+	id, err := as.usernames.Get(req.Username)
+	if err != nil {
+		return LoginResponse{
+			Success: false,
+			Message: loginFailedMessage,
+		}, ""
+	}
+
+	user, err := tx.Get(id)
 	if err != nil {
 		return LoginResponse{
 			Success: false,
@@ -192,6 +258,7 @@ func (as *AuthService) Login(req LoginRequest) (LoginResponse, string) {
 		}, ""
 	}
 
+	// Do not allow to reuse TOTP (possible replay attack).
 	if user.LastTOTP == req.TOTP {
 		user.IncrementFailedLoginAttempts(now)
 		return LoginResponse{
@@ -210,27 +277,79 @@ func (as *AuthService) Login(req LoginRequest) (LoginResponse, string) {
 
 	token, err := as.generateToken()
 	if err != nil {
-		slog.Error("login failed", "user_id", user.UserID, "error", err)
+		slog.Error("login failed", "user_id", user.ID, "error", err)
 		return LoginResponse{
 			Success: false,
 			Message: "internal error",
 		}, ""
 	}
 
-	as.liveTokens.Set(token, user.UserID)
+	as.liveTokens.Set(token, user.ID)
 	user.ResetFailedLoginAttempts(now)
 	// Update LastTOTP to prevent replay attacks
 	user.LastTOTP = req.TOTP
+
+	if err := as.storage.UpsertCredentials(*user); err != nil {
+		slog.Error("failed to persist user after login", "error", err)
+	}
 
 	return LoginResponse{
 		Success:     true,
 		Token:       token,
 		TokenExpiry: now.Unix() + int64(as.TokenExpiry.Seconds()),
-	}, user.UserID
+	}, user.ID
 }
 
 func (as *AuthService) Logoff(token string) error {
-	return as.liveTokens.Del(token)
+	userID, err := as.GetUserID(token)
+	if err != nil {
+		return nil
+	}
+
+	as.SetOffline(userID)
+	_ = as.liveTokens.Del(token)
+
+	return nil
+}
+
+func (as *AuthService) SetOffline(userID string) {
+	tx := as.users.Lock()
+	defer tx.Unlock()
+
+	user, err := tx.Get(userID)
+	if err != nil {
+		return
+	}
+
+	user.Presence = models.Presence{
+		Online:   false,
+		LastSeen: as.now().Unix(),
+	}
+
+	if err := as.storage.UpsertCredentials(*user); err != nil {
+		slog.Error("failed to set user offline in storage", "user_id", userID, "error", err)
+	}
+	tx.Set(userID, user)
+}
+
+func (as *AuthService) SetOnline(userID string) {
+	tx := as.users.Lock()
+	defer tx.Unlock()
+
+	user, err := tx.Get(userID)
+	if err != nil {
+		return
+	}
+
+	user.Presence = models.Presence{
+		Online:   true,
+		LastSeen: as.now().Unix(),
+	}
+
+	if err := as.storage.UpsertCredentials(*user); err != nil {
+		slog.Error("failed to set user online in storage", "user_id", userID, "error", err)
+	}
+	tx.Set(userID, user)
 }
 
 func (as *AuthService) generateToken() (string, error) {
@@ -253,7 +372,15 @@ func (as *AuthService) Register(req RegistrationRequest) RegistrationResponse {
 	tx := as.users.Lock()
 	defer tx.Unlock()
 
-	user, err := tx.Get(req.Username)
+	id, err := as.usernames.Get(req.Username)
+	if err != nil {
+		return RegistrationResponse{
+			Success: false,
+			Message: "User not found",
+		}
+	}
+
+	user, err := tx.Get(id)
 	if err != nil {
 		return RegistrationResponse{
 			Success: false,
@@ -287,6 +414,14 @@ func (as *AuthService) Register(req RegistrationRequest) RegistrationResponse {
 	user.TOTPSecret = secret
 	user.LastTOTP = 0 // Activate user
 
+	if err := as.storage.UpsertCredentials(*user); err != nil {
+		slog.Error("failed to persist user after registration", "error", err)
+		return RegistrationResponse{
+			Success: false,
+			Message: "Internal error",
+		}
+	}
+
 	tx.Set(req.Username, user)
 
 	return RegistrationResponse{
@@ -298,9 +433,6 @@ func (as *AuthService) Register(req RegistrationRequest) RegistrationResponse {
 func GenerateTOTP(secret string, t time.Time) (int, error) {
 	key, err := base32.StdEncoding.DecodeString(secret)
 	if err != nil {
-		// Fallback for non-base32 secrets (legacy tests or backward compat if needed)
-		// But strictly speaking, we expect base32 now.
-		// For the bug fix, strictly expect base32.
 		return 0, fmt.Errorf("invalid base32 secret: %w", err)
 	}
 
@@ -341,5 +473,27 @@ func (as *AuthService) checkTOTP(secret string, totp int, lastTOTP int) bool {
 }
 
 func (as *AuthService) GetUserID(token string) (string, error) {
-	return as.liveTokens.Get(token)
+	userID, err := as.liveTokens.Get(token)
+	if err != nil {
+		return "", err
+	}
+
+	tx := as.users.Lock()
+	defer tx.Unlock()
+
+	user, err := tx.Get(userID)
+	if err != nil {
+		return "", err
+	}
+
+	user.Presence = models.Presence{
+		Online:   true,
+		LastSeen: as.now().Unix(),
+	}
+
+	// Update token expiry, so while user is active at least once per TokenExpiry interval,
+	// token will be extended indefinitely without requiring user to relogin.
+	as.liveTokens.Set(token, userID)
+
+	return user.ID, nil
 }

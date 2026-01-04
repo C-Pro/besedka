@@ -1,8 +1,16 @@
 package chat
 
 import (
+	"besedka/internal/models"
+	"fmt"
+	"log/slog"
 	"sync"
 )
+
+type storage interface {
+	UpsertMessage(message models.Message) error
+	ListMessages(chatID string, from, to int64) ([]models.Message, error)
+}
 
 type Seq int64
 
@@ -25,13 +33,15 @@ type Chat struct {
 
 	RecordCallback func(receiverID string, chatID string, record ChatRecord)
 
-	mux sync.RWMutex
+	storage storage
+	mux     sync.RWMutex
 }
 
 type Config struct {
 	ID             string
 	MaxRecords     int
 	RecordCallback func(receiverID string, chatID string, record ChatRecord)
+	Storage        storage
 }
 
 func New(config Config) *Chat {
@@ -39,28 +49,45 @@ func New(config Config) *Chat {
 		ID:             config.ID,
 		MaxRecords:     config.MaxRecords,
 		LastIndex:      -1,
-		FirstSeq:       -1,
-		LastSeq:        -1,
+		FirstSeq:       0,
+		LastSeq:        0,
 		Members:        make(map[string]bool),
 		RecordCallback: config.RecordCallback,
+		storage:        config.Storage,
 	}
 }
 
 // AddRecord adds a new chat record to the chat:
 // - Adding it into Records ring buffer
 // - Updating FirstSeq and LastSeq
+// - Persisting into storage
 // - Sending updates to all connected clients
-func (c *Chat) AddRecord(record ChatRecord) {
+func (c *Chat) AddRecord(record ChatRecord) error {
 	c.mux.Lock()
 	defer c.mux.Unlock()
 
 	c.LastSeq++
 	record.Seq = c.LastSeq
 
+	// Persist
+	if c.storage != nil {
+		err := c.storage.UpsertMessage(models.Message{
+			Seq:       int64(record.Seq),
+			Timestamp: record.Timestamp,
+			ChatID:    c.ID,
+			UserID:    record.UserID,
+			Content:   record.Content,
+		})
+		if err != nil {
+			slog.Error("failed to persist message", "chatID", c.ID, "error", err)
+			return fmt.Errorf("failed to persist message: %w", err)
+		}
+	}
+
 	// Add record to ring buffer
 	switch {
 	case len(c.Records) < c.MaxRecords:
-		if c.FirstSeq == -1 {
+		if c.FirstSeq == 0 {
 			c.FirstSeq = c.LastSeq
 		}
 		c.Records = append(c.Records, record)
@@ -77,50 +104,77 @@ func (c *Chat) AddRecord(record ChatRecord) {
 			c.RecordCallback(receiverID, c.ID, record)
 		}
 	}
+	return nil
 }
 
 func (c *Chat) GetRecords(from, to Seq) ([]ChatRecord, error) {
 	c.mux.RLock()
 	defer c.mux.RUnlock()
 
-	if c.FirstSeq == -1 {
+	// If no records in memory and no storage, nothing to return
+	if c.LastSeq == 0 {
 		return []ChatRecord{}, nil
 	}
 
-	// Clamp range
-	if from < c.FirstSeq {
-		from = c.FirstSeq
-	}
-	if to > c.LastSeq+1 {
-		to = c.LastSeq + 1
-	}
-	if from >= to {
-		return []ChatRecord{}, nil
+	// 1. Determine what we can serve from memory
+	memFrom := c.FirstSeq
+	if len(c.Records) == 0 {
+		memFrom = c.LastSeq + 1 // Effectively empty
 	}
 
-	count := int(to - from)
-	result := make([]ChatRecord, count)
+	var result []ChatRecord
 
-	// Calculate start index in ring buffer
-	// Head index (oldest record)
-	head := 0
-	if len(c.Records) == c.MaxRecords {
-		head = (c.LastIndex + 1) % c.MaxRecords
+	// 2. Fetch from storage if 'from' is before what we have in memory
+	if from < memFrom && c.storage != nil {
+		storeTo := to
+		if storeTo > memFrom {
+			storeTo = memFrom
+		}
+
+		msgs, err := c.storage.ListMessages(c.ID, int64(from), int64(storeTo-1))
+		if err != nil {
+			return nil, fmt.Errorf("storage error: %w", err)
+		}
+
+		for _, m := range msgs {
+			result = append(result, ChatRecord{
+				Seq:       Seq(m.Seq),
+				Timestamp: m.Timestamp,
+				UserID:    m.UserID,
+				Content:   m.Content,
+			})
+		}
 	}
 
-	// Offset of 'from' relative to 'FirstSeq'
-	offset := int(from - c.FirstSeq)
+	// 3. Fetch from memory
+	// If the request extends into memory range
+	if to > memFrom {
+		// Adjust 'from' for memory fetch if we already fetched some from storage
+		mFrom := from
+		if mFrom < memFrom {
+			mFrom = memFrom
+		}
 
-	// Actual index in buffer
-	startIdx := (head + offset) % len(c.Records)
+		if mFrom < to && mFrom >= c.FirstSeq {
+			// Memory fetch logic...
+			count := int(to - mFrom)
 
-	// Copy
-	if startIdx+count <= len(c.Records) {
-		copy(result, c.Records[startIdx:startIdx+count])
-	} else {
-		n1 := len(c.Records) - startIdx
-		copy(result, c.Records[startIdx:])
-		copy(result[n1:], c.Records[:count-n1])
+			// Calculate start index in ring buffer
+			head := 0
+			if len(c.Records) == c.MaxRecords {
+				head = (c.LastIndex + 1) % c.MaxRecords
+			}
+			offset := int(mFrom - c.FirstSeq)
+			startIdx := (head + offset) % len(c.Records)
+
+			if startIdx+count <= len(c.Records) {
+				result = append(result, c.Records[startIdx:startIdx+count]...)
+			} else {
+				n1 := len(c.Records) - startIdx
+				result = append(result, c.Records[startIdx:]...)
+				result = append(result, c.Records[:count-n1]...)
+			}
+		}
 	}
 
 	return result, nil
@@ -130,7 +184,7 @@ func (c *Chat) GetLastRecords(count int) ([]ChatRecord, error) {
 	c.mux.RLock()
 	defer c.mux.RUnlock()
 
-	if c.LastSeq == -1 {
+	if c.LastSeq == 0 {
 		return []ChatRecord{}, nil
 	}
 
