@@ -10,7 +10,8 @@ import (
 )
 
 type MockStorage struct {
-	creds map[string]UserCredentials
+	creds  map[string]UserCredentials
+	tokens map[string]string
 }
 
 func (m *MockStorage) UpsertCredentials(c UserCredentials) error {
@@ -24,6 +25,20 @@ func (m *MockStorage) ListCredentials() ([]UserCredentials, error) {
 		list = append(list, c)
 	}
 	return list, nil
+}
+
+func (m *MockStorage) UpsertToken(userID string, token string) error {
+	m.tokens[userID] = token
+	return nil
+}
+
+func (m *MockStorage) DeleteToken(userID string) error {
+	delete(m.tokens, userID)
+	return nil
+}
+
+func (m *MockStorage) ListTokens() (map[string]string, error) {
+	return m.tokens, nil
 }
 
 func TestAuthService(t *testing.T) {
@@ -46,7 +61,8 @@ func TestAuthService(t *testing.T) {
 		}
 
 		store := &MockStorage{
-			creds: make(map[string]UserCredentials),
+			creds:  make(map[string]UserCredentials),
+			tokens: make(map[string]string),
 		}
 
 		ctx := context.Background()
@@ -477,6 +493,71 @@ func TestAuthService(t *testing.T) {
 				}
 				break
 			}
+		}
+	})
+
+	t.Run("Persistence_Tokens", func(t *testing.T) {
+		svc, _, store := createService(t)
+
+		// 1. Manually setup user
+		tx := svc.users.Lock()
+		userID := "user_token_persist"
+		tx.Set(userID, &UserCredentials{
+			User: models.User{
+				ID:       userID,
+				UserName: "user_p",
+			},
+			PasswordHash: svc.hashPassword("user_p", "pass"),
+			TOTPSecret:   rawSecret,
+			LastTOTP:     0,
+		})
+		svc.usernames.Set("user_p", userID)
+		tx.Unlock()
+
+		// 2. Login
+		resp, loggedInUserID := svc.Login(LoginRequest{
+			Username: "user_p",
+			Password: "pass",
+			TOTP:     validCodes[0],
+		})
+		if !resp.Success {
+			t.Fatalf("Login failed: %v", resp.Message)
+		}
+		token := resp.Token
+
+		// Verify retained in storage
+		if store.tokens[userID] != token {
+			t.Errorf("Token not persisted in storage. Got %v, want %v", store.tokens[userID], token)
+		}
+		if loggedInUserID != userID {
+			t.Errorf("Expected loggedInUserID %s, got %s", userID, loggedInUserID)
+		}
+
+		// 3. Create NEW service instance (simulate restart)
+		// Re-use same store
+		ctx := context.Background()
+		svc2, err := NewAuthService(ctx, svc.Config, store)
+		if err != nil {
+			t.Fatalf("Failed to create service 2: %v", err)
+		}
+
+		// Verify token is loaded in liveTokens
+		loadedUserID, err := svc2.liveTokens.Get(token)
+		if err != nil {
+			t.Fatalf("Token not found in svc2 liveTokens: %v", err)
+		}
+		if loadedUserID != userID {
+			t.Errorf("Loaded token maps to wrong user. Got %s, want %s", loadedUserID, userID)
+		}
+
+		// 4. Logoff
+		if err := svc.Logoff(token); err != nil {
+			t.Fatalf("Logoff failed: %v", err)
+		}
+
+		// Verify removed from storage
+		if _, ok := store.tokens[userID]; ok {
+			t.Error("Token not removed from storage after logoff")
 		}
 	})
 }

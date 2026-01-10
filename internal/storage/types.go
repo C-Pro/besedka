@@ -13,15 +13,34 @@ type Storeable interface {
 	encoding.BinaryUnmarshaler
 }
 
+type DBToken struct {
+	UserID string `msgpack:"userId"`
+	Token  string `msgpack:"token"`
+}
+
+func (t *DBToken) Key() []byte {
+	return []byte(t.UserID)
+}
+
+func (t *DBToken) MarshalBinary() (data []byte, err error) {
+	type alias DBToken
+	return msgpack.Marshal((*alias)(t))
+}
+
+func (t *DBToken) UnmarshalBinary(data []byte) error {
+	type alias DBToken
+	return msgpack.Unmarshal(data, (*alias)(t))
+}
+
 type DBUser struct {
-	ID                  string `msgpack:"id"`
-	UserName            string `msgpack:"userName"`
-	DisplayName         string `msgpack:"displayName"`
-	AvatarURL           string `msgpack:"avatarUrl"`
-	LastSeen            int64  `msgpack:"lastSeen"`
-	PasswordHash        string `msgpack:"passwordHash"`
-	TOTPSecret          string `msgpack:"totpSecret"`
-	LastTOTP            int    `msgpack:"lastTOTP"`
+	ID           string `msgpack:"id"`
+	UserName     string `msgpack:"userName"`
+	DisplayName  string `msgpack:"displayName"`
+	AvatarURL    string `msgpack:"avatarUrl"`
+	LastSeen     int64  `msgpack:"lastSeen"`
+	PasswordHash string `msgpack:"passwordHash"`
+	TOTPSecret   string `msgpack:"totpSecret"`
+	LastTOTP     int    `msgpack:"lastTOTP"`
 }
 
 func (u *DBUser) Key() []byte {
@@ -29,13 +48,13 @@ func (u *DBUser) Key() []byte {
 }
 
 func (u *DBUser) MarshalBinary() (data []byte, err error) {
-	type Alias DBUser
-	return msgpack.Marshal((*Alias)(u))
+	type alias DBUser
+	return msgpack.Marshal((*alias)(u))
 }
 
 func (u *DBUser) UnmarshalBinary(data []byte) error {
-	type Alias DBUser
-	return msgpack.Unmarshal(data, (*Alias)(u))
+	type alias DBUser
+	return msgpack.Unmarshal(data, (*alias)(u))
 }
 
 type DBChat struct {
@@ -50,13 +69,13 @@ func (c *DBChat) Key() []byte {
 }
 
 func (c *DBChat) MarshalBinary() (data []byte, err error) {
-	type Alias DBChat
-	return msgpack.Marshal((*Alias)(c))
+	type alias DBChat
+	return msgpack.Marshal((*alias)(c))
 }
 
 func (c *DBChat) UnmarshalBinary(data []byte) error {
-	type Alias DBChat
-	return msgpack.Unmarshal(data, (*Alias)(c))
+	type alias DBChat
+	return msgpack.Unmarshal(data, (*alias)(c))
 }
 
 type DBMessage struct {
@@ -74,11 +93,11 @@ func (m *DBMessage) Key() []byte {
 }
 
 func (m *DBMessage) MarshalBinary() (data []byte, err error) {
-	type Alias DBMessage
-	return msgpack.Marshal((*Alias)(m))
+	type alias DBMessage
+	return msgpack.Marshal((*alias)(m))
 }
 
 func (m *DBMessage) UnmarshalBinary(data []byte) error {
-	type Alias DBMessage
-	return msgpack.Unmarshal(data, (*Alias)(m))
+	type alias DBMessage
+	return msgpack.Unmarshal(data, (*alias)(m))
 }

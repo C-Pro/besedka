@@ -25,8 +25,8 @@ To run the application locally:
 
 ## Future Roadmap
 
-- [ ] Persistent storage
-- [ ] User authentication and session management
+- [x] Persistent storage
+- [x] User authentication and session management
 - [ ] File attachments and media support
 - [ ] Rich text editing
 - [ ] Emojis and reactions

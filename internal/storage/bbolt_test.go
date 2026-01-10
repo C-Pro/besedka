@@ -124,4 +124,33 @@ func TestStorage(t *testing.T) {
 			t.Errorf("expected chat LastSeq 2, got %d", listChats3[0].LastSeq)
 		}
 	})
+
+	t.Run("Tokens", func(t *testing.T) {
+		userID := "user2" // using user2 to avoid confusion with previous subtest though store is same
+		token := "token123"
+
+		if err := store.UpsertToken(userID, token); err != nil {
+			t.Fatalf("UpsertToken failed: %v", err)
+		}
+
+		tokens, err := store.ListTokens()
+		if err != nil {
+			t.Fatalf("ListTokens failed: %v", err)
+		}
+		if tokens[userID] != token {
+			t.Errorf("expected token %s, got %s", token, tokens[userID])
+		}
+
+		if err := store.DeleteToken(userID); err != nil {
+			t.Fatalf("DeleteToken failed: %v", err)
+		}
+
+		tokens, err = store.ListTokens()
+		if err != nil {
+			t.Fatalf("ListTokens failed: %v", err)
+		}
+		if _, ok := tokens[userID]; ok {
+			t.Errorf("expected token to be deleted")
+		}
+	})
 }

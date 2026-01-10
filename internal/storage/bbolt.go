@@ -17,6 +17,7 @@ var (
 	bucketUsers    = []byte("users")
 	bucketChats    = []byte("chats")
 	bucketMessages = []byte("messages")
+	bucketTokens   = []byte("tokens")
 )
 
 type BboltStorage struct {
@@ -37,6 +38,9 @@ func NewBboltStorage(path string) (*BboltStorage, error) {
 			return err
 		}
 		if _, err := tx.CreateBucketIfNotExists(bucketMessages); err != nil {
+			return err
+		}
+		if _, err := tx.CreateBucketIfNotExists(bucketTokens); err != nil {
 			return err
 		}
 		return nil
@@ -65,6 +69,7 @@ func (s *BboltStorage) UpsertCredentials(credentials auth.UserCredentials) error
 			LastSeen:     credentials.Presence.LastSeen,
 			PasswordHash: credentials.PasswordHash,
 			TOTPSecret:   credentials.TOTPSecret,
+			LastTOTP:     credentials.LastTOTP,
 		}
 
 		data, err := dbUser.MarshalBinary()
@@ -97,6 +102,7 @@ func (s *BboltStorage) ListCredentials() ([]auth.UserCredentials, error) {
 				},
 				PasswordHash: dbUser.PasswordHash,
 				TOTPSecret:   dbUser.TOTPSecret,
+				LastTOTP:     dbUser.LastTOTP,
 			})
 			return nil
 		})
@@ -244,4 +250,42 @@ func (s *BboltStorage) ListMessages(chatID string, from, to int64) ([]models.Mes
 		return nil
 	})
 	return messages, err
+}
+
+func (s *BboltStorage) UpsertToken(userID string, token string) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketTokens)
+		dbToken := &DBToken{
+			UserID: userID,
+			Token:  token,
+		}
+		data, err := dbToken.MarshalBinary()
+		if err != nil {
+			return err
+		}
+		return b.Put(dbToken.Key(), data)
+	})
+}
+
+func (s *BboltStorage) DeleteToken(userID string) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketTokens)
+		return b.Delete([]byte(userID))
+	})
+}
+
+func (s *BboltStorage) ListTokens() (map[string]string, error) {
+	tokens := make(map[string]string)
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketTokens)
+		return b.ForEach(func(k, v []byte) error {
+			var dbToken DBToken
+			if err := dbToken.UnmarshalBinary(v); err != nil {
+				return err
+			}
+			tokens[dbToken.UserID] = dbToken.Token
+			return nil
+		})
+	})
+	return tokens, err
 }

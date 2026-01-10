@@ -32,6 +32,9 @@ var (
 type storage interface {
 	UpsertCredentials(credentials UserCredentials) error
 	ListCredentials() ([]UserCredentials, error)
+	UpsertToken(userID string, token string) error
+	DeleteToken(userID string) error
+	ListTokens() (map[string]string, error)
 }
 
 type LoginRequest struct {
@@ -96,7 +99,7 @@ type AuthService struct {
 	// Map of username to userID
 	usernames geche.Geche[string, string]
 	// Map of token to user ID
-	liveTokens geche.Geche[string, string]
+	liveTokens *geche.MapTTLCache[string, string]
 	now        func() time.Time
 }
 
@@ -145,6 +148,21 @@ func NewAuthService(ctx context.Context, config Config, storage storage) (*AuthS
 		tx.Set(c.ID, &c)
 		as.usernames.Set(c.UserName, c.ID)
 	}
+
+	// Load tokens from storage
+	tokens, err := storage.ListTokens()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list tokens: %w", err)
+	}
+	for userID, token := range tokens {
+		as.liveTokens.Set(token, userID)
+	}
+
+	as.liveTokens.OnEvict(func(token string, userID string) {
+		if err := storage.DeleteToken(userID); err != nil {
+			slog.Error("failed to delete token from storage on eviction", "user_id", userID, "error", err)
+		}
+	})
 
 	return as, nil
 }
@@ -293,6 +311,10 @@ func (as *AuthService) Login(req LoginRequest) (LoginResponse, string) {
 		slog.Error("failed to persist user after login", "error", err)
 	}
 
+	if err := as.storage.UpsertToken(user.ID, token); err != nil {
+		slog.Error("failed to persist token after login", "error", err)
+	}
+
 	return LoginResponse{
 		Success:     true,
 		Token:       token,
@@ -307,6 +329,9 @@ func (as *AuthService) Logoff(token string) error {
 	}
 
 	as.SetOffline(userID)
+	if err := as.storage.DeleteToken(userID); err != nil {
+		slog.Error("failed to delete token from storage on logoff", "error", err)
+	}
 	_ = as.liveTokens.Del(token)
 
 	return nil
