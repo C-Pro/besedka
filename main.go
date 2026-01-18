@@ -1,105 +1,110 @@
 package main
 
 import (
-	"besedka/internal/api"
 	"besedka/internal/auth"
+	"besedka/internal/commands"
+	"besedka/internal/http"
 	"besedka/internal/storage"
-	"besedka/internal/stubs"
-	"besedka/internal/ws"
 	"context"
 	"encoding/base64"
+	"errors"
+	"flag"
 	"log"
-	"net/http"
-	"strings"
+	oshttp "net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 )
 
-func rootHandler(authService *auth.AuthService, fs http.Handler) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// public paths that don't need auth
-		publicPaths := []string{"/login.html", "/register.html", "/css/", "/js/"}
+func run(ctx context.Context) error {
+	addUser := flag.String("add-user", "", "Username to create (creates user with random password and prints details)")
+	flag.Parse()
 
-		// If it matches a public path prefix, serve it directly
-		for _, prefix := range publicPaths {
-			if strings.HasPrefix(r.URL.Path, prefix) {
-				fs.ServeHTTP(w, r)
-				return
-			}
-		}
-
-		// Specific check for exactly root "/" or "/index.html"
-		if r.URL.Path == "/" || r.URL.Path == "/index.html" {
-			// Check cookie
-			cookie, err := r.Cookie("token")
-			if err != nil || cookie.Value == "" {
-				http.Redirect(w, r, "/login.html", http.StatusFound)
-				return
-			}
-
-			// Validate token
-			if _, err := authService.GetUserID(cookie.Value); err != nil {
-				http.Redirect(w, r, "/login.html", http.StatusFound)
-				return
-			}
-		}
-
-		// Default to file server
-		fs.ServeHTTP(w, r)
+	if *addUser != "" {
+		return commands.AddUser(*addUser)
 	}
-}
 
-func main() {
-	// Initialize services
-	ctx := context.Background()
 	authConfig := auth.Config{
 		Secret:      base64.StdEncoding.EncodeToString([]byte("very-secure-secret-key-for-development-mode")),
 		TokenExpiry: 24 * time.Hour,
 	}
 
-	bbStorage, err := storage.NewBboltStorage("besedka.db")
+	dbFile := os.Getenv("BESEDKA_DB")
+	if dbFile == "" {
+		dbFile = "besedka.db"
+	}
+	bbStorage, err := storage.NewBboltStorage(dbFile)
 	if err != nil {
-		log.Fatalf("Failed to initialize storage: %v", err)
+		return err
 	}
 	defer func() { _ = bbStorage.Close() }()
 
 	authService, err := auth.NewAuthService(ctx, authConfig, bbStorage)
 	if err != nil {
-		log.Fatalf("Failed to initialize auth service: %v", err)
+		return err
 	}
 
-	// Seed users from stubs
-	for _, u := range stubs.Users {
-		// Default password is "password"
-		_, err := authService.SeedUser(u.ID, u.DisplayName, "password", u.DisplayName, u.AvatarURL)
-		if err != nil {
-			log.Printf("Warning: failed to seed user %s: %v", u.DisplayName, err)
+	adminAddr := os.Getenv("ADMIN_ADDR")
+	if adminAddr == "" {
+		adminAddr = "localhost:8081"
+	}
+
+	apiAddr := os.Getenv("API_ADDR")
+	if apiAddr == "" {
+		apiAddr = ":8080"
+	}
+
+	adminServer := http.NewAdminServer(authService, adminAddr)
+	apiServer := http.NewAPIServer(authService, bbStorage, apiAddr)
+
+	g, gCtx := errgroup.WithContext(ctx)
+
+	// Start Admin Server
+	g.Go(func() error {
+		err := adminServer.Start()
+		if err != nil && err != oshttp.ErrServerClosed {
+			return err
 		}
-	}
+		return nil
+	})
 
-	// Serve static files with Auth check
-	fs := http.FileServer(http.Dir("."))
-	http.HandleFunc("/", rootHandler(authService, fs))
+	// Start API Server
+	g.Go(func() error {
+		err := apiServer.Start()
+		if err != nil && err != oshttp.ErrServerClosed {
+			return err
+		}
+		return nil
+	})
 
-	// Initialize Hub
-	hub := ws.NewHub(authService, bbStorage)
+	// Wait for context cancellation (signal)
+	g.Go(func() error {
+		<-gCtx.Done()
+		log.Println("Shutting down servers...")
 
-	server := ws.NewServer(authService, hub)
-	apiHandlers := api.New(authService, hub)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 
-	// API endpoints
-	http.HandleFunc("/api/login", apiHandlers.LoginHandler)
-	http.HandleFunc("/api/register", apiHandlers.RegisterHandler)
-	http.HandleFunc("/api/logoff", apiHandlers.LogoffHandler)
-	http.HandleFunc("/api/users", apiHandlers.UsersHandler)
-	http.HandleFunc("/api/chats", apiHandlers.ChatsHandler)
-	http.HandleFunc("/api/me", apiHandlers.MeHandler)
+		if err := adminServer.Shutdown(shutdownCtx); err != nil {
+			log.Printf("Admin server shutdown error: %v", err)
+		}
+		if err := apiServer.Shutdown(shutdownCtx); err != nil {
+			log.Printf("API server shutdown error: %v", err)
+		}
+		return nil
+	})
 
-	// WebSocket endpoint
-	http.HandleFunc("/api/chat", server.HandleConnections)
+	return g.Wait()
+}
 
-	log.Println("Server started on :8080")
-	err = http.ListenAndServe(":8080", nil)
-	if err != nil {
-		log.Fatal("ListenAndServe: ", err)
+func main() {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	if err := run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		log.Fatalf("Application error: %v", err)
 	}
 }

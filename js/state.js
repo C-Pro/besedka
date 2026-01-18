@@ -63,7 +63,18 @@ class Store {
                 if (text.includes("First login")) {
                     return { success: false, needRegister: true, message: text };
                 }
-                return { success: false, message: text.replace(/\n/g, '') };
+
+                let errorMessage = text;
+                try {
+                    const json = JSON.parse(text);
+                    if (json && json.message) {
+                        errorMessage = json.message;
+                    }
+                } catch {
+                    // Not a JSON response, use raw text
+                }
+
+                return { success: false, message: errorMessage.replace(/\n/g, '') };
             }
 
             if (!response.ok) throw new Error('Login failed');

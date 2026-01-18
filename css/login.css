@@ -23,6 +23,7 @@
     text-align: center;
     color: var(--text-primary);
     border: 1px solid var(--border-color);
+    text-shadow: 0 0 10px var(--text-glow-shadow);
 }
 
 .login-card form {
@@ -57,10 +58,12 @@
 }
 
 .error-message {
-    color: #ef4444;
+    color: #991b1b;
+    /* Darker red for text */
     font-size: 0.875rem;
     text-align: center;
-    background-color: rgba(239, 68, 68, 0.1);
+    background-color: #fef2f2;
+    /* Very pale red for background */
     padding: 0.5rem;
     border-radius: 4px;
 }

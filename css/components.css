@@ -53,6 +53,7 @@
 .chat-name {
     font-weight: 600;
     color: var(--text-primary);
+    text-shadow: 0 0 10px var(--text-glow-shadow);
     margin-bottom: 2px;
     white-space: nowrap;
     overflow: hidden;
