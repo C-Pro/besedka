@@ -19,19 +19,19 @@ import (
 func TestIntegration(t *testing.T) {
 	// Setup temporary DB and ports
 	dbFile := "integration_test.db"
-	os.Remove(dbFile) // cleanup before
-	defer os.Remove(dbFile)
+	_ = os.Remove(dbFile) // cleanup before
+	defer func() { _ = os.Remove(dbFile) }()
 
 	adminAddr := "localhost:8882"
 	apiAddr := ":8881"
 
-	os.Setenv("BESEDKA_DB", dbFile)
-	os.Setenv("ADMIN_ADDR", adminAddr)
-	os.Setenv("API_ADDR", apiAddr)
+	_ = os.Setenv("BESEDKA_DB", dbFile)
+	_ = os.Setenv("ADMIN_ADDR", adminAddr)
+	_ = os.Setenv("API_ADDR", apiAddr)
 	defer func() {
-		os.Unsetenv("BESEDKA_DB")
-		os.Unsetenv("ADMIN_ADDR")
-		os.Unsetenv("API_ADDR")
+		_ = os.Unsetenv("BESEDKA_DB")
+		_ = os.Unsetenv("ADMIN_ADDR")
+		_ = os.Unsetenv("API_ADDR")
 	}()
 
 	// Start server in background
@@ -55,7 +55,7 @@ func TestIntegration(t *testing.T) {
 	reqBody, _ := json.Marshal(api.AddUserRequest{Username: username})
 	resp, err := http.Post(fmt.Sprintf("http://%s/admin/users", adminAddr), "application/json", bytes.NewBuffer(reqBody))
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var adminResp api.AddUserResponse
@@ -75,7 +75,7 @@ func TestIntegration(t *testing.T) {
 	loginBody, _ := json.Marshal(loginReq)
 	resp, err = http.Post(fmt.Sprintf("http://localhost%s/api/login", apiAddr), "application/json", bytes.NewBuffer(loginBody))
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 
@@ -89,7 +89,7 @@ func TestIntegration(t *testing.T) {
 	regBody, _ := json.Marshal(regReq)
 	resp, err = http.Post(fmt.Sprintf("http://localhost%s/api/register", apiAddr), "application/json", bytes.NewBuffer(regBody))
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var regResp auth.RegistrationResponse
@@ -110,7 +110,7 @@ func TestIntegration(t *testing.T) {
 	loginBody2, _ := json.Marshal(loginReq2)
 	resp, err = http.Post(fmt.Sprintf("http://localhost%s/api/login", apiAddr), "application/json", bytes.NewBuffer(loginBody2))
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var loginResp auth.LoginResponse
@@ -128,7 +128,7 @@ func TestIntegration(t *testing.T) {
 	client := &http.Client{}
 	resp, err = client.Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var usersList []map[string]interface{}
@@ -150,7 +150,7 @@ func waitForServer(t *testing.T, url string, retries int) {
 	for i := 0; i < retries; i++ {
 		resp, err := http.Post(url, "application/json", bytes.NewBuffer([]byte("{}")))
 		if err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return
 		}
 		time.Sleep(100 * time.Millisecond)
