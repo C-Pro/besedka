@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,16 +24,18 @@ func TestIntegration(t *testing.T) {
 	_ = os.Remove(dbFile) // cleanup before
 	defer func() { _ = os.Remove(dbFile) }()
 
-	adminAddr := "localhost:8882"
+	adminAddr := "127.0.0.1:8882"
 	apiAddr := ":8881"
 
 	_ = os.Setenv("BESEDKA_DB", dbFile)
 	_ = os.Setenv("ADMIN_ADDR", adminAddr)
 	_ = os.Setenv("API_ADDR", apiAddr)
+	_ = os.Setenv("AUTH_SECRET", "very-secure-test-secret")
 	defer func() {
 		_ = os.Unsetenv("BESEDKA_DB")
 		_ = os.Unsetenv("ADMIN_ADDR")
 		_ = os.Unsetenv("API_ADDR")
+		_ = os.Unsetenv("AUTH_SECRET")
 	}()
 
 	// Start server in background
@@ -48,9 +52,9 @@ func TestIntegration(t *testing.T) {
 	}()
 
 	// Wait for server to start
-	waitForServer(t, "http://localhost:8882/admin/users", 20)
+	waitForServer(t, "http://127.0.0.1:8882/admin/users", 20)
 
-	// Step 1: Create User via Admin API
+	// Step 1: Create User via Admin API (Invite)
 	username := "testuser"
 	reqBody, _ := json.Marshal(api.AddUserRequest{Username: username})
 	resp, err := http.Post(fmt.Sprintf("http://%s/admin/users", adminAddr), "application/json", bytes.NewBuffer(reqBody))
@@ -63,28 +67,42 @@ func TestIntegration(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, adminResp.Success)
 	require.Equal(t, username, adminResp.Username)
-	tempPassword := adminResp.Password
-	require.NotEmpty(t, tempPassword)
+	setupLink := adminResp.SetupLink
+	require.NotEmpty(t, setupLink)
 
-	// Step 2: Login (First Time) -> Expect NeedRegister = true
-	loginReq := auth.LoginRequest{
-		Username: username,
-		Password: tempPassword,
-		TOTP:     0,
-	}
-	loginBody, _ := json.Marshal(loginReq)
-	resp, err = http.Post(fmt.Sprintf("http://localhost%s/api/login", apiAddr), "application/json", bytes.NewBuffer(loginBody))
+	// Extract token from setup link
+	// Link format: /register.html?token=...
+	parts := strings.Split(setupLink, "token=")
+	require.Len(t, parts, 2)
+	encodedToken := parts[1]
+	require.NotEmpty(t, encodedToken)
+	token, err := url.QueryUnescape(encodedToken)
+	require.NoError(t, err)
+
+	// Step 2: Get Registration Info
+	// Use encodedToken because it's a URL query parameter
+	resp, err = http.Get(fmt.Sprintf("http://localhost%s/api/register-info?token=%s", apiAddr, encodedToken))
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
 
-	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	var regInfo auth.RegistrationInfoResponse
+	err = json.NewDecoder(resp.Body).Decode(&regInfo)
+	require.NoError(t, err)
+	require.Equal(t, username, regInfo.Username)
+	require.NotEmpty(t, regInfo.TOTPSecret)
+	totpSecret := regInfo.TOTPSecret
 
 	// Step 3: Register (Complete Setup)
 	newPassword := "newSecretPassword123"
+	totpCode, err := auth.GenerateTOTP(totpSecret, time.Now())
+	require.NoError(t, err)
+
 	regReq := auth.RegistrationRequest{
-		Username:    username,
-		Password:    tempPassword,
-		NewPassword: newPassword,
+		Token:       token,
+		DisplayName: username + " Display",
+		Password:    newPassword,
+		TOTP:        totpCode,
 	}
 	regBody, _ := json.Marshal(regReq)
 	resp, err = http.Post(fmt.Sprintf("http://localhost%s/api/register", apiAddr), "application/json", bytes.NewBuffer(regBody))
@@ -96,10 +114,10 @@ func TestIntegration(t *testing.T) {
 	err = json.NewDecoder(resp.Body).Decode(&regResp)
 	require.NoError(t, err)
 	require.True(t, regResp.Success)
-	require.NotEmpty(t, regResp.TOTPSecret)
+	require.NotEmpty(t, regResp.Token)
 
 	// Step 4: Login (Success with TOTP)
-	totpCode, err := auth.GenerateTOTP(regResp.TOTPSecret, time.Now())
+	totpCode, err = auth.GenerateTOTP(totpSecret, time.Now())
 	require.NoError(t, err)
 
 	loginReq2 := auth.LoginRequest{
@@ -151,7 +169,20 @@ func waitForServer(t *testing.T, url string, retries int) {
 		resp, err := http.Post(url, "application/json", bytes.NewBuffer([]byte("{}")))
 		if err == nil {
 			_ = resp.Body.Close()
-			return
+			if resp.StatusCode == http.StatusBadRequest {
+				return
+			}
+			if resp.StatusCode == http.StatusNotFound {
+				// Mux might not be ready or we hit wrong port?
+				// Just retry a bit more in case of some race?
+				// Or fail fast if we suspect configuration error.
+				// But let's log it.
+				fmt.Printf("WaitForServer: Got 404 from %s, retrying...\n", url)
+			} else {
+				// We got some response, assume server is up but maybe we sent bad request
+				// fmt.Printf("WaitForServer: Got %d from %s\n", resp.StatusCode, url)
+				return
+			}
 		}
 		time.Sleep(100 * time.Millisecond)
 	}

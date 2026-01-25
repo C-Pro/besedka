@@ -63,10 +63,10 @@ func NewHub(userProvider userProvider, storage storage) *Hub {
 	}
 
 	// Build initial DMs based on existing users using userProvider.
-	// This usually does nothing as ensureDMsFor is idempotent and chats are restored from storage.
+	// This usually does nothing as EnsureDMsFor is idempotent and chats are restored from storage.
 	users, _ := userProvider.GetUsers()
 	for _, u := range users {
-		h.ensureDMsFor(u, users)
+		h.EnsureDMsFor(u, users)
 	}
 
 	return h
@@ -131,7 +131,7 @@ func (h *Hub) createChat(id string, maxRecords int, isDM bool) *chat.Chat {
 	return c
 }
 
-func (h *Hub) ensureDMsFor(user models.User, allUsers []models.User) {
+func (h *Hub) EnsureDMsFor(user models.User, allUsers []models.User) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -259,8 +259,9 @@ func (h *Hub) GetChats(userID string) []models.Chat {
 	for id, c := range h.chats {
 		if id == "townhall" {
 			result = append(result, models.Chat{
-				ID:   c.ID,
-				Name: "Town Hall",
+				ID:      c.ID,
+				Name:    "Town Hall",
+				LastSeq: int(c.LastSeq),
 			})
 			continue
 		}

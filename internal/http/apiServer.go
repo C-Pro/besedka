@@ -3,7 +3,6 @@ package http
 import (
 	"besedka/internal/api"
 	"besedka/internal/auth"
-	"besedka/internal/storage"
 	"besedka/internal/ws"
 	"context"
 	"log"
@@ -16,9 +15,9 @@ type APIServer struct {
 	wg     sync.WaitGroup
 }
 
-func NewAPIServer(authService *auth.AuthService, bbStorage *storage.BboltStorage, addr string) *APIServer {
+func NewAPIServer(authService *auth.AuthService, hub *ws.Hub, addr string) *APIServer {
 	// Initialize Hub
-	hub := ws.NewHub(authService, bbStorage)
+	// hub := ws.NewHub(authService, bbStorage)
 
 	server := ws.NewServer(authService, hub)
 	apiHandlers := api.New(authService, hub)
@@ -31,6 +30,7 @@ func NewAPIServer(authService *auth.AuthService, bbStorage *storage.BboltStorage
 	// API endpoints
 	mux.HandleFunc("/api/login", apiHandlers.LoginHandler)
 	mux.HandleFunc("/api/register", apiHandlers.RegisterHandler)
+	mux.HandleFunc("/api/register-info", apiHandlers.RegisterInfoHandler)
 	mux.HandleFunc("/api/logoff", apiHandlers.LogoffHandler)
 	mux.HandleFunc("/api/users", apiHandlers.UsersHandler)
 	mux.HandleFunc("/api/chats", apiHandlers.ChatsHandler)

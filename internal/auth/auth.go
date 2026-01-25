@@ -21,7 +21,8 @@ import (
 )
 
 const (
-	DefaultTokenExpiry = 12 * time.Hour
+	DefaultTokenExpiry = 24 * time.Hour
+	DefaultRegistrationTokenExpiry = 24 * time.Hour
 	loginFailedMessage = "Login failed"
 )
 
@@ -35,6 +36,9 @@ type storage interface {
 	UpsertToken(userID string, token string) error
 	DeleteToken(userID string) error
 	ListTokens() (map[string]string, error)
+	UpsertRegistrationToken(userID string, token string) error
+	DeleteRegistrationToken(userID string) error
+	ListRegistrationTokens() (map[string]string, error)
 }
 
 type LoginRequest struct {
@@ -44,23 +48,29 @@ type LoginRequest struct {
 }
 
 type RegistrationRequest struct {
-	Username    string `json:"username"`
+	Token       string `json:"token"`
+	DisplayName string `json:"displayName"`
 	Password    string `json:"password"`
-	NewPassword string `json:"newPassword"`
+	TOTP        int    `json:"totp"`
 }
 
 type RegistrationResponse struct {
-	Success    bool   `json:"success"`
-	Message    string `json:"message,omitempty"`
-	TOTPSecret string `json:"totpSecret,omitempty"`
+	Success bool   `json:"success"`
+	Token   string `json:"token,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+type RegistrationInfoResponse struct {
+	Username    string `json:"username"`
+	DisplayName string `json:"displayName"`
+	TOTPSecret  string `json:"totpSecret"`
 }
 
 type LoginResponse struct {
-	Success      bool   `json:"success"`
-	Message      string `json:"message,omitempty"`
-	NeedRegister bool   `json:"needRegister,omitempty"`
-	Token        string `json:"token,omitempty"`
-	TokenExpiry  int64  `json:"tokenExpiry,omitempty"`
+	Success     bool   `json:"success"`
+	Message     string `json:"message,omitempty"`
+	Token       string `json:"token,omitempty"`
+	TokenExpiry int64  `json:"tokenExpiry,omitempty"`
 }
 
 type UserCredentials struct {
@@ -86,9 +96,10 @@ func (uc *UserCredentials) IncrementFailedLoginAttempts(now time.Time) {
 }
 
 type Config struct {
-	Secret      string        `json:"secret"`
-	secretBytes []byte        `json:"-"`
-	TokenExpiry time.Duration `json:"tokenExpiry"`
+	Secret                  string        `json:"secret"`
+	secretBytes             []byte        `json:"-"`
+	TokenExpiry             time.Duration `json:"tokenExpiry"`
+	RegistrationTokenExpiry time.Duration `json:"registrationTokenExpiry"`
 }
 
 type AuthService struct {
@@ -100,7 +111,9 @@ type AuthService struct {
 	usernames geche.Geche[string, string]
 	// Map of token to user ID
 	liveTokens *geche.MapTTLCache[string, string]
-	now        func() time.Time
+	// Map of registration token to user ID
+	registrationTokens *geche.MapTTLCache[string, string]
+	now                func() time.Time
 }
 
 func (c *Config) Validate() error {
@@ -117,6 +130,9 @@ func (c *Config) Validate() error {
 	if c.TokenExpiry == 0 {
 		c.TokenExpiry = DefaultTokenExpiry
 	}
+	if c.RegistrationTokenExpiry == 0 {
+		c.RegistrationTokenExpiry = DefaultRegistrationTokenExpiry
+	}
 
 	return nil
 }
@@ -127,12 +143,13 @@ func NewAuthService(ctx context.Context, config Config, storage storage) (*AuthS
 	}
 
 	as := &AuthService{
-		Config:     config,
-		storage:    storage,
-		users:      geche.NewLocker(geche.NewMapCache[string, *UserCredentials]()),
-		usernames:  geche.NewMapCache[string, string](),
-		liveTokens: geche.NewMapTTLCache[string, string](ctx, config.TokenExpiry, time.Minute),
-		now:        time.Now,
+		Config:             config,
+		storage:            storage,
+		users:              geche.NewLocker(geche.NewMapCache[string, *UserCredentials]()),
+		usernames:          geche.NewMapCache[string, string](),
+		liveTokens:         geche.NewMapTTLCache[string, string](ctx, config.TokenExpiry, time.Minute),
+		registrationTokens: geche.NewMapTTLCache[string, string](ctx, config.RegistrationTokenExpiry, time.Minute),
+		now:                time.Now,
 	}
 
 	// Load users from storage
@@ -164,6 +181,21 @@ func NewAuthService(ctx context.Context, config Config, storage storage) (*AuthS
 		}
 	})
 
+	// Load registration tokens from storage
+	regTokens, err := storage.ListRegistrationTokens()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list registration tokens: %w", err)
+	}
+	for userID, token := range regTokens {
+		as.registrationTokens.Set(token, userID)
+	}
+
+	as.registrationTokens.OnEvict(func(token string, userID string) {
+		if err := storage.DeleteRegistrationToken(userID); err != nil {
+			slog.Error("failed to delete registration token from storage on eviction", "user_id", userID, "error", err)
+		}
+	})
+
 	return as, nil
 }
 
@@ -173,36 +205,60 @@ func (as *AuthService) hashPassword(username, password string) string {
 	return base64.StdEncoding.EncodeToString(h.Sum(nil))
 }
 
-func (as *AuthService) AddUser(username, password string) (*models.User, error) {
-	return as.SeedUser(uuid.NewString(), username, password, username, "")
-}
-
-func (as *AuthService) SeedUser(userID, username, password, displayName, avatarURL string) (*models.User, error) {
+func (as *AuthService) AddUser(username, displayName string) (string, error) {
 	tx := as.users.Lock()
 	defer tx.Unlock()
-	if _, err := as.usernames.Get(username); err == nil {
-		return nil, ErrUserExists
+
+	var user *UserCredentials
+	// If the user exists but did not finish their registration, we will generate a new registration token.
+	// If registration is already complete, we will return ErrUserExists.
+	if id, err := as.usernames.Get(username); err == nil {
+		existingUser, err := tx.Get(id)
+		if err != nil {
+			return "", fmt.Errorf("user found in username index but missing in storage: %w", err)
+		}
+		if existingUser.LastTOTP != -1 {
+			return "", ErrUserExists
+		}
+		user = existingUser
+	} else {
+		// Create new user
+		userID := uuid.NewString()
+		totpSecret, err := as.generateTOTPSecret()
+		if err != nil {
+			return "", fmt.Errorf("failed to generate TOTP secret: %w", err)
+		}
+
+		user = &UserCredentials{
+			User: models.User{
+				ID:          userID,
+				UserName:    username,
+				DisplayName: displayName,
+			},
+			TOTPSecret: totpSecret,
+			LastTOTP:   -1,
+		}
 	}
 
-	creds := UserCredentials{
-		User: models.User{
-			ID:          userID,
-			UserName:    username,
-			DisplayName: displayName,
-			AvatarURL:   avatarURL,
-		},
-		PasswordHash: as.hashPassword(username, password),
-		LastTOTP:     -1,
+	// Generate registration token
+	token, err := as.generateToken()
+	if err != nil {
+		return "", fmt.Errorf("failed to generate registration token: %w", err)
 	}
 
-	if err := as.storage.UpsertCredentials(creds); err != nil {
-		return nil, fmt.Errorf("failed to persist user: %w", err)
+	if err := as.storage.UpsertCredentials(*user); err != nil {
+		return "", fmt.Errorf("failed to persist user: %w", err)
 	}
 
-	tx.Set(userID, &creds)
-	as.usernames.Set(username, userID)
+	if err := as.storage.UpsertRegistrationToken(user.ID, token); err != nil {
+		return "", fmt.Errorf("failed to persist registration token: %w", err)
+	}
 
-	return &creds.User, nil
+	tx.Set(user.ID, user)
+	as.usernames.Set(username, user.ID)
+	as.registrationTokens.Set(token, user.ID)
+
+	return token, nil
 }
 
 func (as *AuthService) GetUser(id string) (models.User, error) {
@@ -271,8 +327,8 @@ func (as *AuthService) Login(req LoginRequest) (LoginResponse, string) {
 
 	if user.LastTOTP == -1 {
 		return LoginResponse{
-			NeedRegister: true,
-			Message:      "First login requires to change password and setup TOTP",
+			Success: false,
+			Message: "User setup not completed",
 		}, ""
 	}
 
@@ -393,50 +449,64 @@ func (as *AuthService) generateTOTPSecret() (string, error) {
 	return base32.StdEncoding.EncodeToString(b), nil
 }
 
-func (as *AuthService) Register(req RegistrationRequest) RegistrationResponse {
+func (as *AuthService) GetRegistrationInfo(token string) (RegistrationInfoResponse, error) {
+	userID, err := as.registrationTokens.Get(token)
+	if err != nil {
+		return RegistrationInfoResponse{}, errors.New("invalid or expired registration token")
+	}
+
+	tx := as.users.RLock()
+	defer tx.Unlock()
+	user, err := tx.Get(userID)
+	if err != nil {
+		return RegistrationInfoResponse{}, errors.New("user not found")
+	}
+
+	return RegistrationInfoResponse{
+		Username:    user.UserName,
+		DisplayName: user.DisplayName,
+		TOTPSecret:  user.TOTPSecret,
+	}, nil
+}
+
+func (as *AuthService) CompleteRegistration(req RegistrationRequest) (RegistrationResponse, string) {
+	userID, err := as.registrationTokens.Get(req.Token)
+	if err != nil {
+		return RegistrationResponse{
+			Success: false,
+			Message: "Invalid or expired registration token",
+		}, ""
+	}
+
 	tx := as.users.Lock()
 	defer tx.Unlock()
 
-	id, err := as.usernames.Get(req.Username)
+	user, err := tx.Get(userID)
 	if err != nil {
 		return RegistrationResponse{
 			Success: false,
 			Message: "User not found",
-		}
-	}
-
-	user, err := tx.Get(id)
-	if err != nil {
-		return RegistrationResponse{
-			Success: false,
-			Message: "User not found",
-		}
+		}, ""
 	}
 
 	if user.LastTOTP != -1 {
 		return RegistrationResponse{
 			Success: false,
 			Message: "User already registered",
-		}
+		}, ""
 	}
 
-	hash := as.hashPassword(req.Username, req.Password)
-	if !hmac.Equal([]byte(user.PasswordHash), []byte(hash)) {
+	if !as.checkTOTP(user.TOTPSecret, req.TOTP, user.LastTOTP) {
 		return RegistrationResponse{
 			Success: false,
-			Message: "Invalid password",
-		}
+			Message: "Invalid TOTP code",
+		}, ""
 	}
 
-	secret, err := as.generateTOTPSecret()
-	if err != nil {
-		return RegistrationResponse{
-			Success: false,
-			Message: "Internal error",
-		}
+	user.PasswordHash = as.hashPassword(user.UserName, req.Password)
+	if req.DisplayName != "" {
+		user.DisplayName = req.DisplayName
 	}
-	user.PasswordHash = as.hashPassword(req.Username, req.NewPassword)
-	user.TOTPSecret = secret
 	user.LastTOTP = 0 // Activate user
 
 	if err := as.storage.UpsertCredentials(*user); err != nil {
@@ -444,15 +514,35 @@ func (as *AuthService) Register(req RegistrationRequest) RegistrationResponse {
 		return RegistrationResponse{
 			Success: false,
 			Message: "Internal error",
-		}
+		}, ""
 	}
 
-	tx.Set(req.Username, user)
+	// Delete registration token
+	if err := as.storage.DeleteRegistrationToken(userID); err != nil {
+		slog.Error("failed to delete registration token", "error", err)
+	}
+	_ = as.registrationTokens.Del(req.Token)
+
+	// Create session token
+	token, err := as.generateToken()
+	if err != nil {
+		slog.Error("login failed", "user_id", user.ID, "error", err)
+		return RegistrationResponse{
+			Success: false,
+			Message: "Internal error",
+		}, ""
+	}
+
+	as.liveTokens.Set(token, user.ID)
+
+	if err := as.storage.UpsertToken(user.ID, token); err != nil {
+		slog.Error("failed to persist token after registration", "error", err)
+	}
 
 	return RegistrationResponse{
-		Success:    true,
-		TOTPSecret: secret,
-	}
+		Success: true,
+		Token:   token,
+	}, token
 }
 
 func GenerateTOTP(secret string, t time.Time) (int, error) {

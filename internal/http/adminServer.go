@@ -3,6 +3,7 @@ package http
 import (
 	"besedka/internal/api"
 	"besedka/internal/auth"
+	"besedka/internal/ws"
 	"context"
 	"log"
 	"net/http"
@@ -14,10 +15,10 @@ type AdminServer struct {
 	wg     sync.WaitGroup
 }
 
-func NewAdminServer(authService *auth.AuthService, addr string) *AdminServer {
-	adminHandler := api.NewAdminHandler(authService)
+func NewAdminServer(authService *auth.AuthService, hub *ws.Hub, addr string) *AdminServer {
+	adminHandler := api.NewAdminHandler(authService, hub)
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /admin/users", adminHandler.AddUserHandler)
+	mux.HandleFunc("/admin/users", adminHandler.AddUserHandler)
 
 	if addr == "" {
 		addr = "localhost:8081"

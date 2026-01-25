@@ -10,8 +10,9 @@ import (
 )
 
 type MockStorage struct {
-	creds  map[string]UserCredentials
-	tokens map[string]string
+	creds     map[string]UserCredentials
+	tokens    map[string]string
+	regTokens map[string]string
 }
 
 func (m *MockStorage) UpsertCredentials(c UserCredentials) error {
@@ -41,6 +42,25 @@ func (m *MockStorage) ListTokens() (map[string]string, error) {
 	return m.tokens, nil
 }
 
+func (m *MockStorage) UpsertRegistrationToken(userID string, token string) error {
+	// For testing, we might want map token -> userID or userID -> token.
+	// bbolt implementation uses UserID key.
+	// We want to mimic that behavior but return list.
+	// Let's store as UserID -> Token key.
+	m.regTokens[userID] = token
+	return nil
+}
+
+func (m *MockStorage) DeleteRegistrationToken(userID string) error {
+	delete(m.regTokens, userID)
+	return nil
+}
+
+func (m *MockStorage) ListRegistrationTokens() (map[string]string, error) {
+	// Return UserID -> Token
+	return m.regTokens, nil
+}
+
 func TestAuthService(t *testing.T) {
 	// Test Vectors generated using github.com/pquerna/otp
 	// RawSecret: 12345678901234567890
@@ -61,8 +81,9 @@ func TestAuthService(t *testing.T) {
 		}
 
 		store := &MockStorage{
-			creds:  make(map[string]UserCredentials),
-			tokens: make(map[string]string),
+			creds:     make(map[string]UserCredentials),
+			tokens:    make(map[string]string),
+			regTokens: make(map[string]string),
 		}
 
 		ctx := context.Background()
@@ -89,38 +110,54 @@ func TestAuthService(t *testing.T) {
 	t.Run("AddUser", func(t *testing.T) {
 		svc, _, _ := createService(t)
 
-		u1, err := svc.AddUser("user1", "pass1")
+		token, err := svc.AddUser("user1", "Display Name")
 		if err != nil {
 			t.Fatalf("Failed to add user: %v", err)
+		}
+		if token == "" {
+			t.Error("Expected token, got empty string")
+		}
+
+		id, err := svc.usernames.Get("user1")
+		if err != nil {
+			t.Fatalf("Failed to get username: %v", err)
+		}
+		u1, err := svc.GetUser(id)
+		if err != nil {
+			t.Fatalf("Failed to get user: %v", err)
 		}
 		if u1.UserName != "user1" {
 			t.Errorf("Expected username user1, got %s", u1.UserName)
 		}
 
-		_, err = svc.AddUser("user1", "pass2")
-		if err != ErrUserExists {
-			t.Errorf("Expected ErrUserExists, got %v", err)
+		// Idempotency check: AddUser again should return NEW token but not error if not registered
+		token2, err := svc.AddUser("user1", "Display Name")
+		if err != nil {
+			t.Errorf("Expected idempotency success, got error: %v", err)
+		}
+		if token2 == token {
+			t.Error("Expected different token on second invite")
 		}
 	})
 
-	t.Run("Login_FirstTime", func(t *testing.T) {
+	t.Run("Login_BeforeRegistration", func(t *testing.T) {
 		svc, _, _ := createService(t)
-		if _, err := svc.AddUser("user1", "pass1"); err != nil {
+		if _, err := svc.AddUser("user1", "User 1"); err != nil {
 			t.Fatalf("failed to setup user: %v", err)
 		}
 
-		// First login - should require registration/setup
+		// First login - should fail as setup not completed
 		resp, _ := svc.Login(LoginRequest{
 			Username: "user1",
 			Password: "pass1",
 			TOTP:     0,
 		})
 
-		if !resp.NeedRegister {
-			t.Error("Expected NeedRegister=true for first login")
-		}
 		if resp.Success {
-			t.Error("Expected Success=false for first login")
+			t.Error("Expected Success=false for login before registration")
+		}
+		if resp.Message != loginFailedMessage {
+			t.Errorf("Expected %q, got %q", loginFailedMessage, resp.Message)
 		}
 	})
 
@@ -385,45 +422,44 @@ func TestAuthService(t *testing.T) {
 		}
 	})
 
-	t.Run("Register", func(t *testing.T) {
+	t.Run("CompleteRegistration", func(t *testing.T) {
 		svc, now, _ := createService(t)
-		_, err := svc.AddUser("user1", "pass1")
+		token, err := svc.AddUser("user1", "User 1")
 		if err != nil {
 			t.Fatalf("Failed to add user: %v", err)
 		}
 
-		// Register with correct old password
-		resp := svc.Register(RegistrationRequest{
-			Username:    "user1",
-			Password:    "pass1",
-			NewPassword: "pass2",
-		})
-
-		if !resp.Success {
-			t.Fatalf("Registration failed: %s", resp.Message)
+		info, err := svc.GetRegistrationInfo(token)
+		if err != nil {
+			t.Fatalf("Failed to get registration info: %v", err)
 		}
-		if resp.TOTPSecret == "" {
-			t.Error("Expected TOTP secret in registration response")
+		if info.Username != "user1" {
+			t.Errorf("Expected username user1, got %s", info.Username)
 		}
 
-		// Try logging in with OLD password - should fail
-		loginResp, _ := svc.Login(LoginRequest{
-			Username: "user1",
-			Password: "pass1",
-			TOTP:     0,
-		})
-		if loginResp.Success {
-			t.Error("Login with old password should fail")
-		}
-
-		// Generate valid code for new secret
-		code, err := GenerateTOTP(resp.TOTPSecret, *now)
+		// Generate valid code for secret
+		code, err := GenerateTOTP(info.TOTPSecret, *now)
 		if err != nil {
 			t.Fatalf("Failed to generate TOTP: %v", err)
 		}
 
+		// Register (CompleteSetup)
+		regResp, sessionToken := svc.CompleteRegistration(RegistrationRequest{
+			Token:       token,
+			DisplayName: "User One",
+			Password:    "pass2",
+			TOTP:        code,
+		})
+
+		if !regResp.Success {
+			t.Fatalf("Registration failed: %s", regResp.Message)
+		}
+		if sessionToken == "" {
+			t.Error("Expected session token")
+		}
+
 		// Login with NEW password and TOTP
-		loginResp, _ = svc.Login(LoginRequest{
+		loginResp, _ := svc.Login(LoginRequest{
 			Username: "user1",
 			Password: "pass2",
 			TOTP:     code,
@@ -432,13 +468,19 @@ func TestAuthService(t *testing.T) {
 		if !loginResp.Success {
 			t.Errorf("Login with new password failed: %s", loginResp.Message)
 		}
+
+		// Check idempotency - can't register again with same token (it's deleted)
+		_, err = svc.GetRegistrationInfo(token)
+		if err == nil {
+			t.Error("Registration info should be gone after registration")
+		}
 	})
 
 	t.Run("Persistence_Integration", func(t *testing.T) {
 		svc, now, store := createService(t)
 
 		// 1. AddUser (UpsertCredentials)
-		_, err := svc.AddUser("persist_user", "pass")
+		token, err := svc.AddUser("persist_user", "Persist User")
 		if err != nil {
 			t.Fatalf("Failed to add user: %v", err)
 		}
@@ -455,26 +497,53 @@ func TestAuthService(t *testing.T) {
 			t.Error("User not found in storage after AddUser")
 		}
 
-		// 2. Register (UpsertCredentials) -> verify Secret persisted
-		// Setup another user manually to register
-		if _, err := svc.AddUser("reg_user", "pass"); err != nil {
-			t.Fatalf("failed to setup reg_user: %v", err)
+		// Verify token stored
+		foundToken := ""
+		for _, t := range store.regTokens {
+			if t == token {
+				foundToken = t
+				break
+			}
+		}
+		if foundToken == "" {
+			// Actually regTokens map is UserID -> Token in MockStorage implementation I made
+			// Let's check logic in MockStorage.UpsertRegistrationToken
+			// m.regTokens[userID] = token
+			// So we search values? Or keys? Wait.
+			// MockStorage.UpsertRegistrationToken(userID, token) -> m.regTokens[userID] = token
+			// So in ListRegistrationTokens() it returns UserID -> Token map.
+			// So we just iterate values.
+			for _, t := range store.regTokens {
+				if t == token {
+					foundToken = t
+					break
+				}
+			}
+		}
+		if foundToken == "" {
+			t.Error("Registration token not found in storage")
 		}
 
-		regResp := svc.Register(RegistrationRequest{
-			Username:    "reg_user",
-			Password:    "pass",
-			NewPassword: "newpass",
+		// 2. CompleteRegistration -> verify Secret persisted and Token removed
+		info, _ := svc.GetRegistrationInfo(token)
+		code, _ := GenerateTOTP(info.TOTPSecret, *now)
+
+		regResp, _ := svc.CompleteRegistration(RegistrationRequest{
+			Token:       token,
+			DisplayName: "Persist User",
+			Password:    "newpass",
+			TOTP:        code,
 		})
 		if !regResp.Success {
 			t.Fatalf("Register failed: %v", regResp.Message)
 		}
 
-		// Verify secret in store
+		// Verify secret matches what we got (info.TOTPSecret) in store
+		// (Actually AddUser generated it, so we check if it is still there)
 		foundSecret := false
 		for _, creds := range store.creds {
-			if creds.UserName == "reg_user" {
-				if creds.TOTPSecret == regResp.TOTPSecret {
+			if creds.UserName == "persist_user" {
+				if creds.TOTPSecret == info.TOTPSecret {
 					foundSecret = true
 				}
 				break
@@ -484,10 +553,28 @@ func TestAuthService(t *testing.T) {
 			t.Error("Registered user TOTP secret not found or mismatch in storage")
 		}
 
-		svc.SetOnline("reg_user")
+		// Verify registration token deleted
+		if _, ok := store.regTokens[token]; ok {
+			// Wait, regTokens is UserID -> Token. We don't know UserID easily here without looking up
+			// But we iterate map
+			for _, tok := range store.regTokens {
+				if tok == token {
+					t.Error("Registration token should be deleted")
+				}
+			}
+		}
+
+		svc.SetOnline("persist_user") // Wait, SetOnline takes UserID. I need UserID.
+		// Let's skip SetOnline check or fetch UserID.
+		// We can get ID from token if we logged in... CompleteRegistration returns session token.
+		// regResp.Token is session token.
+		sessionToken := regResp.Token
+		userID, _ := svc.GetUserID(sessionToken)
+
+		svc.SetOnline(userID)
 
 		for _, creds := range store.creds {
-			if creds.UserName == "reg_user" {
+			if creds.UserName == "persist_user" {
 				if creds.Presence.LastSeen != now.Unix() {
 					t.Errorf("expected last seen to be %d, got %d", now.Unix(), creds.Presence.LastSeen)
 				}

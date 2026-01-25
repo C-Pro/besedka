@@ -3,12 +3,15 @@ package main
 import (
 	"besedka/internal/auth"
 	"besedka/internal/commands"
+	"besedka/internal/config"
 	"besedka/internal/http"
 	"besedka/internal/storage"
+	"besedka/internal/ws"
 	"context"
 	"encoding/base64"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	oshttp "net/http"
 	"os"
@@ -23,20 +26,23 @@ func run(ctx context.Context) error {
 	addUser := flag.String("add-user", "", "Username to create (creates user with random password and prints details)")
 	flag.Parse()
 
+	// Load configuration
+	cfg, err := config.Load(*addUser != "")
+	if err != nil {
+		return err
+	}
+	fmt.Printf("DEBUG CONFIG: AdminAddr=%s APIAddr=%s\n", cfg.AdminAddr, cfg.APIAddr)
+
 	if *addUser != "" {
-		return commands.AddUser(*addUser)
+		return commands.AddUser(*addUser, cfg)
 	}
 
 	authConfig := auth.Config{
-		Secret:      base64.StdEncoding.EncodeToString([]byte("very-secure-secret-key-for-development-mode")),
-		TokenExpiry: 24 * time.Hour,
+		Secret:      base64.StdEncoding.EncodeToString([]byte(cfg.AuthSecret)),
+		TokenExpiry: cfg.TokenExpiry,
 	}
 
-	dbFile := os.Getenv("BESEDKA_DB")
-	if dbFile == "" {
-		dbFile = "besedka.db"
-	}
-	bbStorage, err := storage.NewBboltStorage(dbFile)
+	bbStorage, err := storage.NewBboltStorage(cfg.DBFile)
 	if err != nil {
 		return err
 	}
@@ -47,18 +53,10 @@ func run(ctx context.Context) error {
 		return err
 	}
 
-	adminAddr := os.Getenv("ADMIN_ADDR")
-	if adminAddr == "" {
-		adminAddr = "localhost:8081"
-	}
+	hub := ws.NewHub(authService, bbStorage)
 
-	apiAddr := os.Getenv("API_ADDR")
-	if apiAddr == "" {
-		apiAddr = ":8080"
-	}
-
-	adminServer := http.NewAdminServer(authService, adminAddr)
-	apiServer := http.NewAPIServer(authService, bbStorage, apiAddr)
+	adminServer := http.NewAdminServer(authService, hub, cfg.AdminAddr)
+	apiServer := http.NewAPIServer(authService, hub, cfg.APIAddr)
 
 	g, gCtx := errgroup.WithContext(ctx)
 

@@ -124,7 +124,7 @@ func (a *API) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := a.auth.Register(req)
+	resp, token := a.auth.CompleteRegistration(req)
 	if !resp.Success {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -134,9 +134,41 @@ func (a *API) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	http.SetCookie(w, &http.Cookie{
+		Name:     "token",
+		Value:    token,
+		HttpOnly: true,
+		Path:     "/",
+		Expires:  time.Now().Add(auth.DefaultTokenExpiry), // Or use configured expiry
+	})
+
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		log.Printf("failed to encode register response: %v", err)
+	}
+}
+
+func (a *API) RegisterInfoHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		http.Error(w, "Token required", http.StatusBadRequest)
+		return
+	}
+
+	info, err := a.auth.GetRegistrationInfo(token)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(info); err != nil {
+		log.Printf("failed to encode register info response: %v", err)
 	}
 }
 

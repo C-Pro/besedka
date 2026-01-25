@@ -2,26 +2,23 @@ package commands
 
 import (
 	"besedka/internal/api"
+	"besedka/internal/config"
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"os"
+	"strings"
 )
 
-func AddUser(username string) error {
-	adminAddr := os.Getenv("ADMIN_ADDR")
-	if adminAddr == "" {
-		adminAddr = "localhost:8081"
-	}
+func AddUser(username string, cfg *config.Config) error {
 	// Prepare request
 	reqBody, err := json.Marshal(api.AddUserRequest{Username: username})
 	if err != nil {
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	url := fmt.Sprintf("http://%s/admin/users", adminAddr)
+	url := fmt.Sprintf("http://%s/admin/users", cfg.AdminAddr)
 	resp, err := http.Post(url, "application/json", bytes.NewBuffer(reqBody))
 	if err != nil {
 		return fmt.Errorf("failed to call admin API: %w. Is the server running?", err)
@@ -42,17 +39,19 @@ func AddUser(username string) error {
 
 	fmt.Printf("\nUser Created Successfully!\n")
 	fmt.Printf("Username:          %s\n", result.Username)
-	fmt.Printf("Temporary Password: %s\n", result.Password)
-	apiAddr := os.Getenv("API_ADDR")
-	if apiAddr == "" {
-		apiAddr = ":8080"
-	}
-	// If apiAddr starts with :, preprend localhost
-	if len(apiAddr) > 0 && apiAddr[0] == ':' {
-		apiAddr = "localhost" + apiAddr
+
+	baseURL := cfg.BaseURL
+	// Ensure BaseURL doesn't end with slash if SetupLink starts with one, or handle neatly.
+	// SetupLink from API usually starts with /register.html?token=...
+	// Let's trim suffix from baseURL just in case
+	baseURL = strings.TrimSuffix(baseURL, "/")
+
+	setupLink := result.SetupLink
+	if !strings.HasPrefix(setupLink, "/") {
+		setupLink = "/" + setupLink
 	}
 
-	fmt.Printf("Setup Link:         http://%s%s\n\n", apiAddr, result.SetupLink)
-	fmt.Println("Please share these details with the user securely.")
+	fmt.Printf("Setup Link:         %s%s\n\n", baseURL, setupLink)
+	fmt.Println("Please share this link with the user to complete registration.")
 	return nil
 }

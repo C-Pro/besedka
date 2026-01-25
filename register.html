@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Register - Chat App</title>
+    <title>Complete Registration - Besedka</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -12,53 +12,189 @@
     <link rel="stylesheet" href="css/layout.css">
     <link rel="stylesheet" href="css/components.css">
     <link rel="stylesheet" href="css/login.css">
+    <style>
+        #qr-code-container {
+            display: flex;
+            justify-content: center;
+            background: white;
+            padding: 10px;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+
+        #totp-secret {
+            font-family: monospace;
+            background-color: var(--bg-input);
+            padding: 5px;
+            border-radius: 4px;
+            text-align: center;
+            font-size: 0.8rem;
+            margin-bottom: 10px;
+            color: var(--text-primary);
+        }
+
+        .register-step {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .label-text {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-bottom: -0.25rem;
+        }
+
+        #register-form {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+    </style>
 </head>
 
 <body>
-    <div id="register-app">
-        <div class="login-container">
-            <div class="login-card">
-                <h2>Setup / Register</h2>
-                <div id="error-message" class="error-message" style="display: none;"></div>
+    <div class="login-container">
+        <div class="login-card">
+            <h2>Complete Registration</h2>
 
-                <div id="register-form">
-                    <p class="info-message">To set up your account or change password, please enter your details.</p>
-
-                    <form onsubmit="event.preventDefault();">
-                        <input type="text" id="username" placeholder="Username">
-                        <input type="password" id="current-password" placeholder="Current Password">
-                        <input type="password" id="new-password" placeholder="New Password">
-
-                        <button type="submit" id="register-btn">Complete Setup</button>
-                    </form>
-                    <button id="back-btn" class="secondary-btn"
-                        style="margin-top: 10px; background: transparent; color: #666; border: 1px solid #ccc;">Back to
-                        Login</button>
-                </div>
-
-                <div id="success-view" style="display: none;">
-                    <h3>Setup Complete!</h3>
-                    <p class="info-message">Registration successful. Please scan this QR code with your Authenticator
-                        App:</p>
-
-                    <div id="qrcode"
-                        style="display: flex; justify-content: center; align-self: center; background: white; padding: 16px; border-radius: 8px; margin: 15px 0;">
-                    </div>
-
-                    <p class="info-message">Or manually enter this secret:</p>
-                    <div id="secret-display"
-                        style="background: #f0f0f0; padding: 10px; margin: 10px 0; border-radius: 4px; font-family: monospace; font-weight: bold; text-align: center; color: #333; word-break: break-all;">
-                    </div>
-
-                    <p class="hint">Then return to login and use your new password and the generated code.</p>
-                    <button id="success-back-btn">Back to Login</button>
-                </div>
-
+            <div id="loading" class="info-message">
+                Loading registration details...
             </div>
+
+            <div id="error-message" class="error-message" style="display: none;"></div>
+
+            <form id="register-form" style="display: none;">
+                <div class="register-step">
+                    <span class="label-text">Username</span>
+                    <input id="username" type="text" readonly tabindex="-1">
+                </div>
+
+                <div class="register-step">
+                    <span class="label-text">Display Name</span>
+                    <input id="displayName" type="text" placeholder="Your display name" required>
+                </div>
+
+                <div class="register-step">
+                    <span class="label-text">New Password</span>
+                    <input id="password" type="password" placeholder="Choose a strong password" required>
+                </div>
+
+                <div class="register-step">
+                    <span class="label-text">Setup 2FA (TOTP)</span>
+                    <div id="qr-code-container"></div>
+                    <div id="totp-secret"></div>
+                    <input id="totp" type="text" pattern="[0-9]*" inputmode="numeric"
+                        placeholder="6-digit code from App" required>
+                </div>
+
+                <button type="submit">Finish Registration</button>
+            </form>
         </div>
     </div>
-    <script src="js/qrcode.min.js"></script>
-    <script type="module" src="js/register.js"></script>
+
+    <script src="/js/qrcode.min.js"></script>
+    <script type="module">
+        const urlParams = new URLSearchParams(window.location.search);
+        // Important: URLSearchParams.get decodes query parameters. 
+        // If the token was correctly encoded with url.QueryEscape on backend, 
+        // it will be correctly retrieved here with '+' preserved.
+        const token = urlParams.get('token');
+
+        if (!token) {
+            document.getElementById('loading').style.display = 'none';
+            showError('Invalid registration link. Missing token.');
+        } else {
+            fetchRegistrationInfo();
+        }
+
+        async function fetchRegistrationInfo() {
+            try {
+                const response = await fetch(`/api/register-info?token=${encodeURIComponent(token)}`);
+                if (!response.ok) {
+                    let message = 'Failed to load registration info';
+                    try {
+                        const data = await response.json();
+                        message = data.message || message;
+                    } catch (e) {
+                        message = await response.text() || message;
+                    }
+                    throw new Error(message);
+                }
+
+                const data = await response.json();
+                renderForm(data);
+            } catch (error) {
+                document.getElementById('loading').style.display = 'none';
+                showError(error.message);
+            }
+        }
+
+        function renderForm(data) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('register-form').style.display = 'flex';
+
+            document.getElementById('username').value = data.username;
+            document.getElementById('displayName').value = data.displayName || data.username;
+
+            // Generate QR Code
+            const otpUrl = `otpauth://totp/Besedka:${data.username}?secret=${data.totpSecret}&issuer=Besedka`;
+            const qrContainer = document.getElementById('qr-code-container');
+            qrContainer.innerHTML = '';
+            new QRCode(qrContainer, {
+                text: otpUrl,
+                width: 200,
+                height: 200
+            });
+
+            document.getElementById('totp-secret').textContent = `Secret: ${data.totpSecret}`;
+        }
+
+        function showError(message) {
+            const errorDiv = document.getElementById('error-message');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+        }
+
+        document.getElementById('register-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const displayName = document.getElementById('displayName').value;
+            const password = document.getElementById('password').value;
+            const totp = document.getElementById('totp').value;
+
+            try {
+                const response = await fetch('/api/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        token: token,
+                        displayName: displayName,
+                        password: password,
+                        totp: parseInt(totp, 10)
+                    })
+                });
+
+                if (!response.ok) {
+                    let message = 'Registration failed';
+                    try {
+                        const data = await response.json();
+                        message = data.message || message;
+                    } catch (e) {
+                        message = await response.text() || message;
+                    }
+                    throw new Error(message);
+                }
+
+                // Successful registration
+                window.location.href = '/';
+            } catch (error) {
+                showError(error.message);
+            }
+        });
+    </script>
 </body>
 
 </html>

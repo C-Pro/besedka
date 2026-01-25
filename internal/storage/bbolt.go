@@ -14,10 +14,11 @@ import (
 )
 
 var (
-	bucketUsers    = []byte("users")
-	bucketChats    = []byte("chats")
-	bucketMessages = []byte("messages")
-	bucketTokens   = []byte("tokens")
+	bucketUsers              = []byte("users")
+	bucketChats              = []byte("chats")
+	bucketMessages           = []byte("messages")
+	bucketTokens             = []byte("tokens")
+	bucketRegistrationTokens = []byte("registration_tokens")
 )
 
 type BboltStorage struct {
@@ -41,6 +42,9 @@ func NewBboltStorage(path string) (*BboltStorage, error) {
 			return err
 		}
 		if _, err := tx.CreateBucketIfNotExists(bucketTokens); err != nil {
+			return err
+		}
+		if _, err := tx.CreateBucketIfNotExists(bucketRegistrationTokens); err != nil {
 			return err
 		}
 		return nil
@@ -278,6 +282,45 @@ func (s *BboltStorage) ListTokens() (map[string]string, error) {
 	tokens := make(map[string]string)
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketTokens)
+		return b.ForEach(func(k, v []byte) error {
+			var dbToken DBToken
+			if err := dbToken.UnmarshalBinary(v); err != nil {
+				return err
+			}
+			tokens[dbToken.UserID] = dbToken.Token
+			return nil
+		})
+	})
+	return tokens, err
+}
+
+func (s *BboltStorage) UpsertRegistrationToken(userID string, token string) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketRegistrationTokens)
+		dbToken := &DBToken{
+			UserID: userID,
+			Token:  token,
+		}
+		data, err := dbToken.MarshalBinary()
+		if err != nil {
+			return err
+		}
+		// Use UserID as key
+		return b.Put([]byte(userID), data)
+	})
+}
+
+func (s *BboltStorage) DeleteRegistrationToken(userID string) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketRegistrationTokens)
+		return b.Delete([]byte(userID))
+	})
+}
+
+func (s *BboltStorage) ListRegistrationTokens() (map[string]string, error) {
+	tokens := make(map[string]string)
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketRegistrationTokens)
 		return b.ForEach(func(k, v []byte) error {
 			var dbToken DBToken
 			if err := dbToken.UnmarshalBinary(v); err != nil {
