@@ -26,13 +26,13 @@ func NewFileServerHandler(authService *auth.AuthService, root string) http.Handl
 			// Check cookie
 			cookie, err := r.Cookie("token")
 			if err != nil || cookie.Value == "" {
-				http.Redirect(w, r, "/login.html", http.StatusUnauthorized)
+				http.Redirect(w, r, "/login.html", http.StatusFound)
 				return
 			}
 
 			// Validate token
 			if _, err := authService.GetUserID(cookie.Value); err != nil {
-				http.Redirect(w, r, "/login.html", http.StatusUnauthorized)
+				http.Redirect(w, r, "/login.html", http.StatusFound)
 				return
 			}
 		}

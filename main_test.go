@@ -54,6 +54,23 @@ func TestIntegration(t *testing.T) {
 	// Wait for server to start
 	waitForServer(t, "http://127.0.0.1:8882/admin/users", 20)
 
+	// Step 0: Verify Root Redirect (New Check)
+	// Requesting root without token should redirect to login.html with 302 Found
+	{
+		client := &http.Client{
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				return http.ErrUseLastResponse // Don't follow redirects automatically
+			},
+		}
+		resp, err := client.Get(fmt.Sprintf("http://localhost%s/", apiAddr))
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+		require.Equal(t, http.StatusFound, resp.StatusCode)
+		location, err := resp.Location()
+		require.NoError(t, err)
+		require.Equal(t, "/login.html", location.Path)
+	}
+
 	// Step 1: Create User via Admin API (Invite)
 	username := "testuser"
 	reqBody, _ := json.Marshal(api.AddUserRequest{Username: username})
