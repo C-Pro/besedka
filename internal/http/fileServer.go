@@ -2,25 +2,15 @@ package http
 
 import (
 	"besedka/internal/auth"
+	"io/fs"
 	"net/http"
 	"strings"
 )
 
-func NewFileServerHandler(authService *auth.AuthService, root string) http.HandlerFunc {
-	fs := http.FileServer(http.Dir(root))
+func NewFileServerHandler(authService *auth.AuthService, assets fs.FS) http.HandlerFunc {
+	fileServer := http.FileServer(http.FS(assets))
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		// public paths that don't need auth
-		publicPaths := []string{"/login.html", "/register.html", "/css/", "/js/"}
-
-		// If it matches a public path prefix, serve it directly
-		for _, prefix := range publicPaths {
-			if strings.HasPrefix(r.URL.Path, prefix) {
-				fs.ServeHTTP(w, r)
-				return
-			}
-		}
-
 		// Specific check for exactly root "/" or "/index.html"
 		if r.URL.Path == "/" || r.URL.Path == "/index.html" {
 			// Check cookie
@@ -37,7 +27,13 @@ func NewFileServerHandler(authService *auth.AuthService, root string) http.Handl
 			}
 		}
 
+		// Prevent serving the static.go file
+		if strings.HasSuffix(r.URL.Path, "/static.go") {
+			http.NotFound(w, r)
+			return
+		}
+
 		// Default to file server
-		fs.ServeHTTP(w, r)
+		fileServer.ServeHTTP(w, r)
 	}
 }

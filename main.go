@@ -11,7 +11,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"flag"
-	"fmt"
 	"log"
 	oshttp "net/http"
 	"os"
@@ -26,12 +25,10 @@ func run(ctx context.Context) error {
 	addUser := flag.String("add-user", "", "Username to create (creates user with random password and prints details)")
 	flag.Parse()
 
-	// Load configuration
 	cfg, err := config.Load(*addUser != "")
 	if err != nil {
 		return err
 	}
-	fmt.Printf("DEBUG CONFIG: AdminAddr=%s APIAddr=%s\n", cfg.AdminAddr, cfg.APIAddr)
 
 	if *addUser != "" {
 		return commands.AddUser(*addUser, cfg)

@@ -44,13 +44,9 @@ jobs:
     - uses: golangci/golangci-lint-action@v8
       with:
           version: v2.7.2
-  eslint:
-    name: Run eslint
+  biome-lint:
+    name: Run biome lint
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
-      with:
-        node-version: '18'
-    - run: npm ci
-    - run: npm run lint
+    - run: make lint-js

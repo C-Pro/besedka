@@ -4,6 +4,7 @@ import (
 	"besedka/internal/api"
 	"besedka/internal/auth"
 	"besedka/internal/ws"
+	"besedka/static"
 	"context"
 	"log"
 	"net/http"
@@ -25,7 +26,7 @@ func NewAPIServer(authService *auth.AuthService, hub *ws.Hub, addr string) *APIS
 	mux := http.NewServeMux()
 
 	// Serve static files with Auth check
-	mux.HandleFunc("/", NewFileServerHandler(authService, "."))
+	mux.HandleFunc("/", NewFileServerHandler(authService, static.Content))
 
 	// API endpoints
 	mux.HandleFunc("/api/login", apiHandlers.LoginHandler)

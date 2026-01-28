@@ -128,6 +128,14 @@ class Store {
             const response = await fetch('/api/chats');
             const chats = await response.json();
             this.setState({ chats });
+
+            // Set Townhall as active chat if none selected
+            if (!this.state.activeChatId) {
+                const townhall = chats.find(c => c.id === 'townhall');
+                if (townhall) {
+                    this.setActiveChat(townhall.id);
+                }
+            }
         } catch (error) {
             console.error('Fetch chats error:', error);
         }

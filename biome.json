@@ -1,0 +1,24 @@
+{
+    "files": {
+        "includes": [
+            "static/js/app.js",
+            "static/js/login.js",
+            "static/js/register.js",
+            "static/js/state.js",
+            "static/js/components/*.js"
+        ]
+    },
+    "linter": {
+        "enabled": true,
+        "rules": {
+            "recommended": true,
+            "style": {
+                "useConst": "off"
+            },
+            "suspicious": {
+                "noAssignInExpressions": "off",
+                "useIterableCallbackReturn": "off"
+            }
+        }
+    }
+}
