@@ -39,13 +39,15 @@ jobs:
     name: Run golangci-lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-      - uses: golangci/golangci-lint-action@v6
-        with:
-          version: v1.63.4
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+    - uses: actions/setup-go@v3
+      with:
+        go-version: "1.25"
+    - uses: golangci/golangci-lint-action@v8
+      with:
+          version: v2.7.2
 
   biome-lint:
     name: Run biome lint
