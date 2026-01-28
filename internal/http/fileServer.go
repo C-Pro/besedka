@@ -11,7 +11,7 @@ func NewFileServerHandler(authService *auth.AuthService, assets fs.FS) http.Hand
 	fileServer := http.FileServer(http.FS(assets))
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Specific check for exactly root "/" or "/index.html"
+		// For / and /index.html check for a valid token and redirect to login if not found.
 		if r.URL.Path == "/" || r.URL.Path == "/index.html" {
 			// Check cookie
 			cookie, err := r.Cookie("token")
