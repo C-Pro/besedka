@@ -26,18 +26,20 @@ type Chat struct {
 
 // Message represents a chat message.
 type Message struct {
-	Seq       int64  `json:"seq"`
-	Timestamp int64  `json:"timestamp"` // Unix timestamp (seconds)
-	ChatID    string `json:"chatId"`
-	UserID    string `json:"userId"`
-	Content   string `json:"content"`
+	Seq         int64        `json:"seq"`
+	Timestamp   int64        `json:"timestamp"` // Unix timestamp (seconds)
+	ChatID      string       `json:"chatId"`
+	UserID      string       `json:"userId"`
+	Content     string       `json:"content"`
+	Attachments []Attachment `json:"attachments,omitempty"`
 }
 
 // ClientMessage represents a message sent from the client to the server.
 type ClientMessage struct {
-	Type    ClientMessageType `json:"type"`
-	ChatID  string            `json:"chatId"`
-	Content string            `json:"content"`
+	Type        ClientMessageType `json:"type"`
+	ChatID      string            `json:"chatId"`
+	Content     string            `json:"content"`
+	Attachments []Attachment      `json:"attachments,omitempty"`
 }
 
 // ServerMessage represents a message to the client.
@@ -47,6 +49,20 @@ type ServerMessage struct {
 	Online   bool              `json:"online,omitempty"`
 	ChatID   string            `json:"chatId,omitempty"`
 	Messages []Message         `json:"messages,omitempty"`
+}
+
+type AttachmentType string
+
+const (
+	AttachmentTypeImage AttachmentType = "image"
+	AttachmentTypeFile  AttachmentType = "file"
+)
+
+type Attachment struct {
+	Type     AttachmentType `json:"type"`
+	Name     string         `json:"name"`
+	MimeType string         `json:"mimeType"`
+	FileID   string         `json:"fileId"`
 }
 
 type ClientMessageType string

@@ -1,4 +1,4 @@
-.PHONY: all check test lint lint-go lint-js test-go test-js
+.PHONY: all check test lint lint-go lint-js test-go test-js docker-build
 
 all: check
 
@@ -17,3 +17,6 @@ test: test-go
 
 test-go:
 	go test -v -covermode=atomic -coverprofile=coverage.out -race ./...
+
+docker-build:
+	docker build -t ghcr.io/c-pro/besedka:latest .

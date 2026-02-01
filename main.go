@@ -4,6 +4,7 @@ import (
 	"besedka/internal/auth"
 	"besedka/internal/commands"
 	"besedka/internal/config"
+	"besedka/internal/filestore"
 	"besedka/internal/http"
 	"besedka/internal/storage"
 	"besedka/internal/ws"
@@ -11,6 +12,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	oshttp "net/http"
 	"os"
@@ -52,8 +54,14 @@ func run(ctx context.Context) error {
 
 	hub := ws.NewHub(authService, bbStorage)
 
+	// Initialize FileStore
+	fs, err := filestore.NewLocalFileStore("uploads")
+	if err != nil {
+		return fmt.Errorf("failed to initialize filestore: %w", err)
+	}
+
 	adminServer := http.NewAdminServer(authService, hub, cfg.AdminAddr)
-	apiServer := http.NewAPIServer(authService, hub, cfg.APIAddr)
+	apiServer := http.NewAPIServer(authService, hub, fs, bbStorage, cfg.APIAddr)
 
 	g, gCtx := errgroup.WithContext(ctx)
 

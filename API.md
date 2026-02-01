@@ -178,3 +178,29 @@ Sent when new messages arrive in a subscribed chat.
   ]
 }
 ```
+
+## Files
+
+### Upload Image
+**Endpoint:** `POST /api/upload/image`
+
+**Description:** Uploads an image file. Supports JPEG, PNG, GIF, WebP. Limit 10MB.
+
+**Headers:**
+- `Content-Type`: `image/*` or `application/octet-stream` (body is raw binary)
+
+**Response:**
+```json
+{
+  "id": "uuid_string"
+}
+```
+
+### Get Image
+**Endpoint:** `GET /api/images/{id}`
+
+**Description:** Downloads an image by its UUID.
+
+**Response:**
+- **Success (200 OK):** Binary image content with appropriate `Content-Type` and `Content-Length`.
+- **Not Found (404):** If ID doesn't exist.

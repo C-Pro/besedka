@@ -93,6 +93,27 @@ class Store {
         }
     }
 
+    async uploadImage(file) {
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const response = await fetch('/api/upload/image', {
+                method: 'POST',
+                body: file
+            });
+
+            if (!response.ok) {
+                throw new Error('Upload failed');
+            }
+
+            return await response.json();
+        } catch (error) {
+            console.error('Upload error:', error);
+            throw error;
+        }
+    }
+
     async register(username, oldPassword, newPassword) {
         try {
             const response = await fetch('/api/register', {
@@ -226,7 +247,13 @@ class Store {
                         const pad = (n) => n.toString().padStart(2, '0');
                         return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
                     })(),
-                    userId: m.userId
+                    timestamp: (() => {
+                        const d = new Date(m.timestamp * 1000);
+                        const pad = (n) => n.toString().padStart(2, '0');
+                        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+                    })(),
+                    userId: m.userId,
+                    attachments: m.attachments || []
                 });
             }
         }
@@ -274,11 +301,12 @@ class Store {
         this.setState({ mobileActiveTab: tab });
     }
 
-    sendMessage(chatId, text) {
+    sendMessage(chatId, text, attachments = []) {
         this.sendWebSocketMessage({
             type: 'send',
             chatId,
-            content: text
+            content: text,
+            attachments
         });
     }
 }

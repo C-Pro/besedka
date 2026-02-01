@@ -19,6 +19,7 @@ var (
 	bucketMessages           = []byte("messages")
 	bucketTokens             = []byte("tokens")
 	bucketRegistrationTokens = []byte("registration_tokens")
+	bucketFiles              = []byte("files")
 )
 
 type BboltStorage struct {
@@ -45,6 +46,9 @@ func NewBboltStorage(path string) (*BboltStorage, error) {
 			return err
 		}
 		if _, err := tx.CreateBucketIfNotExists(bucketRegistrationTokens); err != nil {
+			return err
+		}
+		if _, err := tx.CreateBucketIfNotExists(bucketFiles); err != nil {
 			return err
 		}
 		return nil
@@ -175,6 +179,19 @@ func (s *BboltStorage) UpsertMessage(message models.Message) error {
 			UserID:    message.UserID,
 			Content:   message.Content,
 		}
+
+		if len(message.Attachments) > 0 {
+			dbMessage.Attachments = make([]DBAttachment, len(message.Attachments))
+			for i, a := range message.Attachments {
+				dbMessage.Attachments[i] = DBAttachment{
+					Type:     string(a.Type),
+					Name:     a.Name,
+					MimeType: a.MimeType,
+					FileID:   a.FileID,
+				}
+			}
+		}
+
 		data, err := dbMessage.MarshalBinary()
 		if err != nil {
 			return fmt.Errorf("failed to marshal message: %w", err)
@@ -243,13 +260,25 @@ func (s *BboltStorage) ListMessages(chatID string, from, to int64) ([]models.Mes
 			if err := dbMsg.UnmarshalBinary(v); err != nil {
 				return err
 			}
-			messages = append(messages, models.Message{
+			msg := models.Message{
 				Seq:       dbMsg.Seq,
 				Timestamp: dbMsg.Timestamp,
 				ChatID:    dbMsg.ChatID,
 				UserID:    dbMsg.UserID,
 				Content:   dbMsg.Content,
-			})
+			}
+			if len(dbMsg.Attachments) > 0 {
+				msg.Attachments = make([]models.Attachment, len(dbMsg.Attachments))
+				for i, a := range dbMsg.Attachments {
+					msg.Attachments[i] = models.Attachment{
+						Type:     models.AttachmentType(a.Type),
+						Name:     a.Name,
+						MimeType: a.MimeType,
+						FileID:   a.FileID,
+					}
+				}
+			}
+			messages = append(messages, msg)
 		}
 		return nil
 	})

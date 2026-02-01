@@ -3,6 +3,8 @@ package http
 import (
 	"besedka/internal/api"
 	"besedka/internal/auth"
+	"besedka/internal/filestore"
+	"besedka/internal/storage"
 	"besedka/internal/ws"
 	"besedka/static"
 	"context"
@@ -16,12 +18,12 @@ type APIServer struct {
 	wg     sync.WaitGroup
 }
 
-func NewAPIServer(authService *auth.AuthService, hub *ws.Hub, addr string) *APIServer {
+func NewAPIServer(authService *auth.AuthService, hub *ws.Hub, filestore filestore.FileStore, storage *storage.BboltStorage, addr string) *APIServer {
 	// Initialize Hub
 	// hub := ws.NewHub(authService, bbStorage)
 
 	server := ws.NewServer(authService, hub)
-	apiHandlers := api.New(authService, hub)
+	apiHandlers := api.New(authService, hub, filestore, storage)
 
 	mux := http.NewServeMux()
 
@@ -36,6 +38,8 @@ func NewAPIServer(authService *auth.AuthService, hub *ws.Hub, addr string) *APIS
 	mux.HandleFunc("/api/users", apiHandlers.UsersHandler)
 	mux.HandleFunc("/api/chats", apiHandlers.ChatsHandler)
 	mux.HandleFunc("/api/me", apiHandlers.MeHandler)
+	mux.HandleFunc("/api/upload/image", apiHandlers.UploadImageHandler)
+	mux.HandleFunc("/api/images/{id}", apiHandlers.GetImageHandler)
 
 	// WebSocket endpoint
 	mux.HandleFunc("/api/chat", server.HandleConnections)

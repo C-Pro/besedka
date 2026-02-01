@@ -79,11 +79,19 @@ func (c *DBChat) UnmarshalBinary(data []byte) error {
 }
 
 type DBMessage struct {
-	Seq       int64  `msgpack:"seq"`
-	Timestamp int64  `msgpack:"timestamp"`
-	ChatID    string `msgpack:"chatId"`
-	UserID    string `msgpack:"userId"`
-	Content   string `msgpack:"content"`
+	Seq         int64          `msgpack:"seq"`
+	Timestamp   int64          `msgpack:"timestamp"`
+	ChatID      string         `msgpack:"chatId"`
+	UserID      string         `msgpack:"userId"`
+	Content     string         `msgpack:"content"`
+	Attachments []DBAttachment `msgpack:"attachments"`
+}
+
+type DBAttachment struct {
+	Type     string `msgpack:"type"`
+	Name     string `msgpack:"name"`
+	MimeType string `msgpack:"mimeType"`
+	FileID   string `msgpack:"fileId"`
 }
 
 func (m *DBMessage) Key() []byte {

@@ -153,4 +153,44 @@ func TestStorage(t *testing.T) {
 			t.Errorf("expected token to be deleted")
 		}
 	})
+
+	t.Run("Attachments", func(t *testing.T) {
+		msg := models.Message{
+			Seq:       3,
+			Timestamp: time.Now().Unix(),
+			ChatID:    "chat1",
+			UserID:    "user1",
+			Content:   "check out this image",
+			Attachments: []models.Attachment{
+				{
+					Type:     models.AttachmentTypeImage,
+					Name:     "test.png",
+					MimeType: "image/png",
+					FileID:   "uuid-123",
+				},
+			},
+		}
+
+		if err := store.UpsertMessage(msg); err != nil {
+			t.Fatalf("UpsertMessage failed: %v", err)
+		}
+
+		msgs, err := store.ListMessages("chat1", 3, 3)
+		if err != nil {
+			t.Fatalf("ListMessages failed: %v", err)
+		}
+		if len(msgs) != 1 {
+			t.Fatalf("expected 1 message, got %d", len(msgs))
+		}
+		if len(msgs[0].Attachments) != 1 {
+			t.Fatalf("expected 1 attachment, got %d", len(msgs[0].Attachments))
+		}
+		att := msgs[0].Attachments[0]
+		if att.Name != "test.png" {
+			t.Errorf("expected attachment name test.png, got %s", att.Name)
+		}
+		if att.FileID != "uuid-123" {
+			t.Errorf("expected attachment fileID uuid-123, got %s", att.FileID)
+		}
+	})
 }

@@ -227,4 +227,186 @@
     .info-header {
         display: none;
     }
+}/* Message Attachments */
+.message-attachment {
+    margin-top: 5px;
+    max-width: 300px;
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: pointer;
+    border: 1px solid var(--border-color);
+}
+
+.message-attachment img {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: 300px;
+    object-fit: contain;
+    background: #000000;
+}
+
+/* Spinner */
+.spinner {
+    animation: rotate 2s linear infinite;
+    transform-origin: center;
+}
+
+.spinner circle {
+    stroke: currentColor;
+    stroke-width: 4;
+    fill: none;
+    stroke-dasharray: 1, 200;
+    stroke-dashoffset: 0;
+    animation: dash 1.5s ease-in-out infinite;
+}
+
+@keyframes rotate {
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes dash {
+    0% {
+        stroke-dasharray: 1, 200;
+        stroke-dashoffset: 0;
+    }
+    50% {
+        stroke-dasharray: 90, 200;
+        stroke-dashoffset: -35px;
+    }
+    100% {
+        stroke-dasharray: 90, 200;
+        stroke-dashoffset: -124px;
+    }
+}
+
+/* Image Overlay */
+.image-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.95);
+    z-index: 1000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+}
+
+.image-overlay.active {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.image-overlay img {
+    max-width: 95%;
+    max-height: 95%;
+    box-shadow: 0 0 20px rgba(0,0,0,0.5);
+}
+
+.overlay-controls {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    padding: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: white;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.7), transparent);
+    opacity: 1;
+    transition: opacity 0.3s ease;
+    z-index: 1001;
+}
+
+.overlay-controls.faded {
+    opacity: 0;
+}
+
+.overlay-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.overlay-sender {
+    font-weight: bold;
+    font-size: 1.1em;
+}
+
+.overlay-time {
+    font-size: 0.9em;
+    opacity: 0.8;
+}
+
+.overlay-actions {
+    display: flex;
+    gap: 15px;
+}
+
+.overlay-btn {
+    background: rgba(255, 255, 255, 0.1);
+    border: none;
+    color: white;
+    padding: 8px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+}
+
+.overlay-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.attach-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 10px;
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    font-size: 0.85em;
+    margin-right: 10px;
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+}
+
+.attach-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.2s;
+}
+
+.attach-btn:hover {
+    color: var(--primary-color);
+}
+
+.attach-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Adjust input area for attachments */
+.input-area {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+    gap: 8px;
+    border-top: 1px solid var(--border-color);
+    background: var(--bg-primary);
 }

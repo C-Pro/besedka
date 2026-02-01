@@ -2,23 +2,37 @@ package api
 
 import (
 	"besedka/internal/auth"
+	"besedka/internal/filestore"
+	"besedka/internal/storage"
 	"besedka/internal/ws"
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/h2non/filetype"
 )
 
 type API struct {
-	auth *auth.AuthService
-	hub  *ws.Hub
+	auth      *auth.AuthService
+	hub       *ws.Hub
+	filestore filestore.FileStore
+	storage   *storage.BboltStorage
 }
 
-func New(auth *auth.AuthService, hub *ws.Hub) *API {
+func New(auth *auth.AuthService, hub *ws.Hub, filestore filestore.FileStore, storage *storage.BboltStorage) *API {
 	return &API{
-		auth: auth,
-		hub:  hub,
+		auth:      auth,
+		hub:       hub,
+		filestore: filestore,
+		storage:   storage,
 	}
 }
 
@@ -237,5 +251,109 @@ func (a *API) MeHandler(w http.ResponseWriter, r *http.Request) {
 
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		log.Printf("failed to encode me response: %v", err)
+	}
+}
+
+func (a *API) UploadImageHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	token := a.getToken(r)
+	uploaderID, err := a.auth.GetUserID(token)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Limit to 10MB
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+
+	// Read file content
+	// We read to memory to calculate hash and detect type.
+	// For very large files, this should be streamed, but 10MB is fine for now.
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(r.Body); err != nil {
+		http.Error(w, "Failed to read body", http.StatusBadRequest)
+		return
+	}
+	data := buf.Bytes()
+
+	// Calculate Hash
+	hasher := sha256.New()
+	hasher.Write(data)
+	hash := hex.EncodeToString(hasher.Sum(nil))
+
+	// Detect MIME type
+	kind, err := filetype.Image(data)
+	if err != nil {
+		http.Error(w, "Invalid file type. Only images are allowed.", http.StatusBadRequest)
+		return
+	}
+
+	// Save file (idempotent)
+	if err := a.filestore.Save(bytes.NewReader(data), hash); err != nil {
+		log.Printf("failed to save file blob: %v", err)
+		http.Error(w, "Internal Storage Error", http.StatusInternalServerError)
+		return
+	}
+
+	// Create Metadata
+	fileID := uuid.NewString()
+	meta := storage.FileMetadata{
+		ID:        fileID,
+		Hash:      hash,
+		MimeType:  kind.MIME.Value,
+		Size:      int64(len(data)),
+		CreatedAt: time.Now().Unix(),
+		UserID:    uploaderID,
+		ChatID:    "", // TODO: Pass from request if needed
+	}
+
+	if err := a.storage.UpsertFileMetadata(meta); err != nil {
+		log.Printf("failed to save file metadata: %v", err)
+		http.Error(w, "Internal Database Error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]string{"id": fileID}); err != nil {
+		log.Printf("failed to encode upload response: %v", err)
+	}
+}
+
+func (a *API) GetImageHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		http.Error(w, "Missing file ID", http.StatusBadRequest)
+		return
+	}
+
+	meta, err := a.storage.GetFileMetadata(id)
+	if err != nil {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+
+	rc, err := a.filestore.Get(meta.Hash)
+	if err != nil {
+		log.Printf("failed to retrieve file blob: %v", err)
+		http.Error(w, "File content missing", http.StatusInternalServerError)
+		return
+	}
+	defer func() { _ = rc.Close() }()
+
+	w.Header().Set("Content-Type", meta.MimeType)
+	w.Header().Set("Content-Length", strconv.FormatInt(meta.Size, 10))
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+
+	if _, err := io.Copy(w, rc); err != nil {
+		log.Printf("failed to write file content: %v", err)
 	}
 }

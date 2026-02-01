@@ -15,10 +15,11 @@ type storage interface {
 type Seq int64
 
 type ChatRecord struct {
-	Seq       Seq
-	Timestamp int64
-	UserID    string
-	Content   string
+	Seq         Seq
+	Timestamp   int64
+	UserID      string
+	Content     string
+	Attachments []models.Attachment
 }
 
 type Chat struct {
@@ -72,11 +73,12 @@ func (c *Chat) AddRecord(record ChatRecord) error {
 	// Persist
 	if c.storage != nil {
 		err := c.storage.UpsertMessage(models.Message{
-			Seq:       int64(record.Seq),
-			Timestamp: record.Timestamp,
-			ChatID:    c.ID,
-			UserID:    record.UserID,
-			Content:   record.Content,
+			Seq:         int64(record.Seq),
+			Timestamp:   record.Timestamp,
+			ChatID:      c.ID,
+			UserID:      record.UserID,
+			Content:     record.Content,
+			Attachments: record.Attachments,
 		})
 		if err != nil {
 			slog.Error("failed to persist message", "chatID", c.ID, "error", err)
@@ -138,10 +140,11 @@ func (c *Chat) GetRecords(from, to Seq) ([]ChatRecord, error) {
 
 		for _, m := range msgs {
 			result = append(result, ChatRecord{
-				Seq:       Seq(m.Seq),
-				Timestamp: m.Timestamp,
-				UserID:    m.UserID,
-				Content:   m.Content,
+				Seq:         Seq(m.Seq),
+				Timestamp:   m.Timestamp,
+				UserID:      m.UserID,
+				Content:     m.Content,
+				Attachments: m.Attachments,
 			})
 		}
 	}
