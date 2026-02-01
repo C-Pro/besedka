@@ -95,7 +95,6 @@ export function createChatWindow(container) {
 
         const messagesHtml = messages.map(msg => {
             const isMe = msg.sender === 'me';
-            let senderName = 'me';
             let senderDisplayName = 'me';
             if (!isMe) {
                 const user = state.users.find(u => u.id === msg.userId);
@@ -276,7 +275,7 @@ export function createChatWindow(container) {
                             fileId: result.id
                         });
                     } catch (err) {
-                        alert('Failed to upload image: ' + err.message);
+                        alert(`Failed to upload image: ${err.message}`);
                     } finally {
                         isUploading = false;
                         fileInput.value = ''; // Reset input

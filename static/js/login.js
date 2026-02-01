@@ -32,7 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const handleLogin = async () => {
         hideError();
-        const otpVal = otp ? parseInt(otp) : 0;
+        const otpVal = otp ? parseInt(otp, 10) : 0;
 
         try {
             const result = await store.login(username, password, otpVal);

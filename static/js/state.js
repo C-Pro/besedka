@@ -67,7 +67,7 @@ class Store {
                 let errorMessage = text;
                 try {
                     const json = JSON.parse(text);
-                    if (json && json.message) {
+                    if (json?.message) {
                         errorMessage = json.message;
                     }
                 } catch {
@@ -242,11 +242,6 @@ class Store {
                     seq: m.seq,
                     text: m.content,
                     sender: m.userId === this.state.currentUser?.id ? 'me' : m.userId,
-                    timestamp: (() => {
-                        const d = new Date(m.timestamp * 1000);
-                        const pad = (n) => n.toString().padStart(2, '0');
-                        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-                    })(),
                     timestamp: (() => {
                         const d = new Date(m.timestamp * 1000);
                         const pad = (n) => n.toString().padStart(2, '0');
