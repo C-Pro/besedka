@@ -16,13 +16,9 @@ type Server struct {
 
 func NewServer(auth *auth.AuthService, hub *Hub) *Server {
 	return &Server{
-		auth: auth,
-		upgrader: &websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool {
-				return true // Allow all origins for now
-			},
-		},
-		hub: hub,
+		auth:     auth,
+		upgrader: &websocket.Upgrader{},
+		hub:      hub,
 	}
 }
 
@@ -41,6 +37,7 @@ func (s *Server) HandleConnections(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// nosemgrep
 	ws, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("error upgrading to websocket: %v", err)

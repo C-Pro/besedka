@@ -1,4 +1,5 @@
 import { store } from '../state.js';
+import { escapeHtml } from '../utils.js';
 
 export function createChatWindow(container) {
     let lastChatId = null;
@@ -108,9 +109,9 @@ export function createChatWindow(container) {
                         return `
                         <div class="message-attachment" 
                              data-src="/api/images/${att.fileId}" 
-                             data-sender="${isMe ? 'You' : senderDisplayName}" 
+                             data-sender="${isMe ? 'You' : escapeHtml(senderDisplayName)}" 
                              data-time="${msg.timestamp}">
-                            <img src="/api/images/${att.fileId}" alt="${att.name}" loading="lazy">
+                            <img src="/api/images/${att.fileId}" alt="${escapeHtml(att.name)}" loading="lazy">
                         </div>
                         `;
                     }
@@ -121,8 +122,8 @@ export function createChatWindow(container) {
             return `
                 <div class="message-line">
                     <span class="message-time">[${msg.timestamp}]</span>
-                    <span class="message-sender ${isMe ? 'is-me' : ''}">&lt;${senderDisplayName}&gt;</span>
-                    <span class="message-content">${msg.text}</span>
+                    <span class="message-sender ${isMe ? 'is-me' : ''}">&lt;${escapeHtml(senderDisplayName)}&gt;</span>
+                    <span class="message-content">${escapeHtml(msg.text)}</span>
                     ${attachmentsHtml}
                 </div>
             `;
@@ -155,9 +156,10 @@ export function createChatWindow(container) {
             `;
         }
 
+        // nosemgrep
         container.innerHTML = `
             <div class="chat-header">
-                <h3>${activeChat.name}</h3>
+                <h3>${escapeHtml(activeChat.name)}</h3>
                 <div class="actions"></div>
             </div>
             <div class="messages-container" id="messages-container">

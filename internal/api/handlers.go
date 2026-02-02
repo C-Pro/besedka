@@ -84,6 +84,7 @@ func (a *API) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		Name:     "token",
 		Value:    loginResp.Token,
 		HttpOnly: true,
+		Secure:   true,
 		Path:     "/",
 		Expires:  time.Unix(loginResp.TokenExpiry, 0),
 	})
@@ -119,6 +120,7 @@ func (a *API) LogoffHandler(w http.ResponseWriter, r *http.Request) {
 		Name:     "token",
 		Value:    "",
 		HttpOnly: true,
+		Secure:   true,
 		Path:     "/",
 		MaxAge:   -1,
 	})
@@ -152,6 +154,7 @@ func (a *API) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		Name:     "token",
 		Value:    token,
 		HttpOnly: true,
+		Secure:   true,
 		Path:     "/",
 		Expires:  time.Now().Add(auth.DefaultTokenExpiry), // Or use configured expiry
 	})
