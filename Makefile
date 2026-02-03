@@ -1,8 +1,8 @@
-.PHONY: all check test lint lint-go lint-js test-go test-js docker-build
+.PHONY: all check test lint lint-go lint-js test-go test-js e2e docker-build
 
 all: check
 
-check: lint test semgrep osv-scanner
+check: lint test semgrep osv-scanner e2e
 
 lint: lint-go lint-js
 
@@ -17,6 +17,9 @@ test: test-go
 
 test-go:
 	go test -v -covermode=atomic -coverprofile=coverage.out -race ./...
+
+e2e:
+	go test -v ./e2e/...
 
 semgrep:
 	docker run --rm -v $(PWD):/src returntocorp/semgrep:1.106.0 semgrep scan --config=p/default

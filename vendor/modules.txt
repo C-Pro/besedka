@@ -4,6 +4,15 @@ github.com/c-pro/geche
 # github.com/davecgh/go-spew v1.1.1
 ## explicit
 github.com/davecgh/go-spew/spew
+# github.com/deckarep/golang-set/v2 v2.7.0
+## explicit; go 1.18
+github.com/deckarep/golang-set/v2
+# github.com/go-jose/go-jose/v3 v3.0.4
+## explicit; go 1.12
+github.com/go-jose/go-jose/v3/json
+# github.com/go-stack/stack v1.8.1
+## explicit; go 1.17
+github.com/go-stack/stack
 # github.com/google/uuid v1.6.0
 ## explicit
 github.com/google/uuid
@@ -16,6 +25,12 @@ github.com/h2non/filetype
 github.com/h2non/filetype/matchers
 github.com/h2non/filetype/matchers/isobmff
 github.com/h2non/filetype/types
+# github.com/kr/text v0.2.0
+## explicit
+# github.com/playwright-community/playwright-go v0.5200.1
+## explicit; go 1.22
+github.com/playwright-community/playwright-go
+github.com/playwright-community/playwright-go/internal/safe
 # github.com/pmezard/go-difflib v1.0.0
 ## explicit
 github.com/pmezard/go-difflib/difflib
