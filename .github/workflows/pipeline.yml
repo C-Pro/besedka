@@ -120,6 +120,6 @@ jobs:
       - name: Trigger deploy
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+          DEPLOY_SECRET: ${{ secrets.DEPLOY_SECRET }}
         run: |
           curl --fail --max-time 300 "https://$DEPLOY_HOST/deploy/beme?secret=$DEPLOY_SECRET"'&sync=true'
