@@ -80,7 +80,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: Install Playwright browsers
-        run: go run github.com/playwright-community/playwright-go/cmd/playwright install --with-deps
+        run: go run -mod=mod github.com/playwright-community/playwright-go/cmd/playwright install --with-deps
       - name: Run E2E Tests
         run: make e2e
 
