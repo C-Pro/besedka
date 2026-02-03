@@ -122,4 +122,4 @@ jobs:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
         run: |
-          curl --fail --max-time 300 "https://$DEPLOY_HOST/deploy/beme?secret=$DEPLOY_KEY"'&sync=true'
+          curl --fail --max-time 300 "https://$DEPLOY_HOST/deploy/beme?secret=$DEPLOY_SECRET"'&sync=true'
