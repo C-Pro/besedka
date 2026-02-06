@@ -2,6 +2,7 @@ package api
 
 import (
 	"besedka/internal/auth"
+	"besedka/internal/content"
 	"besedka/internal/filestore"
 	"besedka/internal/storage"
 	"besedka/internal/ws"
@@ -64,6 +65,13 @@ func (a *API) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		if t := r.FormValue("totp"); t != "" {
 			_, _ = fmt.Sscanf(t, "%d", &req.TOTP)
 		}
+	}
+
+	// Sanitize/Validate input
+	req.Username = content.Sanitize(req.Username)
+	if err := content.ValidateUsername(req.Username); err != nil {
+		http.Error(w, "Invalid username: "+err.Error(), http.StatusBadRequest)
+		return
 	}
 
 	loginResp, _ := a.auth.Login(auth.LoginRequest{
@@ -140,6 +148,9 @@ func (a *API) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Sanitize inputs
+	req.DisplayName = content.Sanitize(req.DisplayName)
+
 	resp, token := a.auth.CompleteRegistration(req)
 	if !resp.Success {
 		w.Header().Set("Content-Type", "application/json")
@@ -183,6 +194,10 @@ func (a *API) RegisterInfoHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Escape output
+	info.DisplayName = content.Escape(info.DisplayName)
+	info.Username = content.Escape(info.Username)
+
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(info); err != nil {
 		log.Printf("failed to encode register info response: %v", err)
@@ -202,6 +217,12 @@ func (a *API) UsersHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Escape output
+	for i := range users {
+		users[i].DisplayName = content.Escape(users[i].DisplayName)
+		users[i].UserName = content.Escape(users[i].UserName)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(users); err != nil {
 		log.Printf("failed to encode users response: %v", err)
@@ -218,6 +239,11 @@ func (a *API) ChatsHandler(w http.ResponseWriter, r *http.Request) {
 	userID, _ := a.auth.GetUserID(token) // Error checked above
 
 	chats := a.hub.GetChats(userID)
+
+	// Escape output
+	for i := range chats {
+		chats[i].Name = content.Escape(chats[i].Name)
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(chats); err != nil {
@@ -249,7 +275,7 @@ func (a *API) MeHandler(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"name"`
 	}{
 		ID:   currentUser.ID,
-		Name: currentUser.DisplayName,
+		Name: content.Escape(currentUser.DisplayName),
 	}
 
 	if err := json.NewEncoder(w).Encode(resp); err != nil {

@@ -55,7 +55,7 @@ func run(ctx context.Context) error {
 	hub := ws.NewHub(authService, bbStorage)
 
 	// Initialize FileStore
-	fs, err := filestore.NewLocalFileStore("uploads")
+	fs, err := filestore.NewLocalFileStore(cfg.UploadsPath)
 	if err != nil {
 		return fmt.Errorf("failed to initialize filestore: %w", err)
 	}

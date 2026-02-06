@@ -11,6 +11,7 @@ type Config struct {
 	AdminAddr   string
 	APIAddr     string
 	BaseURL     string
+	UploadsPath string
 	AuthSecret  string
 	TokenExpiry time.Duration
 }
@@ -26,6 +27,7 @@ func Load(cliMode bool) (*Config, error) {
 		AdminAddr:   getEnv("ADMIN_ADDR", "localhost:8081"),
 		APIAddr:     getEnv("API_ADDR", ":8080"),
 		BaseURL:     getEnv("BASE_URL", "http://localhost:8080"),
+		UploadsPath: getEnv("UPLOADS_PATH", "uploads"),
 		AuthSecret:  os.Getenv("AUTH_SECRET"),
 		TokenExpiry: tokenExpiry,
 	}
