@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"besedka/internal/chat"
+	"besedka/internal/content"
 	"besedka/internal/models"
 )
 
@@ -221,7 +222,7 @@ func (h *Hub) Dispatch(userID string, msg models.ClientMessage) {
 			messages[i] = models.Message{
 				Seq:         int64(r.Seq),
 				UserID:      r.UserID,
-				Content:     r.Content,
+				Content:     content.Escape(r.Content),
 				Timestamp:   r.Timestamp,
 				Attachments: r.Attachments,
 			}
@@ -333,7 +334,7 @@ func (h *Hub) handleRecordCallback(receiverID string, chatID string, record chat
 			{
 				Seq:         int64(record.Seq),
 				UserID:      record.UserID,
-				Content:     record.Content,
+				Content:     content.Escape(record.Content),
 				Timestamp:   record.Timestamp,
 				Attachments: record.Attachments,
 			},

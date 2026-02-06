@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"time"
 
+	"besedka/internal/content"
 	"besedka/internal/models"
 
 	"github.com/c-pro/geche"
@@ -21,9 +22,9 @@ import (
 )
 
 const (
-	DefaultTokenExpiry = 24 * time.Hour
+	DefaultTokenExpiry             = 24 * time.Hour
 	DefaultRegistrationTokenExpiry = 24 * time.Hour
-	loginFailedMessage = "Login failed"
+	loginFailedMessage             = "Login failed"
 )
 
 var (
@@ -208,6 +209,13 @@ func (as *AuthService) hashPassword(username, password string) string {
 func (as *AuthService) AddUser(username, displayName string) (string, error) {
 	tx := as.users.Lock()
 	defer tx.Unlock()
+
+	// Validate inputs
+	if err := content.ValidateUsername(username); err != nil {
+		return "", fmt.Errorf("invalid username: %w", err)
+	}
+	username = content.Sanitize(username)
+	displayName = content.Sanitize(displayName)
 
 	var user *UserCredentials
 	// If the user exists but did not finish their registration, we will generate a new registration token.
@@ -501,6 +509,10 @@ func (as *AuthService) CompleteRegistration(req RegistrationRequest) (Registrati
 			Success: false,
 			Message: "Invalid TOTP code",
 		}, ""
+	}
+
+	if req.DisplayName != "" {
+		req.DisplayName = content.Sanitize(req.DisplayName)
 	}
 
 	user.PasswordHash = as.hashPassword(user.UserName, req.Password)
