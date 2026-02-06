@@ -67,8 +67,6 @@ func (a *API) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Sanitize/Validate input
-	req.Username = content.Sanitize(req.Username)
 	if err := content.ValidateUsername(req.Username); err != nil {
 		http.Error(w, "Invalid username: "+err.Error(), http.StatusBadRequest)
 		return

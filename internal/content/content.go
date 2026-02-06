@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	policy = bluemonday.UGCPolicy()
+	policy        = bluemonday.StrictPolicy()
 	usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
 )
 

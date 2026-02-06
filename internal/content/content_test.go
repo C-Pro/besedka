@@ -11,7 +11,7 @@ func TestSanitize(t *testing.T) {
 		expected string
 	}{
 		{"Plain text", "Hello World", "Hello World"},
-		{"HTML tags", "Hello <b>World</b>", "Hello <b>World</b>"},
+		{"HTML tags", "Hello <b>World</b>", "Hello World"},
 		{"Script tag", "<script>alert('xss')</script>Hello", "Hello"},
 		{"Complex HTML", "<a href='javascript:alert(1)'>Click me</a>", "Click me"},
 		{"Emoji", "I am 🤖", "I am 🤖"},
