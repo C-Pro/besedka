@@ -192,11 +192,60 @@ class Store {
     handleServerMessage(msg) {
         switch (msg.type) {
             case 'presence':
+            case 'online':
+            case 'offline':
                 this.handlePresenceUpdate(msg);
                 break;
             case 'messages':
                 this.handleNewMessages(msg);
                 break;
+            case 'new':
+                this.handleNewUser(msg);
+                break;
+            case 'deleted':
+                this.handleUserDeleted(msg);
+                break;
+        }
+    }
+
+    handleNewUser(msg) {
+        // Add new user if not exists
+        if (!this.state.users.find(u => u.id === msg.user.id)) {
+            this.setState({
+                users: [...this.state.users, msg.user]
+            });
+        }
+
+        // Add new chat if not exists
+        if (msg.chat && !this.state.chats.find(c => c.id === msg.chat.id)) {
+            this.setState({
+                chats: [...this.state.chats, msg.chat]
+            });
+        }
+    }
+
+    handleUserDeleted(msg) {
+        const userId = msg.userId;
+
+        // Remove user
+        this.setState({
+            users: this.state.users.filter(u => u.id !== userId)
+        });
+
+        // Remove chat (DM with this user)
+        // DMs have ID format "dm_u1_u2"
+        this.setState({
+            chats: this.state.chats.filter(c => {
+                if (c.isDm && c.id.includes(userId)) {
+                    return false;
+                }
+                return true;
+            })
+        });
+
+        // If active chat was with this user, switch to townhall
+        if (this.state.activeChatId && this.state.activeChatId.includes(userId) && this.state.chats.find(c => c.id === this.state.activeChatId)?.isDm) {
+            this.setActiveChat('townhall');
         }
     }
 
@@ -235,7 +284,7 @@ class Store {
         // Filter out messages that we already have (seq <= maxSeq)
         // Note: m.seq comes from server and should be present.
         const newMessages = [];
-        for (const m of msg.messages) {
+        for (const m of (msg.messages || [])) {
             if (m.seq > maxSeq) {
                 newMessages.push({
                     id: m.timestamp + m.userId + m.seq, // unique id

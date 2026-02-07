@@ -5,6 +5,7 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    height: 60px;
 }
 
 .chat-list-items {
@@ -186,6 +187,9 @@
     padding: var(--space-md);
     border-bottom: 1px solid var(--border-subtle);
     font-weight: 600;
+    height: 60px;
+    display: flex;
+    align-items: center;
 }
 
 .info-content {
