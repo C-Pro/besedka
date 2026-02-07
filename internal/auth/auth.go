@@ -163,6 +163,8 @@ func NewAuthService(ctx context.Context, config Config, storage storage) (*AuthS
 	defer tx.Unlock()
 
 	for _, c := range creds {
+		// Reset online status on storage load
+		c.Presence.Online = false
 		tx.Set(c.ID, &c)
 		as.usernames.Set(c.UserName, c.ID)
 	}

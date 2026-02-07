@@ -159,6 +159,13 @@ func (a *API) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Broadcast new user to all connected clients
+	if userID, err := a.auth.GetUserID(token); err == nil {
+		if user, err := a.auth.GetUser(userID); err == nil {
+			go a.hub.BroadcastNewUser(user)
+		}
+	}
+
 	http.SetCookie(w, &http.Cookie{
 		Name:     "token",
 		Value:    token,
@@ -215,10 +222,11 @@ func (a *API) UsersHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Escape output
+	// Escape output and update online status
 	for i := range users {
 		users[i].DisplayName = content.Escape(users[i].DisplayName)
 		users[i].UserName = content.Escape(users[i].UserName)
+		users[i].Presence.Online = a.hub.IsUserOnline(users[i].ID)
 	}
 
 	w.Header().Set("Content-Type", "application/json")

@@ -132,13 +132,24 @@ func TestHub_Lifecycle(t *testing.T) {
 	}
 
 	// Check receiving on user1 (sender also gets it via callback)
-	select {
-	case msg := <-ch1:
-		if msg.Messages[0].Content != msgContent {
-			t.Errorf("Sender did not receive own message")
+	// User1 might have received "User2 online" message first
+	timeout := time.After(1 * time.Second)
+	var foundMessage bool
+	for !foundMessage {
+		select {
+		case msg := <-ch1:
+			if msg.Type == models.ServerMessageTypeOnline {
+				continue
+			}
+			if msg.Type == models.ServerMessageTypeMessages {
+				if len(msg.Messages) > 0 && msg.Messages[0].Content == msgContent {
+					foundMessage = true
+				}
+			}
+		case <-timeout:
+			t.Error("Timeout waiting for townhall message on ch1")
+			foundMessage = true // Break loop
 		}
-	case <-time.After(1 * time.Second):
-		t.Error("Timeout waiting for townhall message on ch1")
 	}
 
 	// 4. Dispatch & Receive (DM)
@@ -180,6 +191,78 @@ func TestHub_Lifecycle(t *testing.T) {
 	}
 }
 
+func TestHub_Broadcasting(t *testing.T) {
+	user1 := models.User{ID: "u1", DisplayName: "User 1"}
+	user2 := models.User{ID: "u2", DisplayName: "User 2"}
+	user3 := models.User{ID: "u3", DisplayName: "User 3"}
+
+	provider := &MockUserProvider{
+		users: []models.User{user1, user2, user3},
+	}
+	store := NewMockStorage()
+	h := NewHub(provider, store)
+
+	ch1 := h.Join(user1.ID)
+	ch2 := h.Join(user2.ID)
+
+	// Consume initial online messages
+	// User 1 receives User 2 online
+	select {
+	case msg := <-ch1:
+		if msg.Type != models.ServerMessageTypeOnline || msg.UserID != user2.ID {
+			t.Errorf("User 1 expected User 2 online, got %v", msg)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Error("Timeout waiting for online message")
+	}
+
+	// Test BroadcastNewUser
+	h.BroadcastNewUser(user3)
+
+	// User 1 should receive New User message
+	select {
+	case msg := <-ch1:
+		if msg.Type != models.ServerMessageTypeNew {
+			t.Errorf("Expected New User message, got %s", msg.Type)
+		}
+		if msg.User.ID != user3.ID {
+			t.Errorf("Expected user u3, got %s", msg.User.ID)
+		}
+		// Check that a Chat object is included (DM with u3)
+		if msg.Chat.ID == "" || !msg.Chat.IsDM {
+			t.Errorf("Expected DM chat in New User message, got %v", msg.Chat)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Error("Timeout waiting for New User message on ch1")
+	}
+
+	// User 2 should also receive it
+	select {
+	case msg := <-ch2:
+		if msg.Type != models.ServerMessageTypeNew {
+			t.Errorf("Expected New User message, got %s", msg.Type)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Error("Timeout waiting for New User message on ch2")
+	}
+
+	// Test Leave (Offline)
+	h.Leave(user2.ID)
+
+	// User 1 should receive Offline message
+	select {
+	case msg := <-ch1:
+		if msg.Type != models.ServerMessageTypeOffline {
+			t.Errorf("Expected Offline message, got %s", msg.Type)
+		}
+		if msg.UserID != user2.ID {
+			t.Errorf("Expected user u2 offline, got %s", msg.UserID)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Error("Timeout waiting for Offline message on ch1")
+	}
+}
+
 func TestHub_JoinChat_ReturnsHistory(t *testing.T) {
 	user1 := models.User{ID: "u1", DisplayName: "User 1"}
 	user2 := models.User{ID: "u2", DisplayName: "User 2"}
@@ -209,6 +292,9 @@ func TestHub_JoinChat_ReturnsHistory(t *testing.T) {
 
 	// User 2 connects
 	ch2 := h.Join(user2.ID)
+
+	// Consume potential "User 2 online" message on ch1 (not ch2, sender doesn't get online msg for self)
+	// ch2 just joined, it receives nothing yet.
 
 	// User 2 sends Join command for Townhall
 	h.Dispatch(user2.ID, models.ClientMessage{
