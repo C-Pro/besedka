@@ -244,7 +244,7 @@ class Store {
         });
 
         // If active chat was with this user, switch to townhall
-        if (this.state.activeChatId && this.state.activeChatId.includes(userId) && this.state.chats.find(c => c.id === this.state.activeChatId)?.isDm) {
+        if (this.state.activeChatId?.includes(userId) && this.state.chats.find(c => c.id === this.state.activeChatId)?.isDm) {
             this.setActiveChat('townhall');
         }
     }
