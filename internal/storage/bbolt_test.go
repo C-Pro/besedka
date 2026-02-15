@@ -8,6 +8,8 @@ import (
 
 	"besedka/internal/auth"
 	"besedka/internal/models"
+
+	"go.etcd.io/bbolt"
 )
 
 func TestStorage(t *testing.T) {
@@ -228,6 +230,81 @@ func TestStorage(t *testing.T) {
 		}
 		if att.FileID != "uuid-123" {
 			t.Errorf("expected attachment fileID uuid-123, got %s", att.FileID)
+		}
+	})
+
+	t.Run("StatusBackfill", func(t *testing.T) {
+		// Test that old DB records without Status field get backfilled correctly
+		// Simulate old records by directly inserting DBUser with empty Status
+		err := store.db.Update(func(tx *bbolt.Tx) error {
+			b := tx.Bucket(bucketUsers)
+
+			// Old record with LastTOTP = -1 (created state)
+			oldCreatedUser := &DBUser{
+				ID:           "old_created",
+				UserName:     "old_created_user",
+				DisplayName:  "Old Created",
+				PasswordHash: "hash",
+				TOTPSecret:   "secret",
+				LastTOTP:     -1,
+				Status:       "", // Empty status to simulate old record
+			}
+			data, err := oldCreatedUser.MarshalBinary()
+			if err != nil {
+				return err
+			}
+			if err := b.Put(oldCreatedUser.Key(), data); err != nil {
+				return err
+			}
+
+			// Old record with LastTOTP = 0 (active state)
+			oldActiveUser := &DBUser{
+				ID:           "old_active",
+				UserName:     "old_active_user",
+				DisplayName:  "Old Active",
+				PasswordHash: "hash",
+				TOTPSecret:   "secret",
+				LastTOTP:     0,
+				Status:       "", // Empty status to simulate old record
+			}
+			data, err = oldActiveUser.MarshalBinary()
+			if err != nil {
+				return err
+			}
+			return b.Put(oldActiveUser.Key(), data)
+		})
+		if err != nil {
+			t.Fatalf("failed to insert old records: %v", err)
+		}
+
+		// Verify backfilled status
+		allCreds, err := store.ListAllCredentials()
+		if err != nil {
+			t.Fatalf("ListAllCredentials failed: %v", err)
+		}
+
+		// Find the backfilled users
+		var oldCreated, oldActive *auth.UserCredentials
+		for i := range allCreds {
+			if allCreds[i].ID == "old_created" {
+				oldCreated = &allCreds[i]
+			} else if allCreds[i].ID == "old_active" {
+				oldActive = &allCreds[i]
+			}
+		}
+
+		if oldCreated == nil {
+			t.Fatal("old_created user not found")
+		}
+		if oldCreated.Status != models.UserStatusCreated {
+			t.Errorf("expected old_created status to be %s, got %s", models.UserStatusCreated, oldCreated.Status)
+		}
+
+		if oldActive == nil {
+			t.Fatal("old_active user not found")
+		}
+		if oldActive.Status != models.UserStatusActive {
+			t.Errorf("expected old_active status to be %s, got %s", models.UserStatusActive, oldActive.Status)
 		}
 	})
 }

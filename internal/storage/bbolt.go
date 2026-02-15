@@ -90,6 +90,20 @@ func (s *BboltStorage) UpsertCredentials(credentials auth.UserCredentials) error
 	})
 }
 
+// backfillStatus returns the appropriate status for a user based on their current data.
+// For pre-existing DB records created before the Status field existed, msgpack will leave
+// this as an empty string. We derive the status from LastTOTP: -1 => created, otherwise active.
+func backfillStatus(dbUser *DBUser) models.UserStatus {
+	if dbUser.Status != "" {
+		return models.UserStatus(dbUser.Status)
+	}
+	// Pre-existing record without status - derive from LastTOTP
+	if dbUser.LastTOTP == -1 {
+		return models.UserStatusCreated
+	}
+	return models.UserStatusActive
+}
+
 // ListAllCredentials returns all user credentials stored in the database.
 func (s *BboltStorage) ListAllCredentials() ([]auth.UserCredentials, error) {
 	var credentials []auth.UserCredentials
@@ -109,7 +123,7 @@ func (s *BboltStorage) ListAllCredentials() ([]auth.UserCredentials, error) {
 					Presence: models.Presence{
 						LastSeen: dbUser.LastSeen,
 					},
-					Status: models.UserStatus(dbUser.Status),
+					Status: backfillStatus(&dbUser),
 				},
 				PasswordHash: dbUser.PasswordHash,
 				TOTPSecret:   dbUser.TOTPSecret,
