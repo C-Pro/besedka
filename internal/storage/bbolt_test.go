@@ -286,9 +286,10 @@ func TestStorage(t *testing.T) {
 		// Find the backfilled users
 		var oldCreated, oldActive *auth.UserCredentials
 		for i := range allCreds {
-			if allCreds[i].ID == "old_created" {
+			switch allCreds[i].ID {
+			case "old_created":
 				oldCreated = &allCreds[i]
-			} else if allCreds[i].ID == "old_active" {
+			case "old_active":
 				oldActive = &allCreds[i]
 			}
 		}
