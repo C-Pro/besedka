@@ -98,11 +98,6 @@ func (h *AdminHandler) AddUserHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AdminHandler) DeleteUserHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodDelete {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	username := r.URL.Query().Get("username")
 	if username == "" {
 		http.Error(w, "Username is required", http.StatusBadRequest)
