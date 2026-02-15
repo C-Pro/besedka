@@ -179,6 +179,88 @@ func TestIntegration(t *testing.T) {
 		}
 	}
 	assert.True(t, found, "Newly created user %s should be in the users list. Got: %v", username, usersList)
+
+	// Step 6: Multiple Tokens (New Check)
+	// Login again to get a second token
+	// Use time.Now().Add(30*time.Second) to generate a valid TOTP that is different from previous (to avoid reused TOTP error)
+	totpCode, err = auth.GenerateTOTP(totpSecret, time.Now().Add(30*time.Second))
+	require.NoError(t, err)
+
+	loginReq3 := auth.LoginRequest{
+		Username: username,
+		Password: newPassword,
+		TOTP:     totpCode,
+	}
+	loginBody3, _ := json.Marshal(loginReq3)
+	resp, err = http.Post(fmt.Sprintf("http://localhost%s/api/login", apiAddr), "application/json", bytes.NewBuffer(loginBody3))
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var loginResp2 auth.LoginResponse
+	err = json.NewDecoder(resp.Body).Decode(&loginResp2)
+	require.NoError(t, err)
+	require.True(t, loginResp2.Success)
+	require.NotEmpty(t, loginResp2.Token)
+	require.NotEqual(t, loginResp.Token, loginResp2.Token, "Second login should return different token")
+
+	// Verify FIRST token still works
+	req1, _ := http.NewRequest("GET", fmt.Sprintf("http://localhost%s/api/users", apiAddr), nil)
+	req1.AddCookie(&http.Cookie{Name: "token", Value: loginResp.Token})
+	client = &http.Client{} // reset client
+	resp1, err := client.Do(req1)
+	require.NoError(t, err)
+	defer func() { _ = resp1.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp1.StatusCode, "First token should still be valid")
+
+	// Verify SECOND token works
+	req2, _ := http.NewRequest("GET", fmt.Sprintf("http://localhost%s/api/users", apiAddr), nil)
+	req2.AddCookie(&http.Cookie{Name: "token", Value: loginResp2.Token})
+	resp2, err := client.Do(req2)
+	require.NoError(t, err)
+	defer func() { _ = resp2.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp2.StatusCode, "Second token should be valid")
+
+	// Step 7: Admin Delete User Revokes Tokens (New Check)
+	// Delete user via Admin API
+	reqDel, _ := http.NewRequest("DELETE", fmt.Sprintf("http://%s/admin/users?username=%s", adminAddr, username), nil)
+	respDel, err := client.Do(reqDel)
+	require.NoError(t, err)
+	defer func() { _ = respDel.Body.Close() }()
+	require.Equal(t, http.StatusOK, respDel.StatusCode)
+
+	// Verify FIRST token is revoked
+	// API redirects to /login.html on auth failure (302) or returns 401 depending on endpoint/client config.
+	// We configured client earlier to NOT follow redirects.
+	// But here we use default client. Let's use custom client again.
+	noRedirectClient := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	reqRevoke1, _ := http.NewRequest("GET", fmt.Sprintf("http://localhost%s/api/users", apiAddr), nil)
+	reqRevoke1.AddCookie(&http.Cookie{Name: "token", Value: loginResp.Token})
+	respRevoke1, err := noRedirectClient.Do(reqRevoke1)
+	require.NoError(t, err)
+	defer func() { _ = respRevoke1.Body.Close() }()
+	// Should be 401 or 302 to login.
+	// Internal auth middleware usually redirects to login on failure for browser routes, or 401 for API?
+	// `besedka` seems to use `http.Redirect` for auth failure in `AuthMiddleware`?
+	// Let's assume it redirects to `/login.html` (302).
+	if respRevoke1.StatusCode != http.StatusUnauthorized && respRevoke1.StatusCode != http.StatusFound {
+		t.Errorf("Expected 401 or 302 for revoked token 1, got %d", respRevoke1.StatusCode)
+	}
+
+	// Verify SECOND token is revoked
+	reqRevoke2, _ := http.NewRequest("GET", fmt.Sprintf("http://localhost%s/api/users", apiAddr), nil)
+	reqRevoke2.AddCookie(&http.Cookie{Name: "token", Value: loginResp2.Token})
+	respRevoke2, err := noRedirectClient.Do(reqRevoke2)
+	require.NoError(t, err)
+	defer func() { _ = respRevoke2.Body.Close() }()
+	if respRevoke2.StatusCode != http.StatusUnauthorized && respRevoke2.StatusCode != http.StatusFound {
+		t.Errorf("Expected 401 or 302 for revoked token 2, got %d", respRevoke2.StatusCode)
+	}
 }
 
 func waitForServer(t *testing.T, url string, retries int) {

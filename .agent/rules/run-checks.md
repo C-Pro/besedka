@@ -2,4 +2,5 @@
 trigger: always_on
 ---
 
-Before completing tasks run `make check` to run all tests and linters.
+After completing the task run `make check` to run all tests and linters.
+If there are issues, fix and repeat until `make check` is successful.

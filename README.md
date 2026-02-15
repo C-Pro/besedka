@@ -56,7 +56,7 @@ To run locally from source:
 
 ## Future Roadmap
 
-- [ ] Realtime updates for user presence/creation/deletion
+- [x] Realtime updates for user presence/creation/deletion
 - [ ] User profile/settings
 - [ ] Password reset
 - [ ] User deletion

@@ -8,6 +8,8 @@ import (
 
 	"besedka/internal/auth"
 	"besedka/internal/models"
+
+	"go.etcd.io/bbolt"
 )
 
 func TestStorage(t *testing.T) {
@@ -30,6 +32,7 @@ func TestStorage(t *testing.T) {
 				ID:          "user1",
 				UserName:    "alice",
 				DisplayName: "Alice",
+				Status:      models.UserStatusActive,
 			},
 			PasswordHash: "hash",
 			TOTPSecret:   "secret",
@@ -46,11 +49,47 @@ func TestStorage(t *testing.T) {
 		if len(listCreds) != 1 {
 			t.Errorf("expected 1 credential, got %d", len(listCreds))
 		}
+		if listCreds[0].Status != models.UserStatusActive {
+			t.Errorf("expected Status %s, got %s", models.UserStatusActive, listCreds[0].Status)
+		}
 		if listCreds[0].ID != creds.ID {
 			t.Errorf("expected ID %s, got %s", creds.ID, listCreds[0].ID)
 		}
 		if listCreds[0].TOTPSecret != creds.TOTPSecret {
 			t.Errorf("expected TOTPSecret %s, got %s", creds.TOTPSecret, listCreds[0].TOTPSecret)
+		}
+
+		// Test filtering
+		inactiveCreds := auth.UserCredentials{
+			User: models.User{
+				ID:          "user2",
+				UserName:    "bob",
+				DisplayName: "Bob",
+				Status:      models.UserStatusCreated,
+			},
+			PasswordHash: "hash",
+			TOTPSecret:   "secret",
+		}
+		if err := store.UpsertCredentials(inactiveCreds); err != nil {
+			t.Fatalf("UpsertCredentials inactive failed: %v", err)
+		}
+
+		// ListCredentials should still return 1 (Active only)
+		listCreds, err = store.ListCredentials()
+		if err != nil {
+			t.Fatalf("ListCredentials failed: %v", err)
+		}
+		if len(listCreds) != 1 {
+			t.Errorf("expected 1 active credential, got %d", len(listCreds))
+		}
+
+		// ListAllCredentials should return 2
+		listAll, err := store.ListAllCredentials()
+		if err != nil {
+			t.Fatalf("ListAllCredentials failed: %v", err)
+		}
+		if len(listAll) != 2 {
+			t.Errorf("expected 2 credentials, got %d", len(listAll))
 		}
 	})
 
@@ -127,9 +166,9 @@ func TestStorage(t *testing.T) {
 
 	t.Run("Tokens", func(t *testing.T) {
 		userID := "user2" // using user2 to avoid confusion with previous subtest though store is same
-		token := "token123"
+		tokenHash := "token_hash_123"
 
-		if err := store.UpsertToken(userID, token); err != nil {
+		if err := store.UpsertToken(userID, tokenHash); err != nil {
 			t.Fatalf("UpsertToken failed: %v", err)
 		}
 
@@ -137,11 +176,11 @@ func TestStorage(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ListTokens failed: %v", err)
 		}
-		if tokens[userID] != token {
-			t.Errorf("expected token %s, got %s", token, tokens[userID])
+		if tokens[tokenHash] != userID {
+			t.Errorf("expected userID %s for token %s, got %s", userID, tokenHash, tokens[tokenHash])
 		}
 
-		if err := store.DeleteToken(userID); err != nil {
+		if err := store.DeleteToken(tokenHash); err != nil {
 			t.Fatalf("DeleteToken failed: %v", err)
 		}
 
@@ -149,7 +188,7 @@ func TestStorage(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ListTokens failed: %v", err)
 		}
-		if _, ok := tokens[userID]; ok {
+		if _, ok := tokens[tokenHash]; ok {
 			t.Errorf("expected token to be deleted")
 		}
 	})
@@ -191,6 +230,82 @@ func TestStorage(t *testing.T) {
 		}
 		if att.FileID != "uuid-123" {
 			t.Errorf("expected attachment fileID uuid-123, got %s", att.FileID)
+		}
+	})
+
+	t.Run("StatusBackfill", func(t *testing.T) {
+		// Test that old DB records without Status field get backfilled correctly
+		// Simulate old records by directly inserting DBUser with empty Status
+		err := store.db.Update(func(tx *bbolt.Tx) error {
+			b := tx.Bucket(bucketUsers)
+
+			// Old record with LastTOTP = -1 (created state)
+			oldCreatedUser := &DBUser{
+				ID:           "old_created",
+				UserName:     "old_created_user",
+				DisplayName:  "Old Created",
+				PasswordHash: "hash",
+				TOTPSecret:   "secret",
+				LastTOTP:     -1,
+				Status:       "", // Empty status to simulate old record
+			}
+			data, err := oldCreatedUser.MarshalBinary()
+			if err != nil {
+				return err
+			}
+			if err := b.Put(oldCreatedUser.Key(), data); err != nil {
+				return err
+			}
+
+			// Old record with LastTOTP = 0 (active state)
+			oldActiveUser := &DBUser{
+				ID:           "old_active",
+				UserName:     "old_active_user",
+				DisplayName:  "Old Active",
+				PasswordHash: "hash",
+				TOTPSecret:   "secret",
+				LastTOTP:     0,
+				Status:       "", // Empty status to simulate old record
+			}
+			data, err = oldActiveUser.MarshalBinary()
+			if err != nil {
+				return err
+			}
+			return b.Put(oldActiveUser.Key(), data)
+		})
+		if err != nil {
+			t.Fatalf("failed to insert old records: %v", err)
+		}
+
+		// Verify backfilled status
+		allCreds, err := store.ListAllCredentials()
+		if err != nil {
+			t.Fatalf("ListAllCredentials failed: %v", err)
+		}
+
+		// Find the backfilled users
+		var oldCreated, oldActive *auth.UserCredentials
+		for i := range allCreds {
+			switch allCreds[i].ID {
+			case "old_created":
+				oldCreated = &allCreds[i]
+			case "old_active":
+				oldActive = &allCreds[i]
+			}
+		}
+
+		if oldCreated == nil {
+			t.Fatal("old_created user not found")
+		}
+		if oldCreated.Status != models.UserStatusCreated {
+			t.Errorf("expected old_created status to be %s, got %s", models.UserStatusCreated, oldCreated.Status)
+		}
+
+		if oldActive == nil {
+			t.Fatal("old_active user not found")
+		}
+		if oldActive.Status != models.UserStatusActive {
+			t.Errorf("expected old_active status to be %s, got %s", models.UserStatusActive, oldActive.Status)
 		}
 	})
 }

@@ -18,6 +18,7 @@ var (
 	bucketChats              = []byte("chats")
 	bucketMessages           = []byte("messages")
 	bucketTokens             = []byte("tokens")
+	bucketTokensV2           = []byte("tokens_v2")
 	bucketRegistrationTokens = []byte("registration_tokens")
 	bucketFiles              = []byte("files")
 )
@@ -42,7 +43,7 @@ func NewBboltStorage(path string) (*BboltStorage, error) {
 		if _, err := tx.CreateBucketIfNotExists(bucketMessages); err != nil {
 			return err
 		}
-		if _, err := tx.CreateBucketIfNotExists(bucketTokens); err != nil {
+		if _, err := tx.CreateBucketIfNotExists(bucketTokensV2); err != nil {
 			return err
 		}
 		if _, err := tx.CreateBucketIfNotExists(bucketRegistrationTokens); err != nil {
@@ -78,6 +79,7 @@ func (s *BboltStorage) UpsertCredentials(credentials auth.UserCredentials) error
 			PasswordHash: credentials.PasswordHash,
 			TOTPSecret:   credentials.TOTPSecret,
 			LastTOTP:     credentials.LastTOTP,
+			Status:       string(credentials.Status),
 		}
 
 		data, err := dbUser.MarshalBinary()
@@ -88,8 +90,22 @@ func (s *BboltStorage) UpsertCredentials(credentials auth.UserCredentials) error
 	})
 }
 
-// ListCredentials returns all user credentials stored in the database.
-func (s *BboltStorage) ListCredentials() ([]auth.UserCredentials, error) {
+// backfillStatus returns the appropriate status for a user based on their current data.
+// For pre-existing DB records created before the Status field existed, msgpack will leave
+// this as an empty string. We derive the status from LastTOTP: -1 => created, otherwise active.
+func backfillStatus(dbUser *DBUser) models.UserStatus {
+	if dbUser.Status != "" {
+		return models.UserStatus(dbUser.Status)
+	}
+	// Pre-existing record without status - derive from LastTOTP
+	if dbUser.LastTOTP == -1 {
+		return models.UserStatusCreated
+	}
+	return models.UserStatusActive
+}
+
+// ListAllCredentials returns all user credentials stored in the database.
+func (s *BboltStorage) ListAllCredentials() ([]auth.UserCredentials, error) {
 	var credentials []auth.UserCredentials
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketUsers)
@@ -107,6 +123,7 @@ func (s *BboltStorage) ListCredentials() ([]auth.UserCredentials, error) {
 					Presence: models.Presence{
 						LastSeen: dbUser.LastSeen,
 					},
+					Status: backfillStatus(&dbUser),
 				},
 				PasswordHash: dbUser.PasswordHash,
 				TOTPSecret:   dbUser.TOTPSecret,
@@ -116,6 +133,21 @@ func (s *BboltStorage) ListCredentials() ([]auth.UserCredentials, error) {
 		})
 	})
 	return credentials, err
+}
+
+// ListCredentials returns only active user credentials stored in the database.
+func (s *BboltStorage) ListCredentials() ([]auth.UserCredentials, error) {
+	all, err := s.ListAllCredentials()
+	if err != nil {
+		return nil, err
+	}
+	var active []auth.UserCredentials
+	for _, c := range all {
+		if c.Status == models.UserStatusActive {
+			active = append(active, c)
+		}
+	}
+	return active, nil
 }
 
 // UpsertChat saves chat struct to the database.
@@ -206,10 +238,6 @@ func (s *BboltStorage) UpsertMessage(message models.Message) error {
 		chatKey := []byte(message.ChatID)
 		chatData := chatBucketStats.Get(chatKey)
 		if chatData == nil {
-			// Chat should exist if we are sending messages to it, but maybe strict consistency isn't guaranteed?
-			// For now, let's assume chat must exist, or we can't update LastSeq.
-			// Or should we implicitly create it? The interface says UpsertChat exists.
-			// Let's error if chat not found to be safe.
 			return fmt.Errorf("chat %s not found for message upsert", message.ChatID)
 		}
 
@@ -221,8 +249,6 @@ func (s *BboltStorage) UpsertMessage(message models.Message) error {
 		// Update LastSeq
 		if int(message.Seq) > dbChat.LastSeq {
 			dbChat.LastSeq = int(message.Seq)
-			// dbChat.LastMessageAt = message.Timestamp // Chat struct doesn't have LastMessageAt, only implicit via LastSeq logic?
-			// models.Chat has `LastSeq`.
 
 			newData, err := dbChat.MarshalBinary()
 			if err != nil {
@@ -285,42 +311,93 @@ func (s *BboltStorage) ListMessages(chatID string, from, to int64) ([]models.Mes
 	return messages, err
 }
 
-func (s *BboltStorage) UpsertToken(userID string, token string) error {
+func (s *BboltStorage) UpsertToken(userID string, tokenHash string) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(bucketTokens)
+		b := tx.Bucket(bucketTokensV2)
 		dbToken := &DBToken{
 			UserID: userID,
-			Token:  token,
+			Token:  tokenHash,
 		}
 		data, err := dbToken.MarshalBinary()
 		if err != nil {
 			return err
 		}
+		// Key is now tokenHash
 		return b.Put(dbToken.Key(), data)
 	})
 }
 
-func (s *BboltStorage) DeleteToken(userID string) error {
+// DeleteToken now takes a tokenHash and deletes that specific token.
+func (s *BboltStorage) DeleteToken(tokenHash string) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(bucketTokens)
-		return b.Delete([]byte(userID))
+		b := tx.Bucket(bucketTokensV2)
+		return b.Delete([]byte(tokenHash))
 	})
 }
 
 func (s *BboltStorage) ListTokens() (map[string]string, error) {
 	tokens := make(map[string]string)
 	err := s.db.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(bucketTokens)
+		b := tx.Bucket(bucketTokensV2)
 		return b.ForEach(func(k, v []byte) error {
 			var dbToken DBToken
 			if err := dbToken.UnmarshalBinary(v); err != nil {
 				return err
 			}
-			tokens[dbToken.UserID] = dbToken.Token
+			// key (k) is also token hash, but let's use the one from struct
+			tokens[dbToken.Token] = dbToken.UserID
 			return nil
 		})
 	})
 	return tokens, err
+}
+
+func (s *BboltStorage) MigrateTokens(hasher func(token string) string) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		oldBucket := tx.Bucket(bucketTokens)
+		if oldBucket == nil {
+			return nil // nothing to migrate
+		}
+
+		newBucket := tx.Bucket(bucketTokensV2)
+
+		// Iterate over old tokens
+		err := oldBucket.ForEach(func(k, v []byte) error {
+			// In old schema: Key=UserID, Value=DBToken{UserID, Token}
+			var oldToken DBToken
+			if err := oldToken.UnmarshalBinary(v); err != nil {
+				// If unmarshal fails, we can't migrate this token. Log or skip?
+				// Returning error aborts migration.
+				return fmt.Errorf("corrupt token for user %s: %w", string(k), err)
+			}
+
+			// oldToken.Token is the Raw Token
+			hashedToken := hasher(oldToken.Token)
+
+			newToken := DBToken{
+				UserID: oldToken.UserID,
+				Token:  hashedToken,
+			}
+
+			data, err := newToken.MarshalBinary()
+			if err != nil {
+				return err
+			}
+
+			if err := newBucket.Put(newToken.Key(), data); err != nil {
+				return err
+			}
+
+			return nil
+		})
+
+		if err != nil {
+			return err
+		}
+
+		// Delete old bucket after successful migration
+		return tx.DeleteBucket(bucketTokens)
+	})
 }
 
 func (s *BboltStorage) UpsertRegistrationToken(userID string, token string) error {

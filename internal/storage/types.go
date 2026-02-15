@@ -19,7 +19,7 @@ type DBToken struct {
 }
 
 func (t *DBToken) Key() []byte {
-	return []byte(t.UserID)
+	return []byte(t.Token)
 }
 
 func (t *DBToken) MarshalBinary() (data []byte, err error) {
@@ -41,6 +41,7 @@ type DBUser struct {
 	PasswordHash string `msgpack:"passwordHash"`
 	TOTPSecret   string `msgpack:"totpSecret"`
 	LastTOTP     int    `msgpack:"lastTOTP"`
+	Status       string `msgpack:"status"`
 }
 
 func (u *DBUser) Key() []byte {
