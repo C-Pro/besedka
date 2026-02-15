@@ -162,6 +162,12 @@ func NewAuthService(ctx context.Context, config Config, storage storage) (*AuthS
 		now:                time.Now,
 	}
 
+	if err := storage.MigrateTokens(func(token string) string {
+		return as.hashToken(token)
+	}); err != nil {
+		return nil, fmt.Errorf("failed to migrate tokens: %w", err)
+	}
+
 	// Load users from storage
 	creds, err := storage.ListAllCredentials()
 	if err != nil {
