@@ -159,12 +159,13 @@ func (a *API) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Update Hub with new user DMs
+	// Update Hub with new user DMs and broadcast
 	if userID, err := a.auth.GetUserID(token); err == nil {
 		if user, err := a.auth.GetUser(userID); err == nil {
 			if users, err := a.auth.GetUsers(); err == nil {
 				a.hub.EnsureDMsFor(user, users)
 			}
+			go a.hub.BroadcastNewUser(user)
 		}
 	}
 
@@ -224,10 +225,11 @@ func (a *API) UsersHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Escape output
+	// Escape output and update online status
 	for i := range users {
 		users[i].DisplayName = content.Escape(users[i].DisplayName)
 		users[i].UserName = content.Escape(users[i].UserName)
+		users[i].Presence.Online = a.hub.IsUserOnline(users[i].ID)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
