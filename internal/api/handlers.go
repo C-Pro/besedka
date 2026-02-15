@@ -159,6 +159,15 @@ func (a *API) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Update Hub with new user DMs
+	if userID, err := a.auth.GetUserID(token); err == nil {
+		if user, err := a.auth.GetUser(userID); err == nil {
+			if users, err := a.auth.GetUsers(); err == nil {
+				a.hub.EnsureDMsFor(user, users)
+			}
+		}
+	}
+
 	http.SetCookie(w, &http.Cookie{
 		Name:     "token",
 		Value:    token,

@@ -5,6 +5,7 @@ import (
 	"besedka/internal/models"
 	"besedka/internal/ws"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -32,7 +33,6 @@ type AddUserResponse struct {
 }
 
 func (h *AdminHandler) AddUserHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("DEBUG: AddUserHandler called %s %s\n", r.Method, r.URL.Path)
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -93,6 +93,51 @@ func (h *AdminHandler) AddUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		_ = err
+	}
+}
+
+func (h *AdminHandler) DeleteUserHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	username := r.URL.Query().Get("username")
+	if username == "" {
+		http.Error(w, "Username is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.authService.DeleteUser(username); err != nil {
+		if errors.Is(err, models.ErrNotFound) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			if err := json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "User not found",
+			}); err != nil {
+				_ = err
+			}
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": fmt.Sprintf("Failed to delete user: %v", err),
+		}); err != nil {
+			_ = err
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("User %s deleted", username),
+	}); err != nil {
 		_ = err
 	}
 }

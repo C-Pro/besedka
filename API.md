@@ -204,3 +204,41 @@ Sent when new messages arrive in a subscribed chat.
 **Response:**
 - **Success (200 OK):** Binary image content with appropriate `Content-Type` and `Content-Length`.
 - **Not Found (404):** If ID doesn't exist.
+
+## Admin API
+
+The Admin API runs on a separate port (default 8081) and is used for management tasks.
+
+### Add User
+**Endpoint:** `POST /admin/users`
+
+**Request Body:**
+```json
+{
+  "username": "string",
+  "displayName": "string" // Optional
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "username": "string",
+  "setupLink": "string" // URL to share with user to complete registration
+}
+```
+
+### Delete User
+**Endpoint:** `DELETE /admin/users`
+
+**Query Parameters:**
+- `username`: The username of the user to delete.
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "User <username> deleted"
+}
+```

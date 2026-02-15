@@ -1,12 +1,27 @@
 package models
 
+import "errors"
+
+var (
+	ErrNotFound = errors.New("not found")
+)
+
+type UserStatus string
+
+const (
+	UserStatusCreated UserStatus = "created"
+	UserStatusActive  UserStatus = "active"
+	UserStatusDeleted UserStatus = "deleted"
+)
+
 // User represents a user in the system.
 type User struct {
-	ID          string   `json:"id"`
-	UserName    string   `json:"userName"`
-	DisplayName string   `json:"displayName"`
-	AvatarURL   string   `json:"avatarUrl"`
-	Presence    Presence `json:"presence"`
+	ID          string     `json:"id"`
+	UserName    string     `json:"userName"`
+	DisplayName string     `json:"displayName"`
+	AvatarURL   string     `json:"avatarUrl"`
+	Presence    Presence   `json:"presence"`
+	Status      UserStatus `json:"status"`
 }
 
 // Presence represents the online status of a user.

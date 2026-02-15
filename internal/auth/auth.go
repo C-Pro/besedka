@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"besedka/internal/content"
@@ -34,12 +35,17 @@ var (
 type storage interface {
 	UpsertCredentials(credentials UserCredentials) error
 	ListCredentials() ([]UserCredentials, error)
-	UpsertToken(userID string, token string) error
-	DeleteToken(userID string) error
+	ListAllCredentials() ([]UserCredentials, error)
+	// UpsertToken saves a token for a user. The token should be hashed.
+	UpsertToken(userID string, tokenHash string) error
+	// DeleteToken deletes a specific token (by hash).
+	DeleteToken(tokenHash string) error
+	// ListTokens returns all tokens (hashed) and their associated user IDs.
 	ListTokens() (map[string]string, error)
 	UpsertRegistrationToken(userID string, token string) error
 	DeleteRegistrationToken(userID string) error
 	ListRegistrationTokens() (map[string]string, error)
+	MigrateTokens(hasher func(string) string) error
 }
 
 type LoginRequest struct {
@@ -112,6 +118,8 @@ type AuthService struct {
 	usernames geche.Geche[string, string]
 	// Map of token to user ID
 	liveTokens *geche.MapTTLCache[string, string]
+	// Index of all tokens per user
+	userTokens *geche.Locker[string, []string]
 	// Map of registration token to user ID
 	registrationTokens *geche.MapTTLCache[string, string]
 	now                func() time.Time
@@ -149,12 +157,13 @@ func NewAuthService(ctx context.Context, config Config, storage storage) (*AuthS
 		users:              geche.NewLocker(geche.NewMapCache[string, *UserCredentials]()),
 		usernames:          geche.NewMapCache[string, string](),
 		liveTokens:         geche.NewMapTTLCache[string, string](ctx, config.TokenExpiry, time.Minute),
+		userTokens:         geche.NewLocker(geche.NewMapCache[string, []string]()),
 		registrationTokens: geche.NewMapTTLCache[string, string](ctx, config.RegistrationTokenExpiry, time.Minute),
 		now:                time.Now,
 	}
 
 	// Load users from storage
-	creds, err := storage.ListCredentials()
+	creds, err := storage.ListAllCredentials()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list credentials: %w", err)
 	}
@@ -172,12 +181,24 @@ func NewAuthService(ctx context.Context, config Config, storage storage) (*AuthS
 	if err != nil {
 		return nil, fmt.Errorf("failed to list tokens: %w", err)
 	}
-	for userID, token := range tokens {
-		as.liveTokens.Set(token, userID)
+	userTokensTx := as.userTokens.Lock()
+	defer userTokensTx.Unlock()
+
+	for tokenHash, userID := range tokens {
+		as.liveTokens.Set(tokenHash, userID)
+		userTokens, _ := userTokensTx.Get(userID)
+		userTokensTx.Set(userID, append(userTokens, tokenHash))
 	}
 
-	as.liveTokens.OnEvict(func(token string, userID string) {
-		if err := storage.DeleteToken(userID); err != nil {
+	as.liveTokens.OnEvict(func(tokenHash string, userID string) {
+		userTokensTx := as.userTokens.Lock()
+		defer userTokensTx.Unlock()
+		userTokens, _ := userTokensTx.Get(userID)
+		userTokens = slices.DeleteFunc(userTokens, func(t string) bool {
+			return t == tokenHash
+		})
+		userTokensTx.Set(userID, userTokens)
+		if err := storage.DeleteToken(tokenHash); err != nil {
 			slog.Error("failed to delete token from storage on eviction", "user_id", userID, "error", err)
 		}
 	})
@@ -204,6 +225,12 @@ func (as *AuthService) hashPassword(username, password string) string {
 	h := hmac.New(sha512.New, as.secretBytes)
 	h.Write([]byte(username + password))
 	return base64.StdEncoding.EncodeToString(h.Sum(nil))
+}
+
+func (as *AuthService) hashToken(token string) string {
+	h := hmac.New(sha512.New, as.secretBytes)
+	h.Write([]byte(token))
+	return string(h.Sum(nil))
 }
 
 func (as *AuthService) AddUser(username, displayName string) (string, error) {
@@ -242,6 +269,7 @@ func (as *AuthService) AddUser(username, displayName string) (string, error) {
 				ID:          userID,
 				UserName:    username,
 				DisplayName: displayName,
+				Status:      models.UserStatusCreated,
 			},
 			TOTPSecret: totpSecret,
 			LastTOTP:   -1,
@@ -269,13 +297,57 @@ func (as *AuthService) AddUser(username, displayName string) (string, error) {
 	return token, nil
 }
 
+func (as *AuthService) DeleteUser(username string) error {
+	tx := as.users.Lock()
+	defer tx.Unlock()
+
+	id, err := as.usernames.Get(username)
+	if err != nil {
+		return models.ErrNotFound
+	}
+
+	user, err := tx.Get(id)
+	if err != nil {
+		return models.ErrNotFound
+	}
+
+	user.Status = models.UserStatusDeleted
+	user.PasswordHash = ""
+	user.TOTPSecret = ""
+
+	// Initializing presence to offline
+	user.Presence = models.Presence{
+		Online:   false,
+		LastSeen: as.now().Unix(),
+	}
+
+	if err := as.storage.UpsertCredentials(*user); err != nil {
+		return fmt.Errorf("failed to persist deleted user: %w", err)
+	}
+
+	userTokensTx := as.userTokens.Lock()
+	defer userTokensTx.Unlock()
+	userTokens, _ := userTokensTx.Get(user.ID)
+	for _, tokenHash := range userTokens {
+		_ = as.liveTokens.Del(tokenHash)
+		if err := as.storage.DeleteToken(tokenHash); err != nil {
+			slog.Error("failed to delete token from storage", "token_hash", tokenHash, "error", err)
+		}
+	}
+	_ = userTokensTx.Del(user.ID)
+
+	tx.Set(user.ID, user)
+
+	return nil
+}
+
 func (as *AuthService) GetUser(id string) (models.User, error) {
 	tx := as.users.RLock()
 	defer tx.Unlock()
 	if creds, err := tx.Get(id); err == nil {
 		return creds.User, nil
 	}
-	return models.User{}, errors.New("user not found")
+	return models.User{}, models.ErrNotFound
 }
 
 func (as *AuthService) GetUsers() ([]models.User, error) {
@@ -284,7 +356,9 @@ func (as *AuthService) GetUsers() ([]models.User, error) {
 	snap := tx.Snapshot()
 	users := make([]models.User, 0, len(snap))
 	for _, creds := range snap {
-		users = append(users, creds.User)
+		if creds.Status == models.UserStatusActive {
+			users = append(users, creds.User)
+		}
 	}
 	return users, nil
 }
@@ -304,6 +378,13 @@ func (as *AuthService) Login(req LoginRequest) (LoginResponse, string) {
 
 	user, err := tx.Get(id)
 	if err != nil {
+		return LoginResponse{
+			Success: false,
+			Message: loginFailedMessage,
+		}, ""
+	}
+
+	if user.Status != models.UserStatusActive {
 		return LoginResponse{
 			Success: false,
 			Message: loginFailedMessage,
@@ -366,7 +447,16 @@ func (as *AuthService) Login(req LoginRequest) (LoginResponse, string) {
 		}, ""
 	}
 
-	as.liveTokens.Set(token, user.ID)
+	tokenHash := as.hashToken(token)
+	as.liveTokens.Set(tokenHash, user.ID)
+
+	// Add to userTokens
+	userTokensTx := as.userTokens.Lock()
+	userTokens, _ := userTokensTx.Get(user.ID)
+	// Append new token hash
+	userTokensTx.Set(user.ID, append(userTokens, tokenHash))
+	userTokensTx.Unlock()
+
 	user.ResetFailedLoginAttempts(now)
 	// Update LastTOTP to prevent replay attacks
 	user.LastTOTP = req.TOTP
@@ -375,7 +465,7 @@ func (as *AuthService) Login(req LoginRequest) (LoginResponse, string) {
 		slog.Error("failed to persist user after login", "error", err)
 	}
 
-	if err := as.storage.UpsertToken(user.ID, token); err != nil {
+	if err := as.storage.UpsertToken(user.ID, tokenHash); err != nil {
 		slog.Error("failed to persist token after login", "error", err)
 	}
 
@@ -393,10 +483,22 @@ func (as *AuthService) Logoff(token string) error {
 	}
 
 	as.SetOffline(userID)
-	if err := as.storage.DeleteToken(userID); err != nil {
+
+	tokenHash := as.hashToken(token)
+
+	if err := as.storage.DeleteToken(tokenHash); err != nil {
 		slog.Error("failed to delete token from storage on logoff", "error", err)
 	}
-	_ = as.liveTokens.Del(token)
+	_ = as.liveTokens.Del(tokenHash)
+
+	// Remove from userTokens
+	userTokensTx := as.userTokens.Lock()
+	defer userTokensTx.Unlock()
+	userTokens, _ := userTokensTx.Get(userID)
+	userTokens = slices.DeleteFunc(userTokens, func(t string) bool {
+		return t == tokenHash
+	})
+	userTokensTx.Set(userID, userTokens)
 
 	return nil
 }
@@ -520,6 +622,7 @@ func (as *AuthService) CompleteRegistration(req RegistrationRequest) (Registrati
 		user.DisplayName = req.DisplayName
 	}
 	user.LastTOTP = 0 // Activate user
+	user.Status = models.UserStatusActive
 
 	if err := as.storage.UpsertCredentials(*user); err != nil {
 		slog.Error("failed to persist user after registration", "error", err)
@@ -545,9 +648,16 @@ func (as *AuthService) CompleteRegistration(req RegistrationRequest) (Registrati
 		}, ""
 	}
 
-	as.liveTokens.Set(token, user.ID)
+	tokenHash := as.hashToken(token)
+	as.liveTokens.Set(tokenHash, user.ID)
 
-	if err := as.storage.UpsertToken(user.ID, token); err != nil {
+	// Add to userTokens
+	userTokensTx := as.userTokens.Lock()
+	userTokens, _ := userTokensTx.Get(user.ID)
+	userTokensTx.Set(user.ID, append(userTokens, tokenHash))
+	userTokensTx.Unlock()
+
+	if err := as.storage.UpsertToken(user.ID, tokenHash); err != nil {
 		slog.Error("failed to persist token after registration", "error", err)
 	}
 
@@ -600,7 +710,8 @@ func (as *AuthService) checkTOTP(secret string, totp int, lastTOTP int) bool {
 }
 
 func (as *AuthService) GetUserID(token string) (string, error) {
-	userID, err := as.liveTokens.Get(token)
+	tokenHash := as.hashToken(token)
+	userID, err := as.liveTokens.Get(tokenHash)
 	if err != nil {
 		return "", err
 	}
@@ -620,7 +731,7 @@ func (as *AuthService) GetUserID(token string) (string, error) {
 
 	// Update token expiry, so while user is active at least once per TokenExpiry interval,
 	// token will be extended indefinitely without requiring user to relogin.
-	as.liveTokens.Set(token, userID)
+	as.liveTokens.Set(tokenHash, userID)
 
 	return user.ID, nil
 }

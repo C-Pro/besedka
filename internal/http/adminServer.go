@@ -18,7 +18,8 @@ type AdminServer struct {
 func NewAdminServer(authService *auth.AuthService, hub *ws.Hub, addr string) *AdminServer {
 	adminHandler := api.NewAdminHandler(authService, hub)
 	mux := http.NewServeMux()
-	mux.HandleFunc("/admin/users", adminHandler.AddUserHandler)
+	mux.HandleFunc("POST /admin/users", adminHandler.AddUserHandler)
+	mux.HandleFunc("DELETE /admin/users", adminHandler.DeleteUserHandler)
 
 	if addr == "" {
 		addr = "localhost:8081"

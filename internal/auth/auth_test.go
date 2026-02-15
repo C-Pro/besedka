@@ -10,7 +10,8 @@ import (
 )
 
 type MockStorage struct {
-	creds     map[string]UserCredentials
+	creds map[string]UserCredentials
+	// tokens maps TokenHash -> UserID
 	tokens    map[string]string
 	regTokens map[string]string
 }
@@ -21,6 +22,19 @@ func (m *MockStorage) UpsertCredentials(c UserCredentials) error {
 }
 
 func (m *MockStorage) ListCredentials() ([]UserCredentials, error) {
+	// Mock returns all credentials. For testing filtering, we should check what is returned.
+	// But `ListCredentials` in bbolt now filters.
+	// We should simulate this if we want to test filtering properly.
+	var list []UserCredentials
+	for _, c := range m.creds {
+		if c.Status == models.UserStatusActive {
+			list = append(list, c)
+		}
+	}
+	return list, nil
+}
+
+func (m *MockStorage) ListAllCredentials() ([]UserCredentials, error) {
 	var list []UserCredentials
 	for _, c := range m.creds {
 		list = append(list, c)
@@ -28,13 +42,26 @@ func (m *MockStorage) ListCredentials() ([]UserCredentials, error) {
 	return list, nil
 }
 
-func (m *MockStorage) UpsertToken(userID string, token string) error {
-	m.tokens[userID] = token
+func (m *MockStorage) UpsertToken(userID string, tokenHash string) error {
+	m.tokens[tokenHash] = userID
 	return nil
 }
 
-func (m *MockStorage) DeleteToken(userID string) error {
-	delete(m.tokens, userID)
+func (m *MockStorage) DeleteToken(tokenHash string) error {
+	delete(m.tokens, tokenHash)
+	return nil
+}
+
+func (m *MockStorage) DeleteUserTokens(userID string) error {
+	for k, v := range m.tokens {
+		if v == userID {
+			delete(m.tokens, k)
+		}
+	}
+	return nil
+}
+
+func (m *MockStorage) MigrateTokens(hasher func(string) string) error {
 	return nil
 }
 
@@ -171,6 +198,7 @@ func TestAuthService(t *testing.T) {
 			User: models.User{
 				ID:       userID,
 				UserName: "user1",
+				Status:   models.UserStatusActive,
 			},
 			PasswordHash: svc.hashPassword("user1", "pass1"),
 			TOTPSecret:   rawSecret,
@@ -194,9 +222,9 @@ func TestAuthService(t *testing.T) {
 		}
 
 		// Verify token is live
-		val, err := svc.liveTokens.Get(resp.Token)
+		val, err := svc.liveTokens.Get(svc.hashToken(resp.Token))
 		if err != nil || val != userID {
-			t.Errorf("Token not found in liveTokens")
+			t.Errorf("Token not found in liveTokens: %v, %s", err, val)
 		}
 
 		// Advance time and try next code
@@ -220,6 +248,7 @@ func TestAuthService(t *testing.T) {
 			User: models.User{
 				ID:       "uid",
 				UserName: "user1",
+				Status:   models.UserStatusActive,
 			},
 			PasswordHash: svc.hashPassword("user1", "pass1"),
 			TOTPSecret:   rawSecret,
@@ -284,6 +313,7 @@ func TestAuthService(t *testing.T) {
 			User: models.User{
 				ID:       "uid",
 				UserName: "user1",
+				Status:   models.UserStatusActive,
 			},
 			PasswordHash: svc.hashPassword("user1", "pass1"),
 			TOTPSecret:   rawSecret,
@@ -322,6 +352,7 @@ func TestAuthService(t *testing.T) {
 			User: models.User{
 				ID:       "uid",
 				UserName: "user1",
+				Status:   models.UserStatusActive,
 			},
 			PasswordHash: svc.hashPassword("user1", "pass1"),
 			TOTPSecret:   rawSecret,
@@ -386,6 +417,7 @@ func TestAuthService(t *testing.T) {
 			User: models.User{
 				ID:       "uid",
 				UserName: "user1",
+				Status:   models.UserStatusActive,
 			},
 			PasswordHash: svc.hashPassword("user1", "pass1"),
 			TOTPSecret:   rawSecret,
@@ -405,7 +437,7 @@ func TestAuthService(t *testing.T) {
 		}
 
 		// Verify token exists
-		_, err := svc.liveTokens.Get(resp.Token)
+		_, err := svc.liveTokens.Get(svc.hashToken(resp.Token))
 		if err != nil {
 			t.Fatalf("Token should be valid")
 		}
@@ -416,7 +448,7 @@ func TestAuthService(t *testing.T) {
 		}
 
 		// Verify token is gone
-		_, err = svc.liveTokens.Get(resp.Token)
+		_, err = svc.liveTokens.Get(svc.hashToken(resp.Token))
 		if err == nil {
 			t.Error("Token should be invalid after logoff")
 		}
@@ -593,6 +625,7 @@ func TestAuthService(t *testing.T) {
 			User: models.User{
 				ID:       userID,
 				UserName: "user_p",
+				Status:   models.UserStatusActive,
 			},
 			PasswordHash: svc.hashPassword("user_p", "pass"),
 			TOTPSecret:   rawSecret,
@@ -613,8 +646,16 @@ func TestAuthService(t *testing.T) {
 		token := resp.Token
 
 		// Verify retained in storage
-		if store.tokens[userID] != token {
-			t.Errorf("Token not persisted in storage. Got %v, want %v", store.tokens[userID], token)
+		// Store is now TokenHash -> UserID
+		found := false
+		for _, uid := range store.tokens {
+			if uid == userID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Token for user %s not found in storage", userID)
 		}
 		if loggedInUserID != userID {
 			t.Errorf("Expected loggedInUserID %s, got %s", userID, loggedInUserID)
@@ -629,7 +670,8 @@ func TestAuthService(t *testing.T) {
 		}
 
 		// Verify token is loaded in liveTokens
-		loadedUserID, err := svc2.liveTokens.Get(token)
+		// svc2 needs to hash it
+		loadedUserID, err := svc2.liveTokens.Get(svc2.hashToken(token))
 		if err != nil {
 			t.Fatalf("Token not found in svc2 liveTokens: %v", err)
 		}
@@ -643,8 +685,120 @@ func TestAuthService(t *testing.T) {
 		}
 
 		// Verify removed from storage
-		if _, ok := store.tokens[userID]; ok {
-			t.Error("Token not removed from storage after logoff")
+		found = false
+		for _, uid := range store.tokens {
+			if uid == userID {
+				found = true
+				break
+			}
+		}
+		if found {
+			t.Error("Token should be removed from storage after logoff")
+		}
+	})
+
+	t.Run("DeleteUser", func(t *testing.T) {
+		svc, _, store := createService(t)
+
+		// 1. Setup user
+		tx := svc.users.Lock()
+		userID := "user_delete"
+		tx.Set(userID, &UserCredentials{
+			User: models.User{
+				ID:       userID,
+				UserName: "user_to_delete",
+				Status:   models.UserStatusActive,
+			},
+			PasswordHash: svc.hashPassword("user_to_delete", "pass"),
+			TOTPSecret:   rawSecret,
+			LastTOTP:     0,
+		})
+		svc.usernames.Set("user_to_delete", userID)
+		tx.Unlock()
+
+		// 2. Create a session token
+		token, _ := svc.generateToken()
+		tokenHash := svc.hashToken(token)
+		// We should Set the hash in liveTokens, because that's what Login does
+		svc.liveTokens.Set(tokenHash, userID)
+
+		// Also populate userTokens so DeleteUser knows what to delete
+		userTokensTx := svc.userTokens.Lock()
+		userTokensTx.Set(userID, []string{tokenHash})
+		userTokensTx.Unlock()
+
+		if err := store.UpsertToken(userID, tokenHash); err != nil {
+			t.Fatalf("Failed to upsert token: %v", err)
+		}
+
+		// 3. Delete user
+		err := svc.DeleteUser("user_to_delete")
+		if err != nil {
+			t.Fatalf("DeleteUser failed: %v", err)
+		}
+
+		// 4. Verify status in storage
+		found := false
+		for _, creds := range store.creds {
+			if creds.UserName == "user_to_delete" {
+				if creds.Status != models.UserStatusDeleted {
+					t.Errorf("Expected status Deleted, got %s", creds.Status)
+				}
+				if creds.PasswordHash != "" {
+					t.Error("Password hash not cleared")
+				}
+				if creds.TOTPSecret != "" {
+					t.Error("TOTP secret not cleared")
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Error("User not found in storage after delete")
+		}
+
+		// 5. Verify token removed from storage
+		found = false
+		for _, v := range store.tokens {
+			if v == userID {
+				found = true
+				break
+			}
+		}
+		if found {
+			t.Error("Token not removed from storage")
+		}
+
+		// 6. Verify Login fails
+		resp, _ := svc.Login(LoginRequest{
+			Username: "user_to_delete",
+			Password: "pass",
+			TOTP:     validCodes[0],
+		})
+		if resp.Success {
+			t.Error("Login should fail for deleted user")
+		}
+
+		// 7. Verify GetUser returns error or deleted status (depending on implementation)
+		// Our GetUser returns the user object.
+		u, err := svc.GetUser(userID)
+		if err != nil {
+			// If it returns error, that's one way. But currently it returns user if found in map.
+			// It should be found in map.
+			t.Logf("GetUser returned error: %v", err)
+		} else {
+			if u.Status != models.UserStatusDeleted {
+				t.Errorf("GetUser returned status %s, expected Deleted", u.Status)
+			}
+		}
+
+		// 8. Verify GetUsers filters it out
+		users, _ := svc.GetUsers()
+		for _, u := range users {
+			if u.UserName == "user_to_delete" {
+				t.Error("Deleted user should not appear in GetUsers list")
+			}
 		}
 	})
 }

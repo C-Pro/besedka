@@ -25,3 +25,10 @@ While we do not try to be most featurefull chat application, we still want to pr
 
 ### Simple API design
 The chat API should be simple for developers to use to facilitate 3rd party clients/UIs development.
+
+
+## Coding style
+
+Use comments only when necessary. Prefer self-documenting code.
+Avoid leaving chain of thoughts style comments in the code.
+When defining HTTP handlers always use Go 1.22+ style: `mux.HandleFunc("POST /admin/users", h.AddUserHandler)` instead of doing switch on `r.Method` inside the handler.

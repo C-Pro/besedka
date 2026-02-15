@@ -30,6 +30,7 @@ func TestStorage(t *testing.T) {
 				ID:          "user1",
 				UserName:    "alice",
 				DisplayName: "Alice",
+				Status:      models.UserStatusActive,
 			},
 			PasswordHash: "hash",
 			TOTPSecret:   "secret",
@@ -46,11 +47,47 @@ func TestStorage(t *testing.T) {
 		if len(listCreds) != 1 {
 			t.Errorf("expected 1 credential, got %d", len(listCreds))
 		}
+		if listCreds[0].Status != models.UserStatusActive {
+			t.Errorf("expected Status %s, got %s", models.UserStatusActive, listCreds[0].Status)
+		}
 		if listCreds[0].ID != creds.ID {
 			t.Errorf("expected ID %s, got %s", creds.ID, listCreds[0].ID)
 		}
 		if listCreds[0].TOTPSecret != creds.TOTPSecret {
 			t.Errorf("expected TOTPSecret %s, got %s", creds.TOTPSecret, listCreds[0].TOTPSecret)
+		}
+
+		// Test filtering
+		inactiveCreds := auth.UserCredentials{
+			User: models.User{
+				ID:          "user2",
+				UserName:    "bob",
+				DisplayName: "Bob",
+				Status:      models.UserStatusCreated,
+			},
+			PasswordHash: "hash",
+			TOTPSecret:   "secret",
+		}
+		if err := store.UpsertCredentials(inactiveCreds); err != nil {
+			t.Fatalf("UpsertCredentials inactive failed: %v", err)
+		}
+
+		// ListCredentials should still return 1 (Active only)
+		listCreds, err = store.ListCredentials()
+		if err != nil {
+			t.Fatalf("ListCredentials failed: %v", err)
+		}
+		if len(listCreds) != 1 {
+			t.Errorf("expected 1 active credential, got %d", len(listCreds))
+		}
+
+		// ListAllCredentials should return 2
+		listAll, err := store.ListAllCredentials()
+		if err != nil {
+			t.Fatalf("ListAllCredentials failed: %v", err)
+		}
+		if len(listAll) != 2 {
+			t.Errorf("expected 2 credentials, got %d", len(listAll))
 		}
 	})
 
@@ -127,9 +164,9 @@ func TestStorage(t *testing.T) {
 
 	t.Run("Tokens", func(t *testing.T) {
 		userID := "user2" // using user2 to avoid confusion with previous subtest though store is same
-		token := "token123"
+		tokenHash := "token_hash_123"
 
-		if err := store.UpsertToken(userID, token); err != nil {
+		if err := store.UpsertToken(userID, tokenHash); err != nil {
 			t.Fatalf("UpsertToken failed: %v", err)
 		}
 
@@ -137,11 +174,11 @@ func TestStorage(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ListTokens failed: %v", err)
 		}
-		if tokens[userID] != token {
-			t.Errorf("expected token %s, got %s", token, tokens[userID])
+		if tokens[tokenHash] != userID {
+			t.Errorf("expected userID %s for token %s, got %s", userID, tokenHash, tokens[tokenHash])
 		}
 
-		if err := store.DeleteToken(userID); err != nil {
+		if err := store.DeleteToken(tokenHash); err != nil {
 			t.Fatalf("DeleteToken failed: %v", err)
 		}
 
@@ -149,7 +186,7 @@ func TestStorage(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ListTokens failed: %v", err)
 		}
-		if _, ok := tokens[userID]; ok {
+		if _, ok := tokens[tokenHash]; ok {
 			t.Errorf("expected token to be deleted")
 		}
 	})
