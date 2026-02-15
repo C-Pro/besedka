@@ -49,6 +49,8 @@ type ServerMessage struct {
 	Online   bool              `json:"online,omitempty"`
 	ChatID   string            `json:"chatId,omitempty"`
 	Messages []Message         `json:"messages,omitempty"`
+	User     User              `json:"user,omitempty"`
+	Chat     Chat              `json:"chat,omitempty"`
 }
 
 type AttachmentType string
@@ -76,10 +78,11 @@ const (
 type ServerMessageType string
 
 const (
-	ServerMessageTypeJoin     ServerMessageType = "join"
-	ServerMessageTypeLeave    ServerMessageType = "leave"
-	ServerMessageTypeSend     ServerMessageType = "send"
 	ServerMessageTypeOnline   ServerMessageType = "online"
 	ServerMessageTypeOffline  ServerMessageType = "offline"
 	ServerMessageTypeMessages ServerMessageType = "messages"
+	// Sent when a new user is created
+	ServerMessageTypeNew ServerMessageType = "new"
+	// Sent when user is deleted
+	ServerMessageTypeDeleted ServerMessageType = "deleted"
 )

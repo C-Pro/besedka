@@ -165,6 +165,9 @@ func (h *Hub) Join(userID string) chan models.ServerMessage {
 		}
 	}
 
+	// Notify others that user is online
+	h.broadcastStatusChange(userID, true)
+
 	return ch
 }
 
@@ -180,6 +183,77 @@ func (h *Hub) Leave(userID string) {
 	// Leave all relevant chats
 	for _, c := range h.chats {
 		c.Leave(userID)
+	}
+
+	// Notify others that user is offline
+	h.broadcastStatusChange(userID, false)
+}
+
+func (h *Hub) BroadcastNewUser(user models.User) {
+	user.DisplayName = content.Escape(user.DisplayName)
+	user.UserName = content.Escape(user.UserName)
+	h.BroadcastToAll(models.ServerMessage{
+		Type: models.ServerMessageTypeNew,
+		User: user,
+		Chat: models.Chat{
+			ID: getDMID(user.ID, user.ID), // This might need adjustment, usually we want DMs relative to the receiver
+		},
+	}, user.ID)
+}
+
+// BroadcastToAll sends a message to all connected users except the excluded one.
+func (h *Hub) BroadcastToAll(msg models.ServerMessage, excludeUserID string) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	for userID, ch := range h.connectedUsers {
+		if userID == excludeUserID {
+			continue
+		}
+
+		switch msg.Type {
+		case models.ServerMessageTypeNew:
+			// Each user gets their own DM chat with the new user
+			userMsg := msg
+			dmID := getDMID(msg.User.ID, userID)
+			userMsg.Chat = models.Chat{
+				ID:     dmID,
+				Name:   msg.User.DisplayName,
+				IsDM:   true,
+				Online: msg.User.Presence.Online,
+			}
+			h.sendToChannel(ch, userMsg, userID)
+		default:
+			h.sendToChannel(ch, msg, userID)
+		}
+	}
+}
+
+func (h *Hub) broadcastStatusChange(userID string, online bool) {
+	typ := models.ServerMessageTypeOffline
+	if online {
+		typ = models.ServerMessageTypeOnline
+	}
+
+	msg := models.ServerMessage{
+		Type:   typ,
+		UserID: userID,
+		Online: online,
+	}
+
+	for id, ch := range h.connectedUsers {
+		if id == userID {
+			continue
+		}
+		h.sendToChannel(ch, msg, id)
+	}
+}
+
+func (h *Hub) sendToChannel(ch chan models.ServerMessage, msg models.ServerMessage, userID string) {
+	select {
+	case ch <- msg:
+	default:
+		slog.Warn("Message channel full, dropping message", "userID", userID)
 	}
 }
 
@@ -252,6 +326,13 @@ func (h *Hub) sendToUser(userID string, msg models.ServerMessage) {
 	default:
 		slog.Warn("Message channel full, dropping message", "userID", userID)
 	}
+}
+
+func (h *Hub) IsUserOnline(userID string) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	_, ok := h.connectedUsers[userID]
+	return ok
 }
 
 func (h *Hub) GetChats(userID string) []models.Chat {
