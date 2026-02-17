@@ -49,12 +49,19 @@
     padding: 0;
 }
 
+html {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+}
+
 body {
     font-family: var(--font-family);
     background-color: var(--bg-app);
     color: var(--text-primary);
-    height: 100vh;
+    height: 100dvh;
     overflow: hidden;
+    overscroll-behavior: none;
     -webkit-font-smoothing: antialiased;
 }
 
