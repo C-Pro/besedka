@@ -30,7 +30,8 @@ document.addEventListener('DOMContentLoaded', () => {
     passwordInput.addEventListener('input', (e) => password = e.target.value);
     otpInput.addEventListener('input', (e) => otp = e.target.value);
 
-    const handleLogin = async () => {
+    const handleLogin = async (e) => {
+        if (e) e.preventDefault();
         hideError();
         const otpVal = otp ? parseInt(otp, 10) : 0;
 
@@ -49,13 +50,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    loginBtn.addEventListener('click', handleLogin);
-
-    // Allow Enter key to submit
-    const inputs = [usernameInput, passwordInput, otpInput];
-    inputs.forEach(input => {
-        input.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') handleLogin();
-        });
-    });
+    const loginForm = document.getElementById('login-form');
+    if (loginForm) {
+        loginForm.addEventListener('submit', handleLogin);
+    }
 });
