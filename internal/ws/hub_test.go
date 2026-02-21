@@ -344,7 +344,7 @@ func TestHub_RemoveDeletedUser(t *testing.T) {
 	ch2 := h.Join(user2.ID)
 	ch3 := h.Join(user3.ID)
 
-	// Drain online messages
+	// Drain online messages from all channels
 	for i := 0; i < 2; i++ {
 		select {
 		case <-ch1:
@@ -354,6 +354,12 @@ func TestHub_RemoveDeletedUser(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		select {
 		case <-ch2:
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	for i := 0; i < 2; i++ {
+		select {
+		case <-ch3:
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
@@ -425,7 +431,7 @@ func TestHub_RemoveDeletedUser(t *testing.T) {
 		if msg.UserID != user1.ID {
 			t.Errorf("Expected deleted user ID %s, got %s", user1.ID, msg.UserID)
 		}
-	case <-time.After(1 * time.Second):
+	case <-time.After(100 * time.Millisecond):
 		t.Error("Timeout waiting for deletion message on ch2")
 	}
 
@@ -437,7 +443,7 @@ func TestHub_RemoveDeletedUser(t *testing.T) {
 		if msg.UserID != user1.ID {
 			t.Errorf("Expected deleted user ID %s, got %s", user1.ID, msg.UserID)
 		}
-	case <-time.After(1 * time.Second):
+	case <-time.After(100 * time.Millisecond):
 		t.Error("Timeout waiting for deletion message on ch3")
 	}
 }
