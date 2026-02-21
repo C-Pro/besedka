@@ -327,3 +327,117 @@ func TestHub_JoinChat_ReturnsHistory(t *testing.T) {
 		t.Fatal("Timeout waiting for history")
 	}
 }
+
+func TestHub_RemoveDeletedUser(t *testing.T) {
+	user1 := models.User{ID: "u1", DisplayName: "User 1"}
+	user2 := models.User{ID: "u2", DisplayName: "User 2"}
+	user3 := models.User{ID: "u3", DisplayName: "User 3"}
+
+	provider := &MockUserProvider{
+		users: []models.User{user1, user2, user3},
+	}
+	store := NewMockStorage()
+	h := NewHub(provider, store)
+
+	// Connect all users
+	ch1 := h.Join(user1.ID)
+	ch2 := h.Join(user2.ID)
+	ch3 := h.Join(user3.ID)
+
+	// Drain online messages
+	for i := 0; i < 2; i++ {
+		select {
+		case <-ch1:
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	for i := 0; i < 2; i++ {
+		select {
+		case <-ch2:
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+
+	// Verify DM chats exist before deletion
+	dmID12 := getDMID(user1.ID, user2.ID)
+	dmID13 := getDMID(user1.ID, user3.ID)
+	dmID23 := getDMID(user2.ID, user3.ID)
+
+	h.mu.RLock()
+	if _, ok := h.chats[dmID12]; !ok {
+		t.Error("DM between u1 and u2 should exist")
+	}
+	if _, ok := h.chats[dmID13]; !ok {
+		t.Error("DM between u1 and u3 should exist")
+	}
+	if _, ok := h.chats[dmID23]; !ok {
+		t.Error("DM between u2 and u3 should exist")
+	}
+	if _, ok := h.connectedUsers[user1.ID]; !ok {
+		t.Error("User 1 should be connected")
+	}
+	h.mu.RUnlock()
+
+	// Remove user1
+	h.RemoveDeletedUser(user1.ID)
+
+	// Verify user1's connection is closed
+	select {
+	case _, ok := <-ch1:
+		if ok {
+			t.Error("User 1's channel should be closed")
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Error("Expected user 1's channel to be closed")
+	}
+
+	// Verify user1 is removed from connectedUsers
+	h.mu.RLock()
+	if _, ok := h.connectedUsers[user1.ID]; ok {
+		t.Error("User 1 should be removed from connectedUsers")
+	}
+
+	// Verify DM chats involving user1 are removed
+	if _, ok := h.chats[dmID12]; ok {
+		t.Error("DM between u1 and u2 should be removed")
+	}
+	if _, ok := h.chats[dmID13]; ok {
+		t.Error("DM between u1 and u3 should be removed")
+	}
+
+	// Verify DM chat not involving user1 still exists
+	if _, ok := h.chats[dmID23]; !ok {
+		t.Error("DM between u2 and u3 should still exist")
+	}
+
+	// Verify townhall still exists
+	if _, ok := h.chats["townhall"]; !ok {
+		t.Error("Townhall should still exist")
+	}
+	h.mu.RUnlock()
+
+	// Verify deletion event is broadcast to other connected users
+	select {
+	case msg := <-ch2:
+		if msg.Type != models.ServerMessageTypeDeleted {
+			t.Errorf("Expected Deleted message, got %s", msg.Type)
+		}
+		if msg.UserID != user1.ID {
+			t.Errorf("Expected deleted user ID %s, got %s", user1.ID, msg.UserID)
+		}
+	case <-time.After(1 * time.Second):
+		t.Error("Timeout waiting for deletion message on ch2")
+	}
+
+	select {
+	case msg := <-ch3:
+		if msg.Type != models.ServerMessageTypeDeleted {
+			t.Errorf("Expected Deleted message, got %s", msg.Type)
+		}
+		if msg.UserID != user1.ID {
+			t.Errorf("Expected deleted user ID %s, got %s", user1.ID, msg.UserID)
+		}
+	case <-time.After(1 * time.Second):
+		t.Error("Timeout waiting for deletion message on ch3")
+	}
+}
