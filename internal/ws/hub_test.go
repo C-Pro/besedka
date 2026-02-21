@@ -66,6 +66,15 @@ func (m *MockStorage) UpsertChat(chat models.Chat) error {
 	return nil
 }
 
+func drainMessages(ch <-chan models.ServerMessage, count int) {
+	for i := 0; i < count; i++ {
+		select {
+		case <-ch:
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+}
+
 func TestHub_Lifecycle(t *testing.T) {
 	user1 := models.User{ID: "u1", DisplayName: "User 1"}
 	user2 := models.User{ID: "u2", DisplayName: "User 2"}
@@ -345,24 +354,9 @@ func TestHub_RemoveDeletedUser(t *testing.T) {
 	ch3 := h.Join(user3.ID)
 
 	// Drain online messages from all channels
-	for i := 0; i < 2; i++ {
-		select {
-		case <-ch1:
-		case <-time.After(100 * time.Millisecond):
-		}
-	}
-	for i := 0; i < 2; i++ {
-		select {
-		case <-ch2:
-		case <-time.After(100 * time.Millisecond):
-		}
-	}
-	for i := 0; i < 2; i++ {
-		select {
-		case <-ch3:
-		case <-time.After(100 * time.Millisecond):
-		}
-	}
+	drainMessages(ch1, 2)
+	drainMessages(ch2, 2)
+	drainMessages(ch3, 2)
 
 	// Verify DM chats exist before deletion
 	dmID12 := getDMID(user1.ID, user2.ID)
