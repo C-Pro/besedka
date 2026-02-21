@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+const testTimeout = 100 * time.Millisecond
+
 type MockUserProvider struct {
 	users []models.User
 }
@@ -68,12 +70,13 @@ func (m *MockStorage) UpsertChat(chat models.Chat) error {
 
 // drainMessages consumes up to count messages from a channel during test setup.
 // This is used to clear expected messages (like online notifications) that would
-// otherwise interfere with testing subsequent behavior.
+// otherwise interfere with testing subsequent behavior. If fewer than count messages
+// are available, the function will wait testTimeout per remaining message before continuing.
 func drainMessages(ch <-chan models.ServerMessage, count int) {
 	for i := 0; i < count; i++ {
 		select {
 		case <-ch:
-		case <-time.After(100 * time.Millisecond):
+		case <-time.After(testTimeout):
 		}
 	}
 }
@@ -198,7 +201,7 @@ func TestHub_Lifecycle(t *testing.T) {
 			t.Error("Received message after leave")
 		}
 		// If !ok, it means channel is closed, which is correct for Leave()
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(testTimeout):
 		// Also OK if nothing received (though channel should be closed)
 	}
 }
@@ -224,7 +227,7 @@ func TestHub_Broadcasting(t *testing.T) {
 		if msg.Type != models.ServerMessageTypeOnline || msg.UserID != user2.ID {
 			t.Errorf("User 1 expected User 2 online, got %v", msg)
 		}
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(testTimeout):
 		t.Error("Timeout waiting for online message")
 	}
 
@@ -244,7 +247,7 @@ func TestHub_Broadcasting(t *testing.T) {
 		if msg.Chat.ID == "" || !msg.Chat.IsDM {
 			t.Errorf("Expected DM chat in New User message, got %v", msg.Chat)
 		}
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(testTimeout):
 		t.Error("Timeout waiting for New User message on ch1")
 	}
 
@@ -254,7 +257,7 @@ func TestHub_Broadcasting(t *testing.T) {
 		if msg.Type != models.ServerMessageTypeNew {
 			t.Errorf("Expected New User message, got %s", msg.Type)
 		}
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(testTimeout):
 		t.Error("Timeout waiting for New User message on ch2")
 	}
 
@@ -270,7 +273,7 @@ func TestHub_Broadcasting(t *testing.T) {
 		if msg.UserID != user2.ID {
 			t.Errorf("Expected user u2 offline, got %s", msg.UserID)
 		}
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(testTimeout):
 		t.Error("Timeout waiting for Offline message on ch1")
 	}
 }
@@ -391,7 +394,7 @@ func TestHub_RemoveDeletedUser(t *testing.T) {
 		if ok {
 			t.Error("User 1's channel should be closed")
 		}
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(testTimeout):
 		t.Error("Expected user 1's channel to be closed")
 	}
 
@@ -429,7 +432,7 @@ func TestHub_RemoveDeletedUser(t *testing.T) {
 		if msg.UserID != user1.ID {
 			t.Errorf("Expected deleted user ID %s, got %s", user1.ID, msg.UserID)
 		}
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(testTimeout):
 		t.Error("Timeout waiting for deletion message on ch2")
 	}
 
@@ -441,7 +444,7 @@ func TestHub_RemoveDeletedUser(t *testing.T) {
 		if msg.UserID != user1.ID {
 			t.Errorf("Expected deleted user ID %s, got %s", user1.ID, msg.UserID)
 		}
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(testTimeout):
 		t.Error("Timeout waiting for deletion message on ch3")
 	}
 }
