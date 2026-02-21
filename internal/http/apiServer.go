@@ -31,7 +31,6 @@ func NewAPIServer(authService *auth.AuthService, hub *ws.Hub, filestore filestor
 	mux.HandleFunc("/", NewFileServerHandler(authService, static.Content))
 
 	// API endpoints
-	log.Printf("Registering API handler: /api/register-info")
 	mux.HandleFunc("/api/login", apiHandlers.LoginHandler)
 	mux.HandleFunc("/api/logoff", apiHandlers.LogoffHandler)
 	mux.HandleFunc("/api/register", apiHandlers.RegisterHandler)
