@@ -66,6 +66,9 @@ func (m *MockStorage) UpsertChat(chat models.Chat) error {
 	return nil
 }
 
+// drainMessages consumes up to count messages from a channel during test setup.
+// This is used to clear expected messages (like online notifications) that would
+// otherwise interfere with testing subsequent behavior.
 func drainMessages(ch <-chan models.ServerMessage, count int) {
 	for i := 0; i < count; i++ {
 		select {
@@ -354,6 +357,7 @@ func TestHub_RemoveDeletedUser(t *testing.T) {
 	ch3 := h.Join(user3.ID)
 
 	// Drain online messages from all channels
+	// Each user receives online notifications for the other 2 users joining
 	drainMessages(ch1, 2)
 	drainMessages(ch2, 2)
 	drainMessages(ch3, 2)
