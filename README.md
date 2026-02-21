@@ -10,7 +10,7 @@ Besedka is a self-hosted chat application for a limited number of users (e.g. fo
 
 ## Tech Stack
 
-- **Backend**: Go (Golang)
+- **Backend**: Go
 - **Frontend**: HTML5, CSS3, Vanilla JavaScript
 - **Protocol**: JSON over WebSocket
 
@@ -31,10 +31,11 @@ docker run --name besedka -v $(pwd)/data:/data -e AUTH_SECRET=your-secret-key \
    ghcr.io/c-pro/besedka:latest
 ```
 
-3. Access the Admin UI at [http://localhost:8081/admin.html](http://localhost:8081/admin.html) to manage users.
+3. Access the Admin UI at [http://localhost:8081](http://localhost:8081) to manage users.
    - Default credentials: `admin` / `1337chat`
 
 4. Create a user and follow the provided registration link to register.
+5. Chat is available at [http://localhost:8080](http://localhost:8080)
 
 
 ### Local development
@@ -46,9 +47,10 @@ To run locally from source:
    ```bash
    AUTH_SECRET=your-secret-key go run main.go
    ```
-3. Access the Admin UI at [http://localhost:8081/admin.html](http://localhost:8081/admin.html) to manage users.
+3. Access the Admin UI at [http://localhost:8081](http://localhost:8081) to manage users.
    - Default credentials: `admin` / `1337chat`
 4. Create a user and follow the provided registration link to register.
+5. Chat is available at [http://localhost:8080](http://localhost:8080)
 
 ## Future Roadmap
 

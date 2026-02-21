@@ -134,28 +134,8 @@ func TestIntegration(t *testing.T) {
 	loginReq := auth.LoginRequest{
 		Username: username,
 		Password: newPassword,
-		TOTP:     totpCode, // Reusing might fail if time step changes or replay check?
-		// Usually TOTP is valid for 30s. We just used it.
-		// If implementation prevents replay, we need new code.
-		// Let's generate again? Same time step = same code.
-		// Wait, `GenerateTOTP` uses current time.
-		// Assuming strict replay protection, we might need to wait or just rely on window.
-		// Let's try simple login first.
+		TOTP:     totpCode,
 	}
-	// Note: Login usually requires FRESH totp if replay protection is on.
-	// But let's assume standard TOTP implementation which might allow reuse within window unless explicitly blocked.
-	// If it fails, we wait 30s? No, that's too slow.
-	// We can't easily wait in test.
-	// If `auth.GenerateTOTP` is used, maybe we can mock time? No, integration test.
-	// Actually, `Register` consumes the token, `Login` validates credentials.
-	// `Login` checks TOTP against secret.
-	// Replay protection is usually against *used* codes.
-	// If `Register` doesn't mark TOTP as used (it uses it to verify possession), then `Login` might accept it if within window.
-	// But `Register` verifies `token` (registration token), not just TOTP.
-	// Ah, Step 3 uses `Register` which sets up the password. It *also* verifies TOTP to ensure user set it up.
-	// Step 4 `Login` uses the password and TOTP.
-	// It's likely safer to generate a new code if possible or just use it.
-	// Let's generate it again, it will be same code likely.
 
 	loginBody, _ := json.Marshal(loginReq)
 	resp, err = http.Post(fmt.Sprintf("http://localhost%s/api/login", apiAddr), "application/json", bytes.NewBuffer(loginBody))
