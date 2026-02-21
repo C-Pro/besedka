@@ -27,7 +27,6 @@ func TestIntegration(t *testing.T) {
 
 	_ = os.Setenv("BESEDKA_DB", dbFile)
 	_ = os.Setenv("ADMIN_ADDR", adminAddr)
-	_ = os.Setenv("ADMIN_ADDR", adminAddr)
 	_ = os.Setenv("API_ADDR", apiAddr)
 	_ = os.Setenv("AUTH_SECRET", "very-secure-test-secret")
 	defer func() {
