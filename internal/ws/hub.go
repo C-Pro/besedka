@@ -201,6 +201,30 @@ func (h *Hub) BroadcastNewUser(user models.User) {
 	}, user.ID)
 }
 
+func (h *Hub) RemoveDeletedUser(userID string) {
+	h.mu.Lock()
+
+	// Close deleted user's connection if online
+	if ch, ok := h.connectedUsers[userID]; ok {
+		close(ch)
+		delete(h.connectedUsers, userID)
+	}
+
+	// Remove DM chats involving the deleted user
+	for id := range h.chats {
+		if isUserInDM(userID, id) {
+			delete(h.chats, id)
+		}
+	}
+
+	h.mu.Unlock()
+
+	h.BroadcastToAll(models.ServerMessage{
+		Type:   models.ServerMessageTypeDeleted,
+		UserID: userID,
+	}, userID)
+}
+
 // BroadcastToAll sends a message to all connected users except the excluded one.
 func (h *Hub) BroadcastToAll(msg models.ServerMessage, excludeUserID string) {
 	h.mu.RLock()
@@ -352,7 +376,6 @@ func (h *Hub) GetChats(userID string) []models.Chat {
 		}
 
 		if isUserInDM(userID, id) {
-			// Find other user name
 			parts := strings.Split(id[3:], "_")
 			otherID := parts[0]
 			if otherID == userID {
@@ -360,10 +383,11 @@ func (h *Hub) GetChats(userID string) []models.Chat {
 			}
 
 			u, err := h.userProvider.GetUser(otherID)
-			name := "Unknown User"
-			if err == nil {
-				name = u.DisplayName
+			if err != nil || u.Status == models.UserStatusDeleted {
+				continue
 			}
+
+			name := u.DisplayName
 			if name == "" {
 				name = "Unknown User"
 			}

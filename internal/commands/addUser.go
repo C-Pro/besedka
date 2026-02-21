@@ -19,7 +19,16 @@ func AddUser(username string, cfg *config.Config) error {
 	}
 
 	url := fmt.Sprintf("http://%s/admin/users", cfg.AdminAddr)
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(reqBody))
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(reqBody))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	// Use config for admin credentials
+	req.SetBasicAuth(cfg.AdminUser, cfg.AdminPassword)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to call admin API: %w. Is the server running?", err)
 	}

@@ -305,16 +305,11 @@ func (as *AuthService) AddUser(username, displayName string) (string, error) {
 	return token, nil
 }
 
-func (as *AuthService) DeleteUser(username string) error {
+func (as *AuthService) DeleteUser(userID string) error {
 	tx := as.users.Lock()
 	defer tx.Unlock()
 
-	id, err := as.usernames.Get(username)
-	if err != nil {
-		return models.ErrNotFound
-	}
-
-	user, err := tx.Get(id)
+	user, err := tx.Get(userID)
 	if err != nil {
 		return models.ErrNotFound
 	}
@@ -367,6 +362,17 @@ func (as *AuthService) GetUsers() ([]models.User, error) {
 		if creds.Status == models.UserStatusActive {
 			users = append(users, creds.User)
 		}
+	}
+	return users, nil
+}
+
+func (as *AuthService) GetAllUsers() ([]models.User, error) {
+	tx := as.users.RLock()
+	defer tx.Unlock()
+	snap := tx.Snapshot()
+	users := make([]models.User, 0, len(snap))
+	for _, creds := range snap {
+		users = append(users, creds.User)
 	}
 	return users, nil
 }

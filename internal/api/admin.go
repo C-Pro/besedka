@@ -98,13 +98,13 @@ func (h *AdminHandler) AddUserHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AdminHandler) DeleteUserHandler(w http.ResponseWriter, r *http.Request) {
-	username := r.URL.Query().Get("username")
-	if username == "" {
-		http.Error(w, "Username is required", http.StatusBadRequest)
+	userID := r.URL.Query().Get("id")
+	if userID == "" {
+		http.Error(w, "User ID is required", http.StatusBadRequest)
 		return
 	}
 
-	if err := h.authService.DeleteUser(username); err != nil {
+	if err := h.authService.DeleteUser(userID); err != nil {
 		if errors.Is(err, models.ErrNotFound) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusNotFound)
@@ -128,10 +128,12 @@ func (h *AdminHandler) DeleteUserHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	h.hub.RemoveDeletedUser(userID)
+
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
-		"message": fmt.Sprintf("User %s deleted", username),
+		"message": fmt.Sprintf("User %s deleted", userID),
 	}); err != nil {
 		_ = err
 	}
