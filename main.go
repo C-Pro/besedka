@@ -23,17 +23,14 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func run(ctx context.Context) error {
-	addUser := flag.String("add-user", "", "Username to create (creates user with random password and prints details)")
-	flag.Parse()
-
-	cfg, err := config.Load(*addUser != "")
+func run(ctx context.Context, addUser string) error {
+	cfg, err := config.Load(addUser != "")
 	if err != nil {
 		return err
 	}
 
-	if *addUser != "" {
-		return commands.AddUser(*addUser, cfg)
+	if addUser != "" {
+		return commands.AddUser(addUser, cfg)
 	}
 
 	authConfig := auth.Config{
@@ -60,7 +57,7 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("failed to initialize filestore: %w", err)
 	}
 
-	adminServer := http.NewAdminServer(authService, hub, cfg.AdminAddr)
+	adminServer := http.NewAdminServer(cfg, authService, hub)
 	apiServer := http.NewAPIServer(authService, hub, fs, bbStorage, cfg.APIAddr)
 
 	g, gCtx := errgroup.WithContext(ctx)
@@ -104,10 +101,13 @@ func run(ctx context.Context) error {
 }
 
 func main() {
+	addUser := flag.String("add-user", "", "Username to create (creates user with random password and prints details)")
+	flag.Parse()
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	if err := run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+	if err := run(ctx, *addUser); err != nil && !errors.Is(err, context.Canceled) {
 		log.Fatalf("Application error: %v", err)
 	}
 }

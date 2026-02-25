@@ -7,13 +7,15 @@ import (
 )
 
 type Config struct {
-	DBFile      string
-	AdminAddr   string
-	APIAddr     string
-	BaseURL     string
-	UploadsPath string
-	AuthSecret  string
-	TokenExpiry time.Duration
+	DBFile        string
+	AdminAddr     string
+	APIAddr       string
+	BaseURL       string
+	UploadsPath   string
+	AdminUser     string
+	AdminPassword string
+	AuthSecret    string
+	TokenExpiry   time.Duration
 }
 
 func Load(cliMode bool) (*Config, error) {
@@ -23,13 +25,15 @@ func Load(cliMode bool) (*Config, error) {
 	}
 
 	cfg := &Config{
-		DBFile:      getEnv("BESEDKA_DB", "besedka.db"),
-		AdminAddr:   getEnv("ADMIN_ADDR", "localhost:8081"),
-		APIAddr:     getEnv("API_ADDR", ":8080"),
-		BaseURL:     getEnv("BASE_URL", "http://localhost:8080"),
-		UploadsPath: getEnv("UPLOADS_PATH", "uploads"),
-		AuthSecret:  os.Getenv("AUTH_SECRET"),
-		TokenExpiry: tokenExpiry,
+		DBFile:        getEnv("BESEDKA_DB", "besedka.db"),
+		AdminAddr:     getEnv("ADMIN_ADDR", "localhost:8081"),
+		APIAddr:       getEnv("API_ADDR", ":8080"),
+		BaseURL:       getEnv("BASE_URL", "http://localhost:8080"),
+		UploadsPath:   getEnv("UPLOADS_PATH", "uploads"),
+		AdminUser:     getEnv("ADMIN_USER", "admin"),
+		AdminPassword: getEnv("ADMIN_PASSWORD", "1337chat"),
+		AuthSecret:    os.Getenv("AUTH_SECRET"),
+		TokenExpiry:   tokenExpiry,
 	}
 
 	if err := cfg.Validate(cliMode); err != nil {

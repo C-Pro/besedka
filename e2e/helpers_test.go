@@ -4,8 +4,10 @@ package e2e
 
 import (
 	"besedka/internal/auth"
+	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"regexp"
@@ -96,6 +98,8 @@ func (s *TestServer) CreateUser(t *testing.T, username string) string {
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("ADMIN_ADDR=%s", s.AdminAddr),
 		fmt.Sprintf("BASE_URL=%s", s.BaseURL),
+		"AUTH_SECRET=test-secret-key-must-be-long-enough-for-base64-if-needed",
+		fmt.Sprintf("BESEDKA_DB=%s", s.DBPath),
 	)
 
 	output, err := cmd.CombinedOutput()
@@ -125,6 +129,44 @@ func setupPlaywright(t *testing.T) (*playwright.Playwright, playwright.Browser) 
 	require.NoError(t, err)
 
 	return pw, browser
+}
+
+func (s *TestServer) DeleteUser(t *testing.T, userID string) {
+	req, err := http.NewRequest("DELETE", fmt.Sprintf("http://%s/api/users?id=%s", s.AdminAddr, userID), nil)
+	require.NoError(t, err)
+	req.SetBasicAuth("admin", "1337chat")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+}
+
+func (s *TestServer) GetUserID(t *testing.T, username string) string {
+	req, err := http.NewRequest("GET", fmt.Sprintf("http://%s/api/users", s.AdminAddr), nil)
+	require.NoError(t, err)
+	req.SetBasicAuth("admin", "1337chat")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var users []struct {
+		ID       string `json:"id"`
+		UserName string `json:"userName"`
+	}
+	err = json.NewDecoder(resp.Body).Decode(&users)
+	require.NoError(t, err)
+
+	for _, u := range users {
+		if u.UserName == username {
+			return u.ID
+		}
+	}
+
+	t.Fatalf("User %s not found", username)
+	return ""
 }
 
 func createBrowserContext(t *testing.T, browser playwright.Browser) playwright.BrowserContext {

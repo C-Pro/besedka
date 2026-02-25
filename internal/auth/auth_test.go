@@ -732,7 +732,7 @@ func TestAuthService(t *testing.T) {
 		}
 
 		// 3. Delete user
-		err := svc.DeleteUser("user_to_delete")
+		err := svc.DeleteUser(userID)
 		if err != nil {
 			t.Fatalf("DeleteUser failed: %v", err)
 		}

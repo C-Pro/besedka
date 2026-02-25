@@ -10,7 +10,7 @@ Besedka is a self-hosted chat application for a limited number of users (e.g. fo
 
 ## Tech Stack
 
-- **Backend**: Go (Golang)
+- **Backend**: Go
 - **Frontend**: HTML5, CSS3, Vanilla JavaScript
 - **Protocol**: JSON over WebSocket
 
@@ -26,17 +26,16 @@ Besedka is a self-hosted chat application for a limited number of users (e.g. fo
 2. Run the server:
 
 ```bash
-docker run -name besedka -v $(pwd)/data:/data -e AUTH_SECRET=your-secret-key \
-   -e DB_PATH=/data/db -p 8080:8080 ghcr.io/c-pro/besedka:latest
+docker run --name besedka -v $(pwd)/data:/data -e AUTH_SECRET=your-secret-key \
+   -e BESEDKA_DB=/data/db -e ADMIN_ADDR=:8081 -p 8080:8080 -p 8081:8081 \
+   ghcr.io/c-pro/besedka:latest
 ```
 
-3. Create a user:
+3. Access the Admin UI at [http://localhost:8081](http://localhost:8081) to manage users.
+   - Default credentials: `admin` / `1337chat`
 
-```bash
-docker exec besedka -add-user username
-```
-
-4. It will output the registration link, follow it in the browser to register the user.
+4. Create a user and follow the provided registration link to register.
+5. Chat is available at [http://localhost:8080](http://localhost:8080)
 
 
 ### Local development
@@ -48,19 +47,18 @@ To run locally from source:
    ```bash
    AUTH_SECRET=your-secret-key go run main.go
    ```
-3. Create a user (in the different terminal):
-   ```bash
-   go run main.go -add-user user
-   ```
-4. It will output the registration link, follow it in the browser to register the user.
+3. Access the Admin UI at [http://localhost:8081](http://localhost:8081) to manage users.
+   - Default credentials: `admin` / `1337chat`
+4. Create a user and follow the provided registration link to register.
+5. Chat is available at [http://localhost:8080](http://localhost:8080)
 
 ## Future Roadmap
 
 - [x] Realtime updates for user presence/creation/deletion
 - [ ] User profile/settings
 - [ ] Password reset
-- [ ] User deletion
-- [ ] Admin UI
+- [x] User deletion
+- [x] Admin UI
 - [ ] File attachments and media support
 - [ ] Infinite scrolling
 - [ ] Rich text editing

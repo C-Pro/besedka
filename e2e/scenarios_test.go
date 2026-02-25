@@ -91,6 +91,66 @@ func TestE2EMainFlow(t *testing.T) {
 	}, 5*time.Second, 200*time.Millisecond)
 }
 
+func TestE2EDeleteUserRemovesChat(t *testing.T) {
+	server := startServer(t)
+	defer server.Stop()
+
+	pw, browser := setupPlaywright(t)
+	defer func() { _ = pw.Stop() }()
+	defer func() { _ = browser.Close() }()
+
+	// Create two users
+	aliceSetupLink := server.CreateUser(t, "alice")
+	bobSetupLink := server.CreateUser(t, "bob")
+
+	// Register both
+	aliceContext := createBrowserContext(t, browser)
+	alicePage, err := aliceContext.NewPage()
+	require.NoError(t, err)
+	registerUser(t, alicePage, aliceSetupLink, "Alice Smith", "password123")
+
+	bobContext := createBrowserContext(t, browser)
+	bobPage, err := bobContext.NewPage()
+	require.NoError(t, err)
+	registerUser(t, bobPage, bobSetupLink, "Bob Jones", "password456")
+
+	// Reload Alice to pick up Bob's display name
+	_, err = alicePage.Reload()
+	require.NoError(t, err)
+
+	// Alice should see Bob's DM chat
+	err = alicePage.Locator(".chat-item:has-text(\"Bob Jones\")").WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	})
+	require.NoError(t, err, "Alice should see Bob's DM chat before deletion")
+
+	// Delete Bob via admin API
+	bobID := server.GetUserID(t, "bob")
+	server.DeleteUser(t, bobID)
+
+	// Alice's chat list should update via WebSocket — Bob's DM should disappear
+	require.Eventually(t, func() bool {
+		count, _ := alicePage.Locator(".chat-item:has-text(\"Bob Jones\")").Count()
+		return count == 0
+	}, 5*time.Second, 200*time.Millisecond, "Bob's DM should disappear from Alice's chat list after deletion")
+
+	// After page reload, Bob's DM should still be gone
+	_, err = alicePage.Reload()
+	require.NoError(t, err)
+
+	// Wait for chat list to render
+	err = alicePage.Locator(".chat-item:has-text(\"Town Hall\")").WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	})
+	require.NoError(t, err)
+
+	count, err := alicePage.Locator(".chat-item:has-text(\"Bob Jones\")").Count()
+	require.NoError(t, err)
+	require.Equal(t, 0, count, "Bob's DM should not appear after page reload")
+
+	_ = bobPage // Bob's page exists but won't be usable after deletion
+}
+
 func registerUser(t *testing.T, page playwright.Page, setupLink string, displayName string, password string) {
 	_, err := page.Goto(setupLink)
 	require.NoError(t, err)
