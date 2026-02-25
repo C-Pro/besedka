@@ -49,6 +49,25 @@ This document defines the client-server JSON-based protocol for the chat applica
   }
   ```
 
+### Register Info
+**Endpoint:** `GET /api/register-info`
+
+**Description:** Gets registration information for a user with a setup token.
+
+**Query Parameters:**
+- `token`: The setup token for the user.
+
+**Response:**
+- **Success (200 OK):**
+  ```json
+  {
+    "username": "string",
+    "displayName": "string",
+    "totpSecret": "BASE32_SECRET_STRING"
+  }
+  ```
+- **Error (404 Not Found):** If token is invalid or expired.
+
 ### Logoff
 **Endpoint:** `POST /api/logoff`
 
@@ -209,6 +228,28 @@ Sent when new messages arrive in a subscribed chat.
 
 The Admin API runs on a separate port (default 8081) and is used for management tasks.
 
+### List Users
+**Endpoint:** `GET /api/users`
+
+**Description:** Returns all users in the system with their full details.
+
+**Response:**
+```json
+[
+  {
+    "id": "string",
+    "userName": "string",
+    "displayName": "string",
+    "avatarUrl": "string",
+    "presence": {
+      "online": boolean,
+      "lastSeen": "unix_timestamp"
+    },
+    "status": "string"
+  }
+]
+```
+
 ### Add User
 **Endpoint:** `POST /admin/users`
 
@@ -233,12 +274,12 @@ The Admin API runs on a separate port (default 8081) and is used for management 
 **Endpoint:** `DELETE /admin/users`
 
 **Query Parameters:**
-- `username`: The username of the user to delete.
+- `id`: The user ID of the user to delete.
 
 **Response:**
 ```json
 {
   "success": true,
-  "message": "User <username> deleted"
+  "message": "User <id> deleted"
 }
 ```
