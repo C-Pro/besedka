@@ -115,7 +115,7 @@
         </thead>
         <tbody>
             {{range .Users}}
-            <tr class="{{if eq .Status " deleted"}}deleted{{end}}">
+            <tr class="{{if eq .Status "deleted"}}deleted{{end}}">
                 <td>{{.UserName}}</td>
                 <td>{{.DisplayName}}</td>
                 <td>{{.Status}}</td>

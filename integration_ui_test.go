@@ -72,7 +72,7 @@ func TestIntegrationUI(t *testing.T) {
 
 	// 3. Delete User via Form (redirects)
 	form = url.Values{}
-	form.Add("username", "ui_testuser")
+	form.Add("id", "ui_testuser")
 	req, _ = http.NewRequest("POST", baseURL+"/admin/users/delete", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.SetBasicAuth("admin", "1337chat")

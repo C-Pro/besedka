@@ -69,7 +69,7 @@ func NewAdminServer(cfg *config.Config, authService *auth.AuthService, hub *ws.H
 	mux.HandleFunc("GET /api/users", withBasicAuth(s.handleListUsersJSON))
 	mux.HandleFunc("POST /api/users", withBasicAuth(adminHandler.AddUserHandler))
 	mux.HandleFunc("DELETE /api/users", withBasicAuth(adminHandler.DeleteUserHandler))
-	mux.HandleFunc("DELETE /admin/users", withBasicAuth(adminHandler.DeleteUserHandler))
+
 
 	addr := cfg.AdminAddr
 	if addr == "" {

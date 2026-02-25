@@ -80,7 +80,7 @@ func TestIntegration(t *testing.T) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	require.NoError(t, err)
-	require.NoError(t, err)
+
 	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
