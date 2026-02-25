@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+const testTimeout = 100 * time.Millisecond
+
 type MockUserProvider struct {
 	users []models.User
 }
@@ -64,6 +66,19 @@ func (m *MockStorage) ListChats() ([]models.Chat, error) {
 func (m *MockStorage) UpsertChat(chat models.Chat) error {
 	m.chats[chat.ID] = chat
 	return nil
+}
+
+// drainMessages consumes up to count messages from a channel during test setup.
+// This is used to clear expected messages (like online notifications) that would
+// otherwise interfere with testing subsequent behavior. If fewer than count messages
+// are available, the function will wait testTimeout per remaining message before continuing.
+func drainMessages(ch <-chan models.ServerMessage, count int) {
+	for i := 0; i < count; i++ {
+		select {
+		case <-ch:
+		case <-time.After(testTimeout):
+		}
+	}
 }
 
 func TestHub_Lifecycle(t *testing.T) {
@@ -186,7 +201,7 @@ func TestHub_Lifecycle(t *testing.T) {
 			t.Error("Received message after leave")
 		}
 		// If !ok, it means channel is closed, which is correct for Leave()
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(testTimeout):
 		// Also OK if nothing received (though channel should be closed)
 	}
 }
@@ -212,7 +227,7 @@ func TestHub_Broadcasting(t *testing.T) {
 		if msg.Type != models.ServerMessageTypeOnline || msg.UserID != user2.ID {
 			t.Errorf("User 1 expected User 2 online, got %v", msg)
 		}
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(testTimeout):
 		t.Error("Timeout waiting for online message")
 	}
 
@@ -232,7 +247,7 @@ func TestHub_Broadcasting(t *testing.T) {
 		if msg.Chat.ID == "" || !msg.Chat.IsDM {
 			t.Errorf("Expected DM chat in New User message, got %v", msg.Chat)
 		}
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(testTimeout):
 		t.Error("Timeout waiting for New User message on ch1")
 	}
 
@@ -242,7 +257,7 @@ func TestHub_Broadcasting(t *testing.T) {
 		if msg.Type != models.ServerMessageTypeNew {
 			t.Errorf("Expected New User message, got %s", msg.Type)
 		}
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(testTimeout):
 		t.Error("Timeout waiting for New User message on ch2")
 	}
 
@@ -258,7 +273,7 @@ func TestHub_Broadcasting(t *testing.T) {
 		if msg.UserID != user2.ID {
 			t.Errorf("Expected user u2 offline, got %s", msg.UserID)
 		}
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(testTimeout):
 		t.Error("Timeout waiting for Offline message on ch1")
 	}
 }
@@ -325,5 +340,111 @@ func TestHub_JoinChat_ReturnsHistory(t *testing.T) {
 		}
 	case <-time.After(1 * time.Second):
 		t.Fatal("Timeout waiting for history")
+	}
+}
+
+func TestHub_RemoveDeletedUser(t *testing.T) {
+	user1 := models.User{ID: "u1", DisplayName: "User 1"}
+	user2 := models.User{ID: "u2", DisplayName: "User 2"}
+	user3 := models.User{ID: "u3", DisplayName: "User 3"}
+
+	provider := &MockUserProvider{
+		users: []models.User{user1, user2, user3},
+	}
+	store := NewMockStorage()
+	h := NewHub(provider, store)
+
+	// Connect all users
+	ch1 := h.Join(user1.ID)
+	ch2 := h.Join(user2.ID)
+	ch3 := h.Join(user3.ID)
+
+	// Drain online messages from all channels
+	// Each user receives online notifications for the other 2 users joining
+	drainMessages(ch1, 2)
+	drainMessages(ch2, 2)
+	drainMessages(ch3, 2)
+
+	// Verify DM chats exist before deletion
+	dmID12 := getDMID(user1.ID, user2.ID)
+	dmID13 := getDMID(user1.ID, user3.ID)
+	dmID23 := getDMID(user2.ID, user3.ID)
+
+	h.mu.RLock()
+	if _, ok := h.chats[dmID12]; !ok {
+		t.Error("DM between u1 and u2 should exist")
+	}
+	if _, ok := h.chats[dmID13]; !ok {
+		t.Error("DM between u1 and u3 should exist")
+	}
+	if _, ok := h.chats[dmID23]; !ok {
+		t.Error("DM between u2 and u3 should exist")
+	}
+	if _, ok := h.connectedUsers[user1.ID]; !ok {
+		t.Error("User 1 should be connected")
+	}
+	h.mu.RUnlock()
+
+	// Remove user1
+	h.RemoveDeletedUser(user1.ID)
+
+	// Verify user1's connection is closed
+	select {
+	case _, ok := <-ch1:
+		if ok {
+			t.Error("User 1's channel should be closed")
+		}
+	case <-time.After(testTimeout):
+		t.Error("Expected user 1's channel to be closed")
+	}
+
+	// Verify user1 is removed from connectedUsers
+	h.mu.RLock()
+	if _, ok := h.connectedUsers[user1.ID]; ok {
+		t.Error("User 1 should be removed from connectedUsers")
+	}
+
+	// Verify DM chats involving user1 are removed
+	if _, ok := h.chats[dmID12]; ok {
+		t.Error("DM between u1 and u2 should be removed")
+	}
+	if _, ok := h.chats[dmID13]; ok {
+		t.Error("DM between u1 and u3 should be removed")
+	}
+
+	// Verify DM chat not involving user1 still exists
+	if _, ok := h.chats[dmID23]; !ok {
+		t.Error("DM between u2 and u3 should still exist")
+	}
+
+	// Verify townhall still exists
+	if _, ok := h.chats["townhall"]; !ok {
+		t.Error("Townhall should still exist")
+	}
+	h.mu.RUnlock()
+
+	// Verify deletion event is broadcast to other connected users
+	select {
+	case msg := <-ch2:
+		if msg.Type != models.ServerMessageTypeDeleted {
+			t.Errorf("Expected Deleted message, got %s", msg.Type)
+		}
+		if msg.UserID != user1.ID {
+			t.Errorf("Expected deleted user ID %s, got %s", user1.ID, msg.UserID)
+		}
+	case <-time.After(testTimeout):
+		t.Error("Timeout waiting for deletion message on ch2")
+	}
+
+	select {
+	case msg := <-ch3:
+		if msg.Type != models.ServerMessageTypeDeleted {
+			t.Errorf("Expected Deleted message, got %s", msg.Type)
+		}
+		if msg.UserID != user1.ID {
+			t.Errorf("Expected deleted user ID %s, got %s", user1.ID, msg.UserID)
+		}
+	case <-time.After(testTimeout):
+		t.Error("Timeout waiting for deletion message on ch3")
 	}
 }
