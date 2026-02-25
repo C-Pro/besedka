@@ -176,7 +176,7 @@ func TestIntegration(t *testing.T) {
 	testUserID := users[0].ID
 
 	// Delete user via Admin API
-	reqDel, _ := http.NewRequest("DELETE", fmt.Sprintf("http://%s/admin/users?id=%s", adminAddr, testUserID), nil)
+	reqDel, _ := http.NewRequest("DELETE", fmt.Sprintf("http://%s/api/users?id=%s", adminAddr, testUserID), nil)
 	reqDel.SetBasicAuth("admin", "1337chat")
 	client = &http.Client{}
 	respDel, err := client.Do(reqDel)
