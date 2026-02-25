@@ -132,7 +132,7 @@ func setupPlaywright(t *testing.T) (*playwright.Playwright, playwright.Browser) 
 }
 
 func (s *TestServer) DeleteUser(t *testing.T, userID string) {
-	req, err := http.NewRequest("DELETE", fmt.Sprintf("http://%s/admin/users?id=%s", s.AdminAddr, userID), nil)
+	req, err := http.NewRequest("DELETE", fmt.Sprintf("http://%s/api/users?id=%s", s.AdminAddr, userID), nil)
 	require.NoError(t, err)
 	req.SetBasicAuth("admin", "1337chat")
 

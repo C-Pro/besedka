@@ -57,8 +57,8 @@ To run locally from source:
 - [x] Realtime updates for user presence/creation/deletion
 - [ ] User profile/settings
 - [ ] Password reset
-- [ ] User deletion
-- [ ] Admin UI
+- [x] User deletion
+- [x] Admin UI
 - [ ] File attachments and media support
 - [ ] Infinite scrolling
 - [ ] Rich text editing
