@@ -32,3 +32,12 @@ The chat API should be simple for developers to use to facilitate 3rd party clie
 Use comments only when necessary. Prefer self-documenting code.
 Avoid leaving chain of thoughts style comments in the code.
 When defining HTTP handlers always use Go 1.22+ style: `mux.HandleFunc("POST /admin/users", h.AddUserHandler)` instead of doing switch on `r.Method` inside the handler.
+
+
+# Rules
+
+When implementing new feature, always make sure to cover it with tests.
+Always test the new features manually in the browser.
+Make sure the server is running and the app is accessible at `http://localhost:8080`.
+To run the server use `AUTH_SECRET=very-secure-secret-key-for-development-mode go run .`
+To generate a TOTP key use `go run ./cmd/totp/main.go <base32 secret>`.

@@ -4,7 +4,15 @@ export function createInfoPanel(container) {
     const render = () => {
         container.innerHTML = `
             <div class="info-header">
-                Info
+                <span class="info-title">Info</span>
+                <div class="profile-menu-container" id="desktop-profile-menu">
+                    <div class="avatar profile-avatar" id="desktop-profile-avatar">?</div>
+                    <div class="profile-dropdown" id="desktop-profile-dropdown">
+                        <button class="profile-menu-item disabled">Profile</button>
+                        <button class="profile-menu-item disabled">Settings</button>
+                        <button class="profile-menu-item" id="desktop-logoff-btn">Log Off</button>
+                    </div>
+                </div>
             </div>
             <div class="info-content">
                 <div class="info-section">

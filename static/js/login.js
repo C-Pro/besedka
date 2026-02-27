@@ -5,10 +5,6 @@ const usernameInput = document.getElementById('username');
 const passwordInput = document.getElementById('password');
 const otpInput = document.getElementById('otp');
 
-let username = '';
-let password = '';
-let otp = '';
-
 const showError = (msg) => {
     errorDiv.textContent = msg;
     errorDiv.style.display = 'block';
@@ -24,22 +20,23 @@ const hideError = () => {
     errorDiv.textContent = '';
 };
 
-usernameInput.addEventListener('input', (e) => username = e.target.value);
-passwordInput.addEventListener('input', (e) => password = e.target.value);
-otpInput.addEventListener('input', (e) => otp = e.target.value);
-
 const handleLogin = async (e) => {
     if (e) e.preventDefault();
     hideError();
-    const otpVal = otp ? parseInt(otp, 10) : 0;
+
+    // Read directly from DOM to support password-managers auto-fill without input events
+    const currentUsername = usernameInput ? usernameInput.value : '';
+    const currentPassword = passwordInput ? passwordInput.value : '';
+    const currentOtp = otpInput ? otpInput.value : '';
+    const otpVal = currentOtp ? parseInt(currentOtp, 10) : 0;
 
     try {
-        const result = await store.login(username, password, otpVal);
+        const result = await store.login(currentUsername, currentPassword, otpVal);
         if (result.success) {
             window.location.href = '/';
         } else if (result.needRegister) {
             // Redirect to registration page with username pre-filled
-            window.location.href = `register.html?username=${encodeURIComponent(username)}`;
+            window.location.href = `register.html?username=${encodeURIComponent(currentUsername)}`;
         } else {
             showError(result.message || 'Login failed');
         }

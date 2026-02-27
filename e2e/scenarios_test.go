@@ -151,6 +151,81 @@ func TestE2EDeleteUserRemovesChat(t *testing.T) {
 	_ = bobPage // Bob's page exists but won't be usable after deletion
 }
 
+func TestE2ELogoff(t *testing.T) {
+	server := startServer(t)
+	defer server.Stop()
+
+	pw, browser := setupPlaywright(t)
+	defer func() { _ = pw.Stop() }()
+	defer func() { _ = browser.Close() }()
+
+	// Create user
+	aliceSetupLink := server.CreateUser(t, "alice")
+
+	// Register
+	aliceContext := createBrowserContext(t, browser)
+	alicePage, err := aliceContext.NewPage()
+	require.NoError(t, err)
+	registerUser(t, alicePage, aliceSetupLink, "Alice Smith", "password123")
+
+	// Wait for the app layout to load
+	t.Log("Waiting for app layout...")
+	err = alicePage.Locator(".app-layout").WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	})
+	require.NoError(t, err)
+	t.Log("App layout visible.")
+
+	// Since we run in desktop mode by default in these tests (viewport 1280x720 in createBrowserContext),
+	// we interact with the desktop profile icon
+	t.Log("Looking for desktop profile avatar...")
+	err = alicePage.Locator("#desktop-profile-avatar").WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(5000),
+	})
+	require.NoError(t, err, "could not find #desktop-profile-avatar")
+	t.Log("Clicking profile avatar...")
+
+	err = alicePage.Locator("#desktop-profile-avatar").Click(playwright.LocatorClickOptions{
+		Timeout: playwright.Float(5000),
+	})
+	require.NoError(t, err)
+	t.Log("Clicked profile avatar.")
+
+	// The dropdown should appear
+	t.Log("Waiting for profile dropdown...")
+	err = alicePage.Locator("#desktop-profile-dropdown").WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(5000),
+	})
+	require.NoError(t, err)
+	t.Log("Profile dropdown visible.")
+
+	// Click "Log Off"
+	t.Log("Clicking log off button...")
+	err = alicePage.Locator("#desktop-logoff-btn").Click(playwright.LocatorClickOptions{
+		Timeout: playwright.Float(5000),
+	})
+	require.NoError(t, err)
+	t.Log("Clicked log off button.")
+
+	// Should be redirected to /login.html
+	require.Eventually(t, func() bool {
+		url := alicePage.URL()
+		return strings.Contains(url, "login.html")
+	}, 5*time.Second, 200*time.Millisecond, "User should be redirected to login page after log off")
+
+	// Check that token is cleared by trying to navigate back to /
+	_, err = alicePage.Goto(server.BaseURL + "/")
+	require.NoError(t, err)
+
+	// Should immediately redirect back to login
+	require.Eventually(t, func() bool {
+		url := alicePage.URL()
+		return strings.Contains(url, "login.html")
+	}, 5*time.Second, 200*time.Millisecond, "User should be redirected back to login page if token is cleared")
+}
+
 func registerUser(t *testing.T, page playwright.Page, setupLink string, displayName string, password string) {
 	_, err := page.Goto(setupLink)
 	require.NoError(t, err)
