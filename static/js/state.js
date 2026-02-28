@@ -36,15 +36,14 @@ class Store {
         try {
             // We use /api/me to check session and get current user info at the same time
             const response = await fetch('/api/me');
-            if (response.status === 401) return false;
             if (response.ok) {
                 const user = await response.json();
                 this.setState({ currentUser: user });
                 return true;
             }
-            return true;
+            return false;
         } catch {
-            return true;
+            return false;
         }
     }
 
@@ -231,6 +230,9 @@ class Store {
         this.socket.onclose = () => {
             console.log('WebSocket disconnected');
             this.socket = null;
+
+            if (!this.state.currentUser) return;
+
             this.isReconnecting = true;
 
             // Exponential backoff for reconnection (max 30s)

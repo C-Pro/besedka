@@ -19,11 +19,11 @@ function renderApp() {
                 </button>
                 <div class="mobile-title"></div>
                 <div class="profile-menu-container" id="mobile-profile-menu">
-                    <div class="avatar profile-avatar" id="mobile-profile-avatar">?</div>
+                    <button type="button" class="avatar profile-avatar" id="mobile-profile-avatar" aria-expanded="false" aria-controls="mobile-profile-dropdown" aria-haspopup="true" aria-label="Profile Menu">?</button>
                     <div class="profile-dropdown" id="mobile-profile-dropdown">
-                        <button class="profile-menu-item disabled">Profile</button>
-                        <button class="profile-menu-item disabled">Settings</button>
-                        <button class="profile-menu-item" id="mobile-logoff-btn">Log Off</button>
+                        <button class="profile-menu-item disabled" type="button" disabled aria-disabled="true">Profile</button>
+                        <button class="profile-menu-item disabled" type="button" disabled aria-disabled="true">Settings</button>
+                        <button class="profile-menu-item" id="mobile-logoff-btn" type="button">Log Off</button>
                     </div>
                 </div>
             </div>
@@ -160,7 +160,9 @@ function renderApp() {
         const mobileAvatar = e.target.closest('#mobile-profile-avatar');
         if (mobileAvatar) {
             e.stopPropagation();
-            document.getElementById('mobile-profile-dropdown')?.classList.toggle('open');
+            const dropdown = document.getElementById('mobile-profile-dropdown');
+            const isOpen = dropdown?.classList.toggle('open');
+            mobileAvatar.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
             return;
         }
 
@@ -168,7 +170,9 @@ function renderApp() {
         const desktopAvatar = e.target.closest('#desktop-profile-avatar');
         if (desktopAvatar) {
             e.stopPropagation();
-            document.getElementById('desktop-profile-dropdown')?.classList.toggle('open');
+            const dropdown = document.getElementById('desktop-profile-dropdown');
+            const isOpen = dropdown?.classList.toggle('open');
+            desktopAvatar.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
             return;
         }
 
@@ -184,9 +188,11 @@ function renderApp() {
 
         if (mobileDropdown && !mobileDropdown.contains(e.target)) {
             mobileDropdown.classList.remove('open');
+            document.getElementById('mobile-profile-avatar')?.setAttribute('aria-expanded', 'false');
         }
         if (desktopDropdown && !desktopDropdown.contains(e.target)) {
             desktopDropdown.classList.remove('open');
+            document.getElementById('desktop-profile-avatar')?.setAttribute('aria-expanded', 'false');
         }
     });
 
