@@ -12,6 +12,8 @@ class Store {
         };
         this.listeners = [];
         this.socket = null;
+        this.reconnectAttempts = 0;
+        this.isReconnecting = false;
     }
 
     subscribe(listener) {
@@ -34,7 +36,6 @@ class Store {
         try {
             // We use /api/me to check session and get current user info at the same time
             const response = await fetch('/api/me');
-            if (response.status === 401) return false;
             if (response.ok) {
                 const user = await response.json();
                 this.setState({ currentUser: user });
@@ -93,6 +94,34 @@ class Store {
         }
     }
 
+    async logoff() {
+        try {
+            const response = await fetch('/api/logoff', { method: 'POST' });
+            if (response.ok) {
+                // Clear state
+                this.setState({
+                    currentUser: null,
+                    chats: [],
+                    users: [],
+                    messages: {},
+                    activeChatId: null
+                });
+
+                // Close websocket if open
+                if (this.socket) {
+                    this.socket.close();
+                    this.socket = null;
+                }
+
+                window.location.href = '/login.html';
+            } else {
+                console.error('Logoff failed', await response.text());
+            }
+        } catch (error) {
+            console.error('Logoff error:', error);
+        }
+    }
+
     async uploadImage(file) {
         try {
             const formData = new FormData();
@@ -137,6 +166,10 @@ class Store {
     async fetchUsers() {
         try {
             const response = await fetch('/api/users');
+            if (response.status === 401) {
+                window.location.href = '/login.html';
+                return;
+            }
             const users = await response.json();
             this.setState({ users });
         } catch (error) {
@@ -147,6 +180,10 @@ class Store {
     async fetchChats() {
         try {
             const response = await fetch('/api/chats');
+            if (response.status === 401) {
+                window.location.href = '/login.html';
+                return;
+            }
             const chats = await response.json();
             this.setState({ chats });
 
@@ -170,6 +207,15 @@ class Store {
 
         this.socket.onopen = () => {
             console.log('WebSocket connected');
+            this.reconnectAttempts = 0;
+
+            // If this was a reconnection, refresh data
+            if (this.isReconnecting) {
+                this.fetchUsers();
+                this.fetchChats();
+                this.isReconnecting = false;
+            }
+
             // Join active chat if any
             if (this.state.activeChatId) {
                 this.sendWebSocketMessage({ type: 'join', chatId: this.state.activeChatId });
@@ -184,8 +230,16 @@ class Store {
         this.socket.onclose = () => {
             console.log('WebSocket disconnected');
             this.socket = null;
-            // Reconnect after delay
-            setTimeout(() => this.connectWebSocket(), 3000);
+
+            if (!this.state.currentUser) return;
+
+            this.isReconnecting = true;
+
+            // Exponential backoff for reconnection (max 30s)
+            const delay = Math.min(30000, 1000 * 2 ** this.reconnectAttempts);
+            this.reconnectAttempts++;
+
+            setTimeout(() => this.connectWebSocket(), delay);
         };
     }
 

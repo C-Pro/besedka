@@ -18,6 +18,14 @@ function renderApp() {
                     </svg>
                 </button>
                 <div class="mobile-title"></div>
+                <div class="profile-menu-container" id="mobile-profile-menu">
+                    <button type="button" class="avatar profile-avatar" id="mobile-profile-avatar" aria-expanded="false" aria-controls="mobile-profile-dropdown" aria-haspopup="true" aria-label="Profile Menu">?</button>
+                    <div class="profile-dropdown" id="mobile-profile-dropdown">
+                        <button class="profile-menu-item disabled" type="button" disabled aria-disabled="true">Profile</button>
+                        <button class="profile-menu-item disabled" type="button" disabled aria-disabled="true">Settings</button>
+                        <button class="profile-menu-item" id="mobile-logoff-btn" type="button">Log Off</button>
+                    </div>
+                </div>
             </div>
             
             <div class="mobile-menu-overlay" id="mobile-menu-overlay"></div>
@@ -146,8 +154,66 @@ function renderApp() {
     // Initial check
     handleVisibility(store.state);
 
+    // Profile Menu Logic (Event Delegation)
+    document.addEventListener('click', (e) => {
+        // Handle Mobile Profile Avatar
+        const mobileAvatar = e.target.closest('#mobile-profile-avatar');
+        if (mobileAvatar) {
+            e.stopPropagation();
+            const dropdown = document.getElementById('mobile-profile-dropdown');
+            const isOpen = dropdown?.classList.toggle('open');
+            mobileAvatar.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+            return;
+        }
+
+        // Handle Desktop Profile Avatar
+        const desktopAvatar = e.target.closest('#desktop-profile-avatar');
+        if (desktopAvatar) {
+            e.stopPropagation();
+            const dropdown = document.getElementById('desktop-profile-dropdown');
+            const isOpen = dropdown?.classList.toggle('open');
+            desktopAvatar.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+            return;
+        }
+
+        // Handle Logoff Buttons
+        if (e.target.closest('#mobile-logoff-btn') || e.target.closest('#desktop-logoff-btn')) {
+            store.logoff();
+            return;
+        }
+
+        // Close dropdowns when clicking outside
+        const mobileDropdown = document.getElementById('mobile-profile-dropdown');
+        const desktopDropdown = document.getElementById('desktop-profile-dropdown');
+
+        if (mobileDropdown && !mobileDropdown.contains(e.target)) {
+            mobileDropdown.classList.remove('open');
+            document.getElementById('mobile-profile-avatar')?.setAttribute('aria-expanded', 'false');
+        }
+        if (desktopDropdown && !desktopDropdown.contains(e.target)) {
+            desktopDropdown.classList.remove('open');
+            document.getElementById('desktop-profile-avatar')?.setAttribute('aria-expanded', 'false');
+        }
+    });
+
+    // Subscribe to state changes to update profile initial
+    const updateProfileIcons = (state) => {
+        if (state.currentUser?.name) {
+            const initial = state.currentUser.name.charAt(0).toUpperCase();
+
+            const mobileAvatar = document.getElementById('mobile-profile-avatar');
+            if (mobileAvatar) mobileAvatar.textContent = initial;
+
+            const desktopAvatar = document.getElementById('desktop-profile-avatar');
+            if (desktopAvatar) desktopAvatar.textContent = initial;
+        }
+    };
+
     // Subscribe to state changes
-    store.subscribe(handleVisibility);
+    store.subscribe(state => {
+        handleVisibility(state);
+        updateProfileIcons(state);
+    });
 
     // Resize listener
     window.addEventListener('resize', () => {
@@ -168,6 +234,15 @@ function init() {
             store.fetchUsers();
             store.fetchChats();
             store.connectWebSocket();
+
+            // Setup periodic session check (every 5 minutes)
+            setInterval(() => {
+                store.checkSession().then(valid => {
+                    if (!valid) {
+                        window.location.href = '/login.html';
+                    }
+                });
+            }, 300000); // 5 minutes
         }
     });
 }
