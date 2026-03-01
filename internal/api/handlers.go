@@ -12,6 +12,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -394,47 +395,34 @@ func (a *API) ResetPasswordHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (a *API) UploadImageHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
+func (a *API) processImageUpload(w http.ResponseWriter, r *http.Request, maxBytes int64) (string, error) {
 	uploaderID := UserIDFromContext(r.Context())
 
-	// Limit to 10MB
-	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
 
-	// Read file content
-	// We read to memory to calculate hash and detect type.
-	// For very large files, this should be streamed, but 10MB is fine for now.
 	var buf bytes.Buffer
 	if _, err := buf.ReadFrom(r.Body); err != nil {
 		http.Error(w, "Failed to read body", http.StatusBadRequest)
-		return
+		return "", err
 	}
 	data := buf.Bytes()
 
-	// Calculate Hash
 	hasher := sha256.New()
 	hasher.Write(data)
 	hash := hex.EncodeToString(hasher.Sum(nil))
 
-	// Detect MIME type
 	kind, err := filetype.Image(data)
 	if err != nil {
 		http.Error(w, "Invalid file type. Only images are allowed.", http.StatusBadRequest)
-		return
+		return "", err
 	}
 
-	// Save file (idempotent)
 	if err := a.filestore.Save(bytes.NewReader(data), hash); err != nil {
 		log.Printf("failed to save file blob: %v", err)
 		http.Error(w, "Internal Storage Error", http.StatusInternalServerError)
-		return
+		return "", err
 	}
 
-	// Create Metadata
 	fileID := uuid.NewString()
 	meta := storage.FileMetadata{
 		ID:        fileID,
@@ -443,12 +431,29 @@ func (a *API) UploadImageHandler(w http.ResponseWriter, r *http.Request) {
 		Size:      int64(len(data)),
 		CreatedAt: time.Now().Unix(),
 		UserID:    uploaderID,
-		ChatID:    "", // TODO: Pass from request if needed
+		// ChatID depends on usage. For avatar upload it's empty, for image upload in chat we could pass it.
+		// For now it conforms to existing behavior where it is empty.
+		ChatID: "",
 	}
 
 	if err := a.storage.UpsertFileMetadata(meta); err != nil {
 		log.Printf("failed to save file metadata: %v", err)
 		http.Error(w, "Internal Database Error", http.StatusInternalServerError)
+		return "", err
+	}
+
+	return fileID, nil
+}
+
+func (a *API) UploadImageHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Limit to 10MB
+	fileID, err := a.processImageUpload(w, r, 10<<20)
+	if err != nil {
 		return
 	}
 
@@ -467,49 +472,8 @@ func (a *API) UploadAvatarHandler(w http.ResponseWriter, r *http.Request) {
 	uploaderID := UserIDFromContext(r.Context())
 
 	// Limit to 5MB for avatars
-	r.Body = http.MaxBytesReader(w, r.Body, 5<<20)
-
-	var buf bytes.Buffer
-	if _, err := buf.ReadFrom(r.Body); err != nil {
-		http.Error(w, "Failed to read body", http.StatusBadRequest)
-		return
-	}
-	data := buf.Bytes()
-
-	// Calculate Hash
-	hasher := sha256.New()
-	hasher.Write(data)
-	hash := hex.EncodeToString(hasher.Sum(nil))
-
-	// Detect MIME type
-	kind, err := filetype.Image(data)
+	fileID, err := a.processImageUpload(w, r, 5<<20)
 	if err != nil {
-		http.Error(w, "Invalid file type. Only images are allowed.", http.StatusBadRequest)
-		return
-	}
-
-	// Save file (idempotent)
-	if err := a.filestore.Save(bytes.NewReader(data), hash); err != nil {
-		log.Printf("failed to save avatar blob: %v", err)
-		http.Error(w, "Internal Storage Error", http.StatusInternalServerError)
-		return
-	}
-
-	// Create Metadata
-	fileID := uuid.NewString()
-	meta := storage.FileMetadata{
-		ID:        fileID,
-		Hash:      hash,
-		MimeType:  kind.MIME.Value,
-		Size:      int64(len(data)),
-		CreatedAt: time.Now().Unix(),
-		UserID:    uploaderID,
-		ChatID:    "", // Avatars are not tied to a specific chat
-	}
-
-	if err := a.storage.UpsertFileMetadata(meta); err != nil {
-		log.Printf("failed to save avatar metadata: %v", err)
-		http.Error(w, "Internal Database Error", http.StatusInternalServerError)
 		return
 	}
 
@@ -553,9 +517,23 @@ func (a *API) UpdateDisplayNameHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.auth.UpdateDisplayName(userID, req.DisplayName); err != nil {
+	sanitizedName, err := a.auth.UpdateDisplayName(userID, req.DisplayName)
+	if err != nil {
+		msg := "Internal Server Error"
+		code := http.StatusInternalServerError
+		switch {
+		case errors.Is(err, models.ErrNotFound):
+			msg = "User not found"
+			code = http.StatusNotFound
+
+		case errors.Is(err, auth.ErrEmptyDisplayName):
+			msg = err.Error()
+			code = http.StatusBadRequest
+
+		}
+
 		log.Printf("failed to update user display name: %v", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		http.Error(w, msg, code)
 		return
 	}
 
@@ -565,7 +543,7 @@ func (a *API) UpdateDisplayNameHandler(w http.ResponseWriter, r *http.Request) {
 		DisplayName string `json:"displayName"`
 	}{
 		Success:     true,
-		DisplayName: content.Escape(content.Sanitize(req.DisplayName)),
+		DisplayName: content.Escape(sanitizedName),
 	}
 
 	if err := json.NewEncoder(w).Encode(resp); err != nil {

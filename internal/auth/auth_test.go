@@ -969,7 +969,7 @@ func TestAuthService(t *testing.T) {
 		tx.Unlock()
 
 		newName := "New Name"
-		err := svc.UpdateDisplayName(userID, newName)
+		_, err := svc.UpdateDisplayName(userID, newName)
 		if err != nil {
 			t.Fatalf("UpdateDisplayName failed: %v", err)
 		}
@@ -997,7 +997,7 @@ func TestAuthService(t *testing.T) {
 		}
 
 		// Empty name should fail
-		err = svc.UpdateDisplayName(userID, "")
+		_, err = svc.UpdateDisplayName(userID, "")
 		if err == nil {
 			t.Errorf("UpdateDisplayName should fail with empty name")
 		}

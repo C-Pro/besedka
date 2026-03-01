@@ -158,17 +158,14 @@ func TestIntegration(t *testing.T) {
 	require.NotEmpty(t, sessionToken)
 
 	// Step 4.5: Upload Avatar
-	// We simulate an image upload
-	var b bytes.Buffer
-	b.Write([]byte("fake image content representing an avatar"))
-	reqAvatar, err := http.NewRequest("POST", fmt.Sprintf("http://localhost%s/api/users/me/avatar", apiAddr), &b)
-	require.NoError(t, err)
-	reqAvatar.Header.Set("Content-Type", "image/png") // The handler parses but filetype might complain about fake bytes, let's use a valid tiny PNG magic bytes if filetype strictness requires it, or we bypass it by providing a real 1px png. For now filetype detects "image".
-	// Let's create a minimal valid PNG valid for h2non/filetype
+	// We simulate an image upload using a minimal valid PNG valid for h2non/filetype
 	pngBase64 := "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
-	pngDecoded, _ := base64.StdEncoding.DecodeString(pngBase64)
-	reqAvatar, err = http.NewRequest("POST", fmt.Sprintf("http://localhost%s/api/users/me/avatar", apiAddr), bytes.NewReader(pngDecoded))
+	pngDecoded, err := base64.StdEncoding.DecodeString(pngBase64)
 	require.NoError(t, err)
+
+	reqAvatar, err := http.NewRequest("POST", fmt.Sprintf("http://localhost%s/api/users/me/avatar", apiAddr), bytes.NewReader(pngDecoded))
+	require.NoError(t, err)
+	reqAvatar.Header.Set("Content-Type", "image/png")
 	reqAvatar.AddCookie(&http.Cookie{Name: "token", Value: sessionToken})
 	reqAvatar.Header.Set("Origin", fmt.Sprintf("http://localhost%s", apiAddr))
 
