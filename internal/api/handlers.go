@@ -8,6 +8,7 @@ import (
 	"besedka/internal/storage"
 	"besedka/internal/ws"
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -113,6 +114,34 @@ func (a *API) getToken(r *http.Request) string {
 	return token
 }
 
+type contextKey string
+
+const userIDKey = contextKey("userID")
+
+func UserIDFromContext(ctx context.Context) string {
+	userID, _ := ctx.Value(userIDKey).(string)
+	return userID
+}
+
+func (a *API) RequireAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		token := a.getToken(r)
+		if token == "" {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		userID, err := a.auth.GetUserID(token)
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		ctx := context.WithValue(r.Context(), userIDKey, userID)
+		next(w, r.WithContext(ctx))
+	}
+}
+
 func (a *API) LogoffHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -215,11 +244,6 @@ func (a *API) RegisterInfoHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) UsersHandler(w http.ResponseWriter, r *http.Request) {
-	token := a.getToken(r)
-	if _, err := a.auth.GetUserID(token); err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
 
 	users, err := a.auth.GetUsers()
 	if err != nil {
@@ -241,13 +265,7 @@ func (a *API) UsersHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) ChatsHandler(w http.ResponseWriter, r *http.Request) {
-	token := a.getToken(r)
-	if _, err := a.auth.GetUserID(token); err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	userID, _ := a.auth.GetUserID(token) // Error checked above
+	userID := UserIDFromContext(r.Context())
 
 	chats := a.hub.GetChats(userID)
 
@@ -263,12 +281,7 @@ func (a *API) ChatsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) MeHandler(w http.ResponseWriter, r *http.Request) {
-	token := a.getToken(r)
-	userID, err := a.auth.GetUserID(token)
-	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
+	userID := UserIDFromContext(r.Context())
 
 	currentUser, err := a.auth.GetUser(userID)
 
@@ -345,17 +358,7 @@ func (a *API) ResetPasswordHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token := a.getToken(r)
-	if token == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	userID, err := a.auth.GetUserID(token)
-	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
+	userID := UserIDFromContext(r.Context())
 
 	regToken, err := a.auth.ResetPassword(userID)
 	if err != nil {
@@ -397,12 +400,7 @@ func (a *API) UploadImageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token := a.getToken(r)
-	uploaderID, err := a.auth.GetUserID(token)
-	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
+	uploaderID := UserIDFromContext(r.Context())
 
 	// Limit to 10MB
 	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
@@ -458,6 +456,123 @@ func (a *API) UploadImageHandler(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(models.UploadImageResponse{ID: fileID}); err != nil {
 		log.Printf("failed to encode upload response: %v", err)
 	}
+}
+
+func (a *API) UploadAvatarHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	uploaderID := UserIDFromContext(r.Context())
+
+	// Limit to 5MB for avatars
+	r.Body = http.MaxBytesReader(w, r.Body, 5<<20)
+
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(r.Body); err != nil {
+		http.Error(w, "Failed to read body", http.StatusBadRequest)
+		return
+	}
+	data := buf.Bytes()
+
+	// Calculate Hash
+	hasher := sha256.New()
+	hasher.Write(data)
+	hash := hex.EncodeToString(hasher.Sum(nil))
+
+	// Detect MIME type
+	kind, err := filetype.Image(data)
+	if err != nil {
+		http.Error(w, "Invalid file type. Only images are allowed.", http.StatusBadRequest)
+		return
+	}
+
+	// Save file (idempotent)
+	if err := a.filestore.Save(bytes.NewReader(data), hash); err != nil {
+		log.Printf("failed to save avatar blob: %v", err)
+		http.Error(w, "Internal Storage Error", http.StatusInternalServerError)
+		return
+	}
+
+	// Create Metadata
+	fileID := uuid.NewString()
+	meta := storage.FileMetadata{
+		ID:        fileID,
+		Hash:      hash,
+		MimeType:  kind.MIME.Value,
+		Size:      int64(len(data)),
+		CreatedAt: time.Now().Unix(),
+		UserID:    uploaderID,
+		ChatID:    "", // Avatars are not tied to a specific chat
+	}
+
+	if err := a.storage.UpsertFileMetadata(meta); err != nil {
+		log.Printf("failed to save avatar metadata: %v", err)
+		http.Error(w, "Internal Database Error", http.StatusInternalServerError)
+		return
+	}
+
+	avatarURL := fmt.Sprintf("/api/images/%s", fileID)
+	if err := a.auth.UpdateAvatarURL(uploaderID, avatarURL); err != nil {
+		log.Printf("failed to update user avatar url: %v", err)
+		http.Error(w, "Internal Database Error", http.StatusInternalServerError)
+		return
+	}
+
+	// Optionally we could broadcast presence so other clients get the new avatar.
+	// For now, updating the database is sufficient as clients fetch user lists periodically or at start.
+	// Alternatively we can use a server message type.
+
+	w.Header().Set("Content-Type", "application/json")
+	resp := struct {
+		AvatarURL string `json:"avatarUrl"`
+	}{
+		AvatarURL: avatarURL,
+	}
+
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("failed to encode upload avatar response: %v", err)
+	}
+}
+
+func (a *API) UpdateDisplayNameHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	userID := UserIDFromContext(r.Context())
+
+	var req struct {
+		DisplayName string `json:"displayName"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if err := a.auth.UpdateDisplayName(userID, req.DisplayName); err != nil {
+		log.Printf("failed to update user display name: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	resp := struct {
+		Success     bool   `json:"success"`
+		DisplayName string `json:"displayName"`
+	}{
+		Success:     true,
+		DisplayName: content.Escape(content.Sanitize(req.DisplayName)),
+	}
+
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("failed to encode update display name response: %v", err)
+	}
+
+	// We can broadcast the change if needed, but for now we follow Avatar updating behavior.
 }
 
 func (a *API) GetImageHandler(w http.ResponseWriter, r *http.Request) {

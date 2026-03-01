@@ -241,6 +241,51 @@ func (as *AuthService) hashToken(token string) string {
 	return string(h.Sum(nil))
 }
 
+func (as *AuthService) UpdateAvatarURL(userID string, avatarURL string) error {
+	tx := as.users.Lock()
+	defer tx.Unlock()
+
+	user, err := tx.Get(userID)
+	if err != nil {
+		return models.ErrNotFound
+	}
+
+	user.AvatarURL = avatarURL
+
+	if err := as.storage.UpsertCredentials(*user); err != nil {
+		return fmt.Errorf("failed to persist user avatar url: %w", err)
+	}
+
+	tx.Set(user.ID, user)
+
+	return nil
+}
+
+func (as *AuthService) UpdateDisplayName(userID string, displayName string) error {
+	tx := as.users.Lock()
+	defer tx.Unlock()
+
+	user, err := tx.Get(userID)
+	if err != nil {
+		return models.ErrNotFound
+	}
+
+	displayName = content.Sanitize(displayName)
+	if displayName == "" {
+		return fmt.Errorf("display name cannot be empty")
+	}
+
+	user.DisplayName = displayName
+
+	if err := as.storage.UpsertCredentials(*user); err != nil {
+		return fmt.Errorf("failed to persist user display name: %w", err)
+	}
+
+	tx.Set(user.ID, user)
+
+	return nil
+}
+
 func (as *AuthService) AddUser(username, displayName string) (string, error) {
 	tx := as.users.Lock()
 	defer tx.Unlock()

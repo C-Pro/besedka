@@ -898,4 +898,108 @@ func TestAuthService(t *testing.T) {
 			t.Errorf("Failed to run GetRegistrationInfo with new token: %v", err)
 		}
 	})
+
+	t.Run("UpdateAvatarURL", func(t *testing.T) {
+		svc, _, store := createService(t)
+
+		// Setup active user
+		tx := svc.users.Lock()
+		userID := "user_avatar_url"
+		tx.Set(userID, &UserCredentials{
+			User: models.User{
+				ID:          userID,
+				UserName:    "user_avatar",
+				DisplayName: "Avatar User",
+				Status:      models.UserStatusActive,
+			},
+			PasswordHash: svc.hashPassword("user_avatar", "pass"),
+			TOTPSecret:   rawSecret,
+			LastTOTP:     0,
+		})
+		svc.usernames.Set("user_avatar", userID)
+		tx.Unlock()
+
+		newAvatar := "https://example.com/avatar.png"
+		err := svc.UpdateAvatarURL(userID, newAvatar)
+		if err != nil {
+			t.Fatalf("UpdateAvatarURL failed: %v", err)
+		}
+
+		user, err := svc.GetUser(userID)
+		if err != nil {
+			t.Fatalf("GetUser after update failed: %v", err)
+		}
+		if user.AvatarURL != newAvatar {
+			t.Errorf("expected avatar URL %v, got %v", newAvatar, user.AvatarURL)
+		}
+
+		// Verify it was persisted to storage
+		found := false
+		for _, c := range store.creds {
+			if c.ID == userID {
+				found = true
+				if c.AvatarURL != newAvatar {
+					t.Errorf("storage expected avatar URL %v, got %v", newAvatar, c.AvatarURL)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("user not found in storage")
+		}
+	})
+
+	t.Run("UpdateDisplayName", func(t *testing.T) {
+		svc, _, store := createService(t)
+
+		// Setup active user
+		tx := svc.users.Lock()
+		userID := "user_display_name"
+		tx.Set(userID, &UserCredentials{
+			User: models.User{
+				ID:          userID,
+				UserName:    "user_dname",
+				DisplayName: "Old Name",
+				Status:      models.UserStatusActive,
+			},
+			PasswordHash: svc.hashPassword("user_dname", "pass"),
+			TOTPSecret:   rawSecret,
+			LastTOTP:     0,
+		})
+		svc.usernames.Set("user_dname", userID)
+		tx.Unlock()
+
+		newName := "New Name"
+		err := svc.UpdateDisplayName(userID, newName)
+		if err != nil {
+			t.Fatalf("UpdateDisplayName failed: %v", err)
+		}
+
+		user, err := svc.GetUser(userID)
+		if err != nil {
+			t.Fatalf("GetUser after update failed: %v", err)
+		}
+		if user.DisplayName != newName {
+			t.Errorf("expected display name %v, got %v", newName, user.DisplayName)
+		}
+
+		// Verify it was persisted to storage
+		found := false
+		for _, c := range store.creds {
+			if c.ID == userID {
+				found = true
+				if c.DisplayName != newName {
+					t.Errorf("storage expected display name %v, got %v", newName, c.DisplayName)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("user not found in storage")
+		}
+
+		// Empty name should fail
+		err = svc.UpdateDisplayName(userID, "")
+		if err == nil {
+			t.Errorf("UpdateDisplayName should fail with empty name")
+		}
+	})
 }

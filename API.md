@@ -107,6 +107,26 @@ All endpoints below require a valid JWT token.
 }
 ```
 
+### Update Display Name
+**Endpoint:** `POST /api/users/me/display-name`
+
+**Description:** Updates the display name for the currently authenticated user.
+
+**Request Body:**
+```json
+{
+  "displayName": "string"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "displayName": "string"
+}
+```
+
 ### Get Users
 **Endpoint:** `GET /api/users`
 
@@ -213,6 +233,21 @@ Sent when new messages arrive in a subscribed chat.
 ```
 
 ## Files
+
+### Upload Avatar
+**Endpoint:** `POST /api/users/me/avatar`
+
+**Description:** Uploads an avatar image for the currently authenticated user. Supports JPEG, PNG, GIF, WebP. Limit 5MB.
+
+**Headers:**
+- `Content-Type`: `image/*` or `application/octet-stream` (body is raw binary)
+
+**Response:**
+```json
+{
+  "avatarUrl": "/api/images/uuid_string"
+}
+```
 
 ### Upload Image
 **Endpoint:** `POST /api/upload/image`

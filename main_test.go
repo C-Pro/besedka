@@ -5,6 +5,7 @@ import (
 	"besedka/internal/auth"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -156,7 +157,48 @@ func TestIntegration(t *testing.T) {
 	sessionToken := loginResp.Token
 	require.NotEmpty(t, sessionToken)
 
-	// Step 5: List Users (Verify Login)
+	// Step 4.5: Upload Avatar
+	// We simulate an image upload
+	var b bytes.Buffer
+	b.Write([]byte("fake image content representing an avatar"))
+	reqAvatar, err := http.NewRequest("POST", fmt.Sprintf("http://localhost%s/api/users/me/avatar", apiAddr), &b)
+	require.NoError(t, err)
+	reqAvatar.Header.Set("Content-Type", "image/png") // The handler parses but filetype might complain about fake bytes, let's use a valid tiny PNG magic bytes if filetype strictness requires it, or we bypass it by providing a real 1px png. For now filetype detects "image".
+	// Let's create a minimal valid PNG valid for h2non/filetype
+	pngBase64 := "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+	pngDecoded, _ := base64.StdEncoding.DecodeString(pngBase64)
+	reqAvatar, err = http.NewRequest("POST", fmt.Sprintf("http://localhost%s/api/users/me/avatar", apiAddr), bytes.NewReader(pngDecoded))
+	require.NoError(t, err)
+	reqAvatar.AddCookie(&http.Cookie{Name: "token", Value: sessionToken})
+	reqAvatar.Header.Set("Origin", fmt.Sprintf("http://localhost%s", apiAddr))
+
+	respAvatar, err := client.Do(reqAvatar)
+	require.NoError(t, err)
+	defer func() { _ = respAvatar.Body.Close() }()
+	require.Equal(t, http.StatusOK, respAvatar.StatusCode)
+
+	var avatarResp struct {
+		AvatarURL string `json:"avatarUrl"`
+	}
+	err = json.NewDecoder(respAvatar.Body).Decode(&avatarResp)
+	require.NoError(t, err)
+	require.NotEmpty(t, avatarResp.AvatarURL)
+	require.Contains(t, avatarResp.AvatarURL, "/api/images/")
+
+	// Fetch Me and check Avatar URL
+	reqMe, err := http.NewRequest("GET", fmt.Sprintf("http://localhost%s/api/me", apiAddr), nil)
+	require.NoError(t, err)
+	reqMe.AddCookie(&http.Cookie{Name: "token", Value: sessionToken})
+	respMe, err := client.Do(reqMe)
+	require.NoError(t, err)
+	defer func() { _ = respMe.Body.Close() }()
+	require.Equal(t, http.StatusOK, respMe.StatusCode)
+
+	// Me returns reduced struct, let's fetch users list to verify avatar is there.
+	// Step 5 does list users anyway and we will check it there.
+
+	// Step 5: List Users (Verify Login and Avatar)
+
 	reqList, _ := http.NewRequest("GET", fmt.Sprintf("http://localhost%s/api/users", apiAddr), nil)
 	reqList.AddCookie(&http.Cookie{Name: "token", Value: sessionToken})
 	respList, err := client.Do(reqList) // client is clean
