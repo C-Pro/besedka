@@ -182,29 +182,7 @@ func TestIntegration(t *testing.T) {
 	require.NotEmpty(t, avatarResp.AvatarURL)
 	require.Contains(t, avatarResp.AvatarURL, "/api/images/")
 
-	// Fetch Me and check Avatar URL
-	reqMe, err := http.NewRequest("GET", fmt.Sprintf("http://localhost%s/api/me", apiAddr), nil)
-	require.NoError(t, err)
-	reqMe.AddCookie(&http.Cookie{Name: "token", Value: sessionToken})
-	respMe, err := client.Do(reqMe)
-	require.NoError(t, err)
-	defer func() { _ = respMe.Body.Close() }()
-	require.Equal(t, http.StatusOK, respMe.StatusCode)
-
-	// Me returns reduced struct, let's fetch users list to verify avatar is there.
-	// Step 5 does list users anyway and we will check it there.
-
 	// Step 5: List Users (Verify Login and Avatar)
-
-	reqList, _ := http.NewRequest("GET", fmt.Sprintf("http://localhost%s/api/users", apiAddr), nil)
-	reqList.AddCookie(&http.Cookie{Name: "token", Value: sessionToken})
-	respList, err := client.Do(reqList) // client is clean
-	require.NoError(t, err)
-	defer func() { _ = respList.Body.Close() }()
-	require.Equal(t, http.StatusOK, respList.StatusCode)
-
-	// Step 7: Admin Delete User Revokes Tokens
-	// Get user ID from user list
 	reqUsers, _ := http.NewRequest("GET", fmt.Sprintf("http://localhost%s/api/users", apiAddr), nil)
 	reqUsers.AddCookie(&http.Cookie{Name: "token", Value: sessionToken})
 	respUsers, err := client.Do(reqUsers)
@@ -213,12 +191,16 @@ func TestIntegration(t *testing.T) {
 	require.Equal(t, http.StatusOK, respUsers.StatusCode)
 
 	var users []struct {
-		ID string `json:"id"`
+		ID        string `json:"id"`
+		AvatarURL string `json:"avatarUrl"`
 	}
 	err = json.NewDecoder(respUsers.Body).Decode(&users)
 	require.NoError(t, err)
 	require.NotEmpty(t, users)
+	require.Equal(t, avatarResp.AvatarURL, users[0].AvatarURL, "Avatar URL should match the uploaded avatar")
 	testUserID := users[0].ID
+
+	// Step 7: Admin Delete User Revokes Tokens
 
 	// Delete user via Admin API
 	reqDel, _ := http.NewRequest("DELETE", fmt.Sprintf("http://%s/api/users?id=%s", adminAddr, testUserID), nil)
