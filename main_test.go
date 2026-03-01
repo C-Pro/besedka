@@ -5,6 +5,7 @@ import (
 	"besedka/internal/auth"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -156,16 +157,32 @@ func TestIntegration(t *testing.T) {
 	sessionToken := loginResp.Token
 	require.NotEmpty(t, sessionToken)
 
-	// Step 5: List Users (Verify Login)
-	reqList, _ := http.NewRequest("GET", fmt.Sprintf("http://localhost%s/api/users", apiAddr), nil)
-	reqList.AddCookie(&http.Cookie{Name: "token", Value: sessionToken})
-	respList, err := client.Do(reqList) // client is clean
+	// Step 4.5: Upload Avatar
+	// We simulate an image upload using a minimal valid PNG valid for h2non/filetype
+	pngBase64 := "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+	pngDecoded, err := base64.StdEncoding.DecodeString(pngBase64)
 	require.NoError(t, err)
-	defer func() { _ = respList.Body.Close() }()
-	require.Equal(t, http.StatusOK, respList.StatusCode)
 
-	// Step 7: Admin Delete User Revokes Tokens
-	// Get user ID from user list
+	reqAvatar, err := http.NewRequest("POST", fmt.Sprintf("http://localhost%s/api/users/me/avatar", apiAddr), bytes.NewReader(pngDecoded))
+	require.NoError(t, err)
+	reqAvatar.Header.Set("Content-Type", "image/png")
+	reqAvatar.AddCookie(&http.Cookie{Name: "token", Value: sessionToken})
+	reqAvatar.Header.Set("Origin", fmt.Sprintf("http://localhost%s", apiAddr))
+
+	respAvatar, err := client.Do(reqAvatar)
+	require.NoError(t, err)
+	defer func() { _ = respAvatar.Body.Close() }()
+	require.Equal(t, http.StatusOK, respAvatar.StatusCode)
+
+	var avatarResp struct {
+		AvatarURL string `json:"avatarUrl"`
+	}
+	err = json.NewDecoder(respAvatar.Body).Decode(&avatarResp)
+	require.NoError(t, err)
+	require.NotEmpty(t, avatarResp.AvatarURL)
+	require.Contains(t, avatarResp.AvatarURL, "/api/images/")
+
+	// Step 5: List Users (Verify Login and Avatar)
 	reqUsers, _ := http.NewRequest("GET", fmt.Sprintf("http://localhost%s/api/users", apiAddr), nil)
 	reqUsers.AddCookie(&http.Cookie{Name: "token", Value: sessionToken})
 	respUsers, err := client.Do(reqUsers)
@@ -174,12 +191,16 @@ func TestIntegration(t *testing.T) {
 	require.Equal(t, http.StatusOK, respUsers.StatusCode)
 
 	var users []struct {
-		ID string `json:"id"`
+		ID        string `json:"id"`
+		AvatarURL string `json:"avatarUrl"`
 	}
 	err = json.NewDecoder(respUsers.Body).Decode(&users)
 	require.NoError(t, err)
 	require.NotEmpty(t, users)
+	require.Equal(t, avatarResp.AvatarURL, users[0].AvatarURL, "Avatar URL should match the uploaded avatar")
 	testUserID := users[0].ID
+
+	// Step 7: Admin Delete User Revokes Tokens
 
 	// Delete user via Admin API
 	reqDel, _ := http.NewRequest("DELETE", fmt.Sprintf("http://%s/api/users?id=%s", adminAddr, testUserID), nil)

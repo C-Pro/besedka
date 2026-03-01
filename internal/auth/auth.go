@@ -29,7 +29,8 @@ const (
 )
 
 var (
-	ErrUserExists = errors.New("user already exists")
+	ErrUserExists       = errors.New("user already exists")
+	ErrEmptyDisplayName = errors.New("display name cannot be empty")
 )
 
 type storage interface {
@@ -239,6 +240,51 @@ func (as *AuthService) hashToken(token string) string {
 	h := hmac.New(sha512.New, as.secretBytes)
 	h.Write([]byte(token))
 	return string(h.Sum(nil))
+}
+
+func (as *AuthService) UpdateAvatarURL(userID string, avatarURL string) error {
+	tx := as.users.Lock()
+	defer tx.Unlock()
+
+	user, err := tx.Get(userID)
+	if err != nil {
+		return models.ErrNotFound
+	}
+
+	user.AvatarURL = avatarURL
+
+	if err := as.storage.UpsertCredentials(*user); err != nil {
+		return fmt.Errorf("failed to persist user avatar url: %w", err)
+	}
+
+	tx.Set(user.ID, user)
+
+	return nil
+}
+
+func (as *AuthService) UpdateDisplayName(userID string, displayName string) (string, error) {
+	tx := as.users.Lock()
+	defer tx.Unlock()
+
+	user, err := tx.Get(userID)
+	if err != nil {
+		return "", models.ErrNotFound
+	}
+
+	displayName = content.Sanitize(displayName)
+	if displayName == "" {
+		return "", ErrEmptyDisplayName
+	}
+
+	user.DisplayName = displayName
+
+	if err := as.storage.UpsertCredentials(*user); err != nil {
+		return "", fmt.Errorf("failed to persist user display name: %w", err)
+	}
+
+	tx.Set(user.ID, user)
+
+	return displayName, nil
 }
 
 func (as *AuthService) AddUser(username, displayName string) (string, error) {
