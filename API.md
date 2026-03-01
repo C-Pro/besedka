@@ -76,6 +76,20 @@ This document defines the client-server JSON-based protocol for the chat applica
 **Response:**
 - **Success (200 OK)**
 
+### Reset Password
+**Endpoint:** `POST /api/reset-password`
+
+**Description:** Resets the password for the currently authenticated user. Invalidates all tokens, generates a new TOTP secret, and returns a new setup link. The user status is changed back to "created".
+
+**Response:**
+- **Success (200 OK):**
+  ```json
+  {
+    "success": true,
+    "setupLink": "string" // URL to share with user to complete registration again
+  }
+  ```
+
 ## Users & Chats
 
 All endpoints below require a valid JWT token.
@@ -283,3 +297,21 @@ The Admin API runs on a separate port (default 8081) and is used for management 
   "message": "User <id> deleted"
 }
 ```
+
+### Reset User Password
+**Endpoint:** `POST /api/users/reset-password`
+
+**Description:** Admin endpoint to reset a user's password. Removes all their tokens, generates a new TOTP secret, sets their status to "created", and returns a registration link.
+
+**Query Parameters:**
+- `id`: The user ID of the user to reset.
+
+**Response:**
+```json
+{
+  "success": true,
+  "setupLink": "string",
+  "message": "Password for user <id> reset successfully"
+}
+```
+

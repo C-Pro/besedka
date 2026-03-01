@@ -4,6 +4,7 @@ import (
 	"besedka/internal/auth"
 	"besedka/internal/content"
 	"besedka/internal/filestore"
+	"besedka/internal/models"
 	"besedka/internal/storage"
 	"besedka/internal/ws"
 	"bytes"
@@ -14,6 +15,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -292,6 +294,103 @@ func (a *API) MeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// validateCSRFSameOrigin implements a simple same-origin check using the Origin
+// and Referer headers. It ensures that the request originates from the same host
+// as the server, mitigating CSRF attacks for cookie-authenticated endpoints.
+func validateCSRFSameOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin != "" {
+		u, err := url.Parse(origin)
+		if err != nil {
+			return false
+		}
+		if u.Host != r.Host {
+			return false
+		}
+		return true
+	}
+
+	referer := r.Header.Get("Referer")
+	if referer == "" {
+		return false
+	}
+
+	u, err := url.Parse(referer)
+	if err != nil {
+		return false
+	}
+	if u.Host != r.Host {
+		return false
+	}
+
+	return true
+}
+
+// RequireSameOrigin is a middleware that enforces same-origin policy for POST requests.
+func RequireSameOrigin(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			if !validateCSRFSameOrigin(r) {
+				http.Error(w, "Invalid Origin", http.StatusForbidden)
+				return
+			}
+		}
+		next(w, r)
+	}
+}
+
+func (a *API) ResetPasswordHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	token := a.getToken(r)
+	if token == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	userID, err := a.auth.GetUserID(token)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	regToken, err := a.auth.ResetPassword(userID)
+	if err != nil {
+		log.Printf("failed to reset password for user %s: %v", userID, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(models.APIResponse{
+			Success: false,
+			Message: "Failed to reset password",
+		})
+		return
+	}
+
+	// Make sure the resetting user gets logged out from all other active sessions and websockets immediately
+	a.hub.DisconnectUser(userID) // This disconnects all ws connections
+
+	// Also clear token cookie to log them off this session so they can login via registration link
+	http.SetCookie(w, &http.Cookie{
+		Name:     "token",
+		Value:    "",
+		HttpOnly: true,
+		Secure:   true,
+		Path:     "/",
+		MaxAge:   -1,
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(models.ResetPasswordResponse{
+		APIResponse: models.APIResponse{
+			Success: true,
+		},
+		SetupLink: fmt.Sprintf("/register.html?token=%s", url.QueryEscape(regToken)),
+	})
+}
+
 func (a *API) UploadImageHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -356,7 +455,7 @@ func (a *API) UploadImageHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(map[string]string{"id": fileID}); err != nil {
+	if err := json.NewEncoder(w).Encode(models.UploadImageResponse{ID: fileID}); err != nil {
 		log.Printf("failed to encode upload response: %v", err)
 	}
 }

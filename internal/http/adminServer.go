@@ -24,6 +24,7 @@ type AdminServer struct {
 	hub          *ws.Hub
 	tmpl         *template.Template
 	adminHandler *api.AdminHandler
+	baseURL      string
 }
 
 func NewAdminServer(cfg *config.Config, authService *auth.AuthService, hub *ws.Hub) *AdminServer {
@@ -33,7 +34,7 @@ func NewAdminServer(cfg *config.Config, authService *auth.AuthService, hub *ws.H
 		log.Fatalf("failed to parse admin template: %v", err)
 	}
 
-	adminHandler := api.NewAdminHandler(authService, hub)
+	adminHandler := api.NewAdminHandler(authService, hub, cfg.BaseURL)
 	mux := http.NewServeMux()
 
 	// Basic Auth Middleware
@@ -58,6 +59,7 @@ func NewAdminServer(cfg *config.Config, authService *auth.AuthService, hub *ws.H
 		hub:          hub,
 		tmpl:         tmpl,
 		adminHandler: adminHandler,
+		baseURL:      cfg.BaseURL,
 	}
 
 	// UI Handlers
@@ -69,7 +71,7 @@ func NewAdminServer(cfg *config.Config, authService *auth.AuthService, hub *ws.H
 	mux.HandleFunc("GET /api/users", withBasicAuth(s.handleListUsersJSON))
 	mux.HandleFunc("POST /api/users", withBasicAuth(adminHandler.AddUserHandler))
 	mux.HandleFunc("DELETE /api/users", withBasicAuth(adminHandler.DeleteUserHandler))
-
+	mux.HandleFunc("POST /api/users/reset-password", withBasicAuth(adminHandler.ResetUserPasswordHandler))
 
 	addr := cfg.AdminAddr
 	if addr == "" {
@@ -90,7 +92,7 @@ func (s *AdminServer) handleListUsers(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to get users", http.StatusInternalServerError)
 		return
 	}
-	data := map[string]interface{}{
+	data := map[string]any{
 		"Users": users,
 	}
 	if err := s.tmpl.Execute(w, data); err != nil {
@@ -125,11 +127,12 @@ func (s *AdminServer) handleAddUser(w http.ResponseWriter, r *http.Request) {
 
 	token, err := s.authService.AddUser(username, username)
 
-	data := map[string]interface{}{}
+	data := map[string]any{}
 	if err != nil {
 		data["Error"] = err.Error()
 	} else {
-		data["NewLink"] = fmt.Sprintf("/register.html?token=%s", url.QueryEscape(token))
+		base := strings.TrimRight(s.baseURL, "/")
+		data["NewLink"] = fmt.Sprintf("%s/register.html?token=%s", base, url.QueryEscape(token))
 	}
 
 	// Refresh user list

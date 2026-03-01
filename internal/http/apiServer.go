@@ -31,14 +31,15 @@ func NewAPIServer(authService *auth.AuthService, hub *ws.Hub, filestore filestor
 	mux.HandleFunc("/", NewFileServerHandler(authService, static.Content))
 
 	// API endpoints
-	mux.HandleFunc("/api/login", apiHandlers.LoginHandler)
-	mux.HandleFunc("/api/logoff", apiHandlers.LogoffHandler)
-	mux.HandleFunc("/api/register", apiHandlers.RegisterHandler)
+	mux.HandleFunc("/api/login", api.RequireSameOrigin(apiHandlers.LoginHandler))
+	mux.HandleFunc("/api/logoff", api.RequireSameOrigin(apiHandlers.LogoffHandler))
+	mux.HandleFunc("/api/register", api.RequireSameOrigin(apiHandlers.RegisterHandler))
 	mux.HandleFunc("/api/register-info", apiHandlers.RegisterInfoHandler)
+	mux.HandleFunc("/api/reset-password", api.RequireSameOrigin(apiHandlers.ResetPasswordHandler))
 	mux.HandleFunc("/api/users", apiHandlers.UsersHandler)
 	mux.HandleFunc("/api/chats", apiHandlers.ChatsHandler)
 	mux.HandleFunc("/api/me", apiHandlers.MeHandler)
-	mux.HandleFunc("/api/upload/image", apiHandlers.UploadImageHandler)
+	mux.HandleFunc("/api/upload/image", api.RequireSameOrigin(apiHandlers.UploadImageHandler))
 	mux.HandleFunc("/api/images/{id}", apiHandlers.GetImageHandler)
 
 	// WebSocket endpoint
@@ -50,7 +51,7 @@ func NewAPIServer(authService *auth.AuthService, hub *ws.Hub, filestore filestor
 
 	return &APIServer{
 		server: &http.Server{
-			Addr: addr,
+			Addr:    addr,
 			Handler: mux,
 		},
 	}

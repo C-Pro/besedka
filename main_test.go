@@ -100,7 +100,7 @@ func TestIntegration(t *testing.T) {
 	token := u.Query().Get("token")
 	require.NotEmpty(t, token)
 
-	resp, err = http.Get(fmt.Sprintf("http://localhost%s/api/register-info?token=%s", apiAddr, token))
+	resp, err = http.Get(fmt.Sprintf("http://localhost%s/api/register-info?token=%s", apiAddr, url.QueryEscape(token)))
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -125,7 +125,10 @@ func TestIntegration(t *testing.T) {
 		TOTP:     totpCode,
 	}
 	regBody, _ := json.Marshal(regReq)
-	resp, err = http.Post(fmt.Sprintf("http://localhost%s/api/register", apiAddr), "application/json", bytes.NewBuffer(regBody))
+	reqReg, _ := http.NewRequest("POST", fmt.Sprintf("http://localhost%s/api/register", apiAddr), bytes.NewBuffer(regBody))
+	reqReg.Header.Set("Content-Type", "application/json")
+	reqReg.Header.Set("Origin", fmt.Sprintf("http://localhost%s", apiAddr))
+	resp, err = client.Do(reqReg)
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -138,7 +141,10 @@ func TestIntegration(t *testing.T) {
 	}
 
 	loginBody, _ := json.Marshal(loginReq)
-	resp, err = http.Post(fmt.Sprintf("http://localhost%s/api/login", apiAddr), "application/json", bytes.NewBuffer(loginBody))
+	reqLogin, _ := http.NewRequest("POST", fmt.Sprintf("http://localhost%s/api/login", apiAddr), bytes.NewBuffer(loginBody))
+	reqLogin.Header.Set("Content-Type", "application/json")
+	reqLogin.Header.Set("Origin", fmt.Sprintf("http://localhost%s", apiAddr))
+	resp, err = client.Do(reqLogin)
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusOK, resp.StatusCode)

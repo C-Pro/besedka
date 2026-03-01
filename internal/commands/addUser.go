@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 )
 
 func AddUser(username string, cfg *config.Config) error {
@@ -49,18 +48,7 @@ func AddUser(username string, cfg *config.Config) error {
 	fmt.Printf("\nUser Created Successfully!\n")
 	fmt.Printf("Username:          %s\n", result.Username)
 
-	baseURL := cfg.BaseURL
-	// Ensure BaseURL doesn't end with slash if SetupLink starts with one, or handle neatly.
-	// SetupLink from API usually starts with /register.html?token=...
-	// Let's trim suffix from baseURL just in case
-	baseURL = strings.TrimSuffix(baseURL, "/")
-
-	setupLink := result.SetupLink
-	if !strings.HasPrefix(setupLink, "/") {
-		setupLink = "/" + setupLink
-	}
-
-	fmt.Printf("Setup Link:         %s%s\n\n", baseURL, setupLink)
+	fmt.Printf("Setup Link:         %s\n\n", result.SetupLink)
 	fmt.Println("Please share this link with the user to complete registration.")
 	return nil
 }

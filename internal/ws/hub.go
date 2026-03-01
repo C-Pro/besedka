@@ -225,6 +225,10 @@ func (h *Hub) RemoveDeletedUser(userID string) {
 	}, userID)
 }
 
+func (h *Hub) DisconnectUser(userID string) {
+	h.Leave(userID)
+}
+
 // BroadcastToAll sends a message to all connected users except the excluded one.
 func (h *Hub) BroadcastToAll(msg models.ServerMessage, excludeUserID string) {
 	h.mu.RLock()

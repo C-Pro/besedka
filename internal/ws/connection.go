@@ -10,8 +10,8 @@ import (
 
 type wsConnection interface {
 	Close() error
-	WriteJSON(v interface{}) error
-	ReadJSON(v interface{}) error
+	WriteJSON(v any) error
+	ReadJSON(v any) error
 }
 
 type messageHub interface {

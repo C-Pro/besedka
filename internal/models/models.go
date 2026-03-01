@@ -6,6 +6,23 @@ var (
 	ErrNotFound = errors.New("not found")
 )
 
+// APIResponse represents a standard API response.
+type APIResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message,omitempty"`
+}
+
+// ResetPasswordResponse represents a response for password reset operations.
+type ResetPasswordResponse struct {
+	APIResponse
+	SetupLink string `json:"setupLink"`
+}
+
+// UploadImageResponse represents a response for an image upload operation.
+type UploadImageResponse struct {
+	ID string `json:"id"`
+}
+
 type UserStatus string
 
 const (

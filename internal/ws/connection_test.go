@@ -10,7 +10,7 @@ import (
 
 type mockWS struct {
 	readCh      chan models.ClientMessage
-	writeCh     chan interface{}
+	writeCh     chan any
 	closeCh     chan struct{}
 	closed      bool
 	errToReturn error
@@ -19,7 +19,7 @@ type mockWS struct {
 func newMockWS() *mockWS {
 	return &mockWS{
 		readCh:  make(chan models.ClientMessage, 10),
-		writeCh: make(chan interface{}, 10),
+		writeCh: make(chan any, 10),
 		closeCh: make(chan struct{}),
 	}
 }
@@ -33,7 +33,7 @@ func (m *mockWS) Close() error {
 	return nil
 }
 
-func (m *mockWS) WriteJSON(v interface{}) error {
+func (m *mockWS) WriteJSON(v any) error {
 	if m.errToReturn != nil {
 		return m.errToReturn
 	}
@@ -41,7 +41,7 @@ func (m *mockWS) WriteJSON(v interface{}) error {
 	return nil
 }
 
-func (m *mockWS) ReadJSON(v interface{}) error {
+func (m *mockWS) ReadJSON(v any) error {
 	if m.errToReturn != nil {
 		return m.errToReturn
 	}
