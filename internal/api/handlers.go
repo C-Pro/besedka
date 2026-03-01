@@ -532,7 +532,9 @@ func (a *API) UpdateDisplayNameHandler(w http.ResponseWriter, r *http.Request) {
 
 		}
 
-		log.Printf("failed to update user display name: %v", err)
+		if code >= http.StatusInternalServerError {
+			log.Printf("failed to update user display name: %v", err)
+		}
 		http.Error(w, msg, code)
 		return
 	}
