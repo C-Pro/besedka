@@ -226,17 +226,7 @@ func (h *Hub) RemoveDeletedUser(userID string) {
 }
 
 func (h *Hub) DisconnectUser(userID string) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	// Close user's connection if online
-	if ch, ok := h.connectedUsers[userID]; ok {
-		close(ch)
-		delete(h.connectedUsers, userID)
-	}
-
-	// Notify others that user is offline
-	h.broadcastStatusChange(userID, false)
+	h.Leave(userID)
 }
 
 // BroadcastToAll sends a message to all connected users except the excluded one.

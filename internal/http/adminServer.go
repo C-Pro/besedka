@@ -92,7 +92,7 @@ func (s *AdminServer) handleListUsers(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to get users", http.StatusInternalServerError)
 		return
 	}
-	data := map[string]interface{}{
+	data := map[string]any{
 		"Users": users,
 	}
 	if err := s.tmpl.Execute(w, data); err != nil {
@@ -127,11 +127,12 @@ func (s *AdminServer) handleAddUser(w http.ResponseWriter, r *http.Request) {
 
 	token, err := s.authService.AddUser(username, username)
 
-	data := map[string]interface{}{}
+	data := map[string]any{}
 	if err != nil {
 		data["Error"] = err.Error()
 	} else {
-		data["NewLink"] = fmt.Sprintf("%s/register.html?token=%s", s.baseURL, url.QueryEscape(token))
+		base := strings.TrimRight(s.baseURL, "/")
+		data["NewLink"] = fmt.Sprintf("%s/register.html?token=%s", base, url.QueryEscape(token))
 	}
 
 	// Refresh user list

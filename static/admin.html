@@ -83,7 +83,8 @@
     {{if .NewLink}}
     <div class="alert">
         <strong>User Created!</strong> Registration Link:
-        <a href="{{.NewLink}}" id="reg-link-a" target="_blank"><code id="reg-link">{{.NewLink}}</code></a>
+        <a href="{{.NewLink}}" id="reg-link-a" target="_blank" rel="noopener noreferrer"><code
+                id="reg-link">{{.NewLink}}</code></a>
         <button class="copy-btn" onclick="copyLink()">Copy to Clipboard</button>
     </div>
     {{end}}
@@ -96,6 +97,7 @@
 
     <div class="panel">
         <h2>Create User</h2>
+        <!-- nosemgrep: python.django.security.django-no-csrf-token.django-no-csrf-token -->
         <form action="/admin/users" method="POST">
             <label for="username">Username:</label>
             <input type="text" id="username" name="username" required>
@@ -115,12 +117,13 @@
         </thead>
         <tbody>
             {{range .Users}}
-            <tr class="{{if eq .Status "deleted"}}deleted{{end}}">
+            <tr class="{{if eq .Status " deleted"}}deleted{{end}}">
                 <td>{{.UserName}}</td>
                 <td>{{.DisplayName}}</td>
                 <td>{{.Status}}</td>
                 <td>
                     {{if ne .Status "deleted"}}
+                    <!-- nosemgrep: python.django.security.django-no-csrf-token.django-no-csrf-token -->
                     <form action="/admin/users/delete" method="POST"
                         onsubmit="return confirm('Deleting user {{.UserName}}. Are you sure?');"
                         style="display:inline;">

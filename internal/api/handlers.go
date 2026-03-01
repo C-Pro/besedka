@@ -294,6 +294,51 @@ func (a *API) MeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// validateCSRFSameOrigin implements a simple same-origin check using the Origin
+// and Referer headers. It ensures that the request originates from the same host
+// as the server, mitigating CSRF attacks for cookie-authenticated endpoints.
+func validateCSRFSameOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin != "" {
+		u, err := url.Parse(origin)
+		if err != nil {
+			return false
+		}
+		if u.Host != r.Host {
+			return false
+		}
+		return true
+	}
+
+	referer := r.Header.Get("Referer")
+	if referer == "" {
+		return false
+	}
+
+	u, err := url.Parse(referer)
+	if err != nil {
+		return false
+	}
+	if u.Host != r.Host {
+		return false
+	}
+
+	return true
+}
+
+// RequireSameOrigin is a middleware that enforces same-origin policy for POST requests.
+func RequireSameOrigin(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			if !validateCSRFSameOrigin(r) {
+				http.Error(w, "Invalid Origin", http.StatusForbidden)
+				return
+			}
+		}
+		next(w, r)
+	}
+}
+
 func (a *API) ResetPasswordHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -314,11 +359,12 @@ func (a *API) ResetPasswordHandler(w http.ResponseWriter, r *http.Request) {
 
 	regToken, err := a.auth.ResetPassword(userID)
 	if err != nil {
+		log.Printf("failed to reset password for user %s: %v", userID, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(models.APIResponse{
 			Success: false,
-			Message: fmt.Sprintf("Failed to reset password: %v", err),
+			Message: "Failed to reset password",
 		})
 		return
 	}

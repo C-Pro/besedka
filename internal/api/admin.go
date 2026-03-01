@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 type AdminHandler struct {
@@ -86,10 +87,11 @@ func (h *AdminHandler) AddUserHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	base := strings.TrimRight(h.baseURL, "/")
 	resp := AddUserResponse{
 		Success:   true,
 		Username:  req.Username,
-		SetupLink: fmt.Sprintf("%s/register.html?token=%s", h.baseURL, url.QueryEscape(token)),
+		SetupLink: fmt.Sprintf("%s/register.html?token=%s", base, url.QueryEscape(token)),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -175,12 +177,13 @@ func (h *AdminHandler) ResetUserPasswordHandler(w http.ResponseWriter, r *http.R
 
 	h.hub.DisconnectUser(userID)
 
+	base := strings.TrimRight(h.baseURL, "/")
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(models.ResetPasswordResponse{
 		APIResponse: models.APIResponse{
 			Success: true,
 			Message: fmt.Sprintf("Password for user %s reset successfully", userID),
 		},
-		SetupLink: fmt.Sprintf("%s/register.html?token=%s", h.baseURL, url.QueryEscape(token)),
+		SetupLink: fmt.Sprintf("%s/register.html?token=%s", base, url.QueryEscape(token)),
 	})
 }

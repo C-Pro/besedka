@@ -300,6 +300,12 @@ func (as *AuthService) AddUser(username, displayName string) (string, error) {
 
 	tx.Set(user.ID, user)
 	as.usernames.Set(username, user.ID)
+	// Remove any existing registration tokens for this user from cache to invalidate old links
+	for k, v := range as.registrationTokens.Snapshot() {
+		if v == user.ID {
+			_ = as.registrationTokens.Del(k)
+		}
+	}
 	as.registrationTokens.Set(token, user.ID)
 
 	return token, nil
@@ -357,6 +363,13 @@ func (as *AuthService) ResetPassword(userID string) (string, error) {
 	}
 
 	tx.Set(user.ID, user)
+
+	// Remove any existing registration tokens for this user from cache to invalidate old links
+	for k, v := range as.registrationTokens.Snapshot() {
+		if v == user.ID {
+			_ = as.registrationTokens.Del(k)
+		}
+	}
 	as.registrationTokens.Set(token, user.ID)
 
 	return token, nil
