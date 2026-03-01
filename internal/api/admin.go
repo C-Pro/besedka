@@ -14,10 +14,11 @@ import (
 type AdminHandler struct {
 	authService *auth.AuthService
 	hub         *ws.Hub
+	baseURL     string
 }
 
-func NewAdminHandler(authService *auth.AuthService, hub *ws.Hub) *AdminHandler {
-	return &AdminHandler{authService: authService, hub: hub}
+func NewAdminHandler(authService *auth.AuthService, hub *ws.Hub, baseURL string) *AdminHandler {
+	return &AdminHandler{authService: authService, hub: hub, baseURL: baseURL}
 }
 
 type AddUserRequest struct {
@@ -88,7 +89,7 @@ func (h *AdminHandler) AddUserHandler(w http.ResponseWriter, r *http.Request) {
 	resp := AddUserResponse{
 		Success:   true,
 		Username:  req.Username,
-		SetupLink: fmt.Sprintf("/register.html?token=%s", url.QueryEscape(token)),
+		SetupLink: fmt.Sprintf("%s/register.html?token=%s", h.baseURL, url.QueryEscape(token)),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -108,9 +109,9 @@ func (h *AdminHandler) DeleteUserHandler(w http.ResponseWriter, r *http.Request)
 		if errors.Is(err, models.ErrNotFound) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusNotFound)
-			if err := json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "User not found",
+			if err := json.NewEncoder(w).Encode(models.APIResponse{
+				Success: false,
+				Message: "User not found",
 			}); err != nil {
 				_ = err
 			}
@@ -119,9 +120,9 @@ func (h *AdminHandler) DeleteUserHandler(w http.ResponseWriter, r *http.Request)
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		if err := json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": fmt.Sprintf("Failed to delete user: %v", err),
+		if err := json.NewEncoder(w).Encode(models.APIResponse{
+			Success: false,
+			Message: fmt.Sprintf("Failed to delete user: %v", err),
 		}); err != nil {
 			_ = err
 		}
@@ -131,10 +132,55 @@ func (h *AdminHandler) DeleteUserHandler(w http.ResponseWriter, r *http.Request)
 	h.hub.RemoveDeletedUser(userID)
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"message": fmt.Sprintf("User %s deleted", userID),
+	if err := json.NewEncoder(w).Encode(models.APIResponse{
+		Success: true,
+		Message: fmt.Sprintf("User %s deleted", userID),
 	}); err != nil {
 		_ = err
 	}
+}
+
+func (h *AdminHandler) ResetUserPasswordHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	userID := r.URL.Query().Get("id")
+	if userID == "" {
+		http.Error(w, "User ID is required", http.StatusBadRequest)
+		return
+	}
+
+	token, err := h.authService.ResetPassword(userID)
+	if err != nil {
+		if errors.Is(err, models.ErrNotFound) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(models.APIResponse{
+				Success: false,
+				Message: "User not found",
+			})
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(models.APIResponse{
+			Success: false,
+			Message: fmt.Sprintf("Failed to reset user password: %v", err),
+		})
+		return
+	}
+
+	h.hub.DisconnectUser(userID)
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(models.ResetPasswordResponse{
+		APIResponse: models.APIResponse{
+			Success: true,
+			Message: fmt.Sprintf("Password for user %s reset successfully", userID),
+		},
+		SetupLink: fmt.Sprintf("%s/register.html?token=%s", h.baseURL, url.QueryEscape(token)),
+	})
 }

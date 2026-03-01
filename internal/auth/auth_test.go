@@ -801,4 +801,101 @@ func TestAuthService(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("ResetPassword", func(t *testing.T) {
+		svc, now, store := createService(t)
+
+		// 1. Setup active user
+		tx := svc.users.Lock()
+		userID := "user_reset"
+		tx.Set(userID, &UserCredentials{
+			User: models.User{
+				ID:       userID,
+				UserName: "user_to_reset",
+				Status:   models.UserStatusActive,
+			},
+			PasswordHash:        svc.hashPassword("user_to_reset", "pass"),
+			TOTPSecret:          rawSecret,
+			LastTOTP:            int(now.Unix() % 10000), // something other than -1
+			FailedLoginAttempts: 3,
+			LastAttemptTime:     now.Unix(),
+		})
+		svc.usernames.Set("user_to_reset", userID)
+		tx.Unlock()
+
+		// 2. Assign some tokens to the user
+		token1, _ := svc.generateToken()
+		tokenHash1 := svc.hashToken(token1)
+		svc.liveTokens.Set(tokenHash1, userID)
+
+		userTokensTx := svc.userTokens.Lock()
+		userTokensTx.Set(userID, []string{tokenHash1})
+		userTokensTx.Unlock()
+
+		if err := store.UpsertToken(userID, tokenHash1); err != nil {
+			t.Fatalf("Failed to upsert token: %v", err)
+		}
+
+		// 3. Reset password
+		regToken, err := svc.ResetPassword(userID)
+		if err != nil {
+			t.Fatalf("ResetPassword failed: %v", err)
+		}
+
+		if regToken == "" {
+			t.Fatalf("Expected registration token, got empty string")
+		}
+
+		// 4. Verify user state changed to Created and tokens removed
+		u, err := svc.users.RLock().Get(userID)
+		if err != nil {
+			t.Fatalf("User not found after reset")
+		}
+
+		if u.Status != models.UserStatusCreated {
+			t.Errorf("Expected status Created, got %v", u.Status)
+		}
+
+		if u.LastTOTP != -1 {
+			t.Errorf("Expected LastTOTP -1, got %v", u.LastTOTP)
+		}
+
+		if u.FailedLoginAttempts != 0 {
+			t.Errorf("Expected FailedLoginAttempts 0, got %v", u.FailedLoginAttempts)
+		}
+
+		if u.PasswordHash != "" {
+			t.Errorf("Expected empty PasswordHash, got %v", u.PasswordHash)
+		}
+
+		if u.TOTPSecret == rawSecret {
+			t.Errorf("Expected new TOTP secret to be generated")
+		}
+
+		// Verify tokens removed from store and liveTokens
+		if _, ok := store.tokens[tokenHash1]; ok {
+			t.Errorf("Session token was not removed from store")
+		}
+
+		if _, err := svc.liveTokens.Get(tokenHash1); err == nil {
+			t.Errorf("Session token was not removed from liveTokens")
+		}
+
+		// Verify registration token exists
+		foundRegToken := false
+		for _, t := range store.regTokens {
+			if t == regToken {
+				foundRegToken = true
+				break
+			}
+		}
+		if !foundRegToken {
+			t.Errorf("Registration token not found in store")
+		}
+
+		_, err = svc.GetRegistrationInfo(regToken)
+		if err != nil {
+			t.Errorf("Failed to run GetRegistrationInfo with new token: %v", err)
+		}
+	})
 }

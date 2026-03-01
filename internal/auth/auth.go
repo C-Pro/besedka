@@ -305,6 +305,63 @@ func (as *AuthService) AddUser(username, displayName string) (string, error) {
 	return token, nil
 }
 
+func (as *AuthService) ResetPassword(userID string) (string, error) {
+	tx := as.users.Lock()
+	defer tx.Unlock()
+
+	user, err := tx.Get(userID)
+	if err != nil {
+		return "", models.ErrNotFound
+	}
+
+	userTokensTx := as.userTokens.Lock()
+	defer userTokensTx.Unlock()
+	userTokens, _ := userTokensTx.Get(user.ID)
+	for _, tokenHash := range userTokens {
+		_ = as.liveTokens.Del(tokenHash)
+		if err := as.storage.DeleteToken(tokenHash); err != nil {
+			slog.Error("failed to delete token from storage on password reset", "token_hash", tokenHash, "error", err)
+		}
+	}
+	userTokensTx.Set(user.ID, nil)
+
+	totpSecret, err := as.generateTOTPSecret()
+	if err != nil {
+		return "", fmt.Errorf("failed to generate TOTP secret: %w", err)
+	}
+
+	token, err := as.generateToken()
+	if err != nil {
+		return "", fmt.Errorf("failed to generate registration token: %w", err)
+	}
+
+	user.TOTPSecret = totpSecret
+	user.LastTOTP = -1
+	user.FailedLoginAttempts = 0
+	user.LastAttemptTime = 0
+	user.PasswordHash = ""
+	user.Status = models.UserStatusCreated
+
+	// Set presence to offline
+	user.Presence = models.Presence{
+		Online:   false,
+		LastSeen: as.now().Unix(),
+	}
+
+	if err := as.storage.UpsertCredentials(*user); err != nil {
+		return "", fmt.Errorf("failed to persist user: %w", err)
+	}
+
+	if err := as.storage.UpsertRegistrationToken(user.ID, token); err != nil {
+		return "", fmt.Errorf("failed to persist registration token: %w", err)
+	}
+
+	tx.Set(user.ID, user)
+	as.registrationTokens.Set(token, user.ID)
+
+	return token, nil
+}
+
 func (as *AuthService) DeleteUser(userID string) error {
 	tx := as.users.Lock()
 	defer tx.Unlock()

@@ -83,7 +83,7 @@
     {{if .NewLink}}
     <div class="alert">
         <strong>User Created!</strong> Registration Link:
-        <code id="reg-link">{{.NewLink}}</code>
+        <a href="{{.NewLink}}" id="reg-link-a" target="_blank"><code id="reg-link">{{.NewLink}}</code></a>
         <button class="copy-btn" onclick="copyLink()">Copy to Clipboard</button>
     </div>
     {{end}}
