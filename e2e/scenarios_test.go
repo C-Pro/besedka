@@ -3,6 +3,8 @@
 package e2e
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -267,5 +269,104 @@ func registerUser(t *testing.T, page playwright.Page, setupLink string, displayN
 	err = page.Locator("#app").WaitFor(playwright.LocatorWaitForOptions{
 		State: playwright.WaitForSelectorStateVisible,
 	})
+	require.NoError(t, err)
+}
+
+func TestE2EProfileEdit(t *testing.T) {
+	server := startServer(t)
+	defer server.Stop()
+
+	pw, browser := setupPlaywright(t)
+	defer func() { _ = pw.Stop() }()
+	defer func() { _ = browser.Close() }()
+
+	aliceSetupLink := server.CreateUser(t, "alice")
+
+	aliceContext := createBrowserContext(t, browser)
+	alicePage, err := aliceContext.NewPage()
+	require.NoError(t, err)
+
+	alicePage.OnConsole(func(msg playwright.ConsoleMessage) {
+		t.Logf("BROWSER CONSOLE: %s", msg.Text())
+	})
+
+	registerUser(t, alicePage, aliceSetupLink, "Alice Smith", "password123")
+
+	err = alicePage.Locator(".app-layout").WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	})
+	require.NoError(t, err)
+
+	// Handle the dismissable dialogs for password reset confirm
+	alicePage.OnDialog(func(dialog playwright.Dialog) {
+		err := dialog.Accept()
+		require.NoError(t, err)
+	})
+
+	// Open Profile Modal
+	err = alicePage.Locator("#desktop-profile-avatar").Click(playwright.LocatorClickOptions{
+		Timeout: playwright.Float(2000),
+	})
+	require.NoError(t, err, "click avatar")
+
+	err = alicePage.Locator("#desktop-profile-btn").Click(playwright.LocatorClickOptions{
+		Timeout: playwright.Float(2000),
+	})
+	require.NoError(t, err, "click profile btn")
+
+	err = alicePage.Locator("#profile-modal").WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(2000),
+	})
+	require.NoError(t, err, "wait for modal")
+
+	// 1. Change display name
+	err = alicePage.Locator("#profile-display-name-input").Fill("Alice Wonderland")
+	require.NoError(t, err)
+
+	_, err = alicePage.Evaluate(`() => document.querySelector('#display-name-save-btn').click()`)
+	require.NoError(t, err)
+
+	_, err = alicePage.WaitForFunction(`() => {
+		const els = document.querySelectorAll('#display-name-success');
+		const el = els[els.length - 1]; // get the last one just in case
+		console.log("WaitFor [display-name-success]: count=", els.length, "display=", el ? el.style.display : "null");
+		return el && el.style.display !== 'none';
+	}`, nil, playwright.PageWaitForFunctionOptions{Timeout: playwright.Float(5000)})
+	require.NoError(t, err, "display name success message not shown")
+
+	// 2. Upload Avatar
+	imgPath := filepath.Join(t.TempDir(), "avatar.png")
+	// 1x1 png file
+	err = os.WriteFile(imgPath, []byte("\x89PNG\x0d\x0a\x1a\x0a\x00\x00\x00\x0dIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\x0aIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\x0d\x0a-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"), 0644)
+	require.NoError(t, err)
+
+	err = alicePage.Locator("#avatar-upload-input").SetInputFiles([]string{imgPath})
+	require.NoError(t, err)
+	_, err = alicePage.Evaluate(`() => document.querySelector('#avatar-save-btn').click()`)
+	require.NoError(t, err)
+
+	_, err = alicePage.WaitForFunction(`() => {
+		const el = document.querySelector('#avatar-success');
+		return el && el.style.display !== 'none';
+	}`, nil, playwright.PageWaitForFunctionOptions{Timeout: playwright.Float(5000)})
+	require.NoError(t, err, "avatar success message not shown")
+
+	// 3. Reset password
+	_, err = alicePage.Evaluate(`() => document.querySelector('#password-reset-btn').click()`)
+	require.NoError(t, err)
+
+	_, err = alicePage.WaitForFunction(`() => {
+		const el = document.querySelector('#password-reset-success');
+		return el && el.style.display !== 'none';
+	}`, nil, playwright.PageWaitForFunctionOptions{Timeout: playwright.Float(5000)})
+	require.NoError(t, err, "password reset success message not shown")
+
+	setupLinkText, err := alicePage.Locator("#password-reset-link").TextContent()
+	require.NoError(t, err)
+	require.Contains(t, setupLinkText, "/register.html?token=")
+
+	// Click close modal
+	err = alicePage.Locator("#profile-modal-close").Click()
 	require.NoError(t, err)
 }
