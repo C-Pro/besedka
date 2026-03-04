@@ -193,8 +193,17 @@ class Store {
             });
 
             if (!response.ok) {
+                let errorMessage = 'Failed to reset password';
                 const text = await response.text();
-                throw new Error(text || 'Failed to reset password');
+                if (text) {
+                    try {
+                        const data = JSON.parse(text);
+                        errorMessage = data?.message ? data.message : text;
+                    } catch {
+                        errorMessage = text;
+                    }
+                }
+                throw new Error(errorMessage);
             }
 
             return await response.json();

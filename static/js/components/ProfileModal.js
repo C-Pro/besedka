@@ -56,7 +56,7 @@ export function createProfileModal(store) {
                 <div id="password-reset-error" class="error-text" style="display:none;"></div>
                 <div id="password-reset-success" class="success-text" style="display:none; margin-top: 10px; word-break: break-all;">
                     Password reset! Copy this link to setup your new password: <br>
-                    <a href="#" id="password-reset-link" target="_blank" style="font-weight: bold;"></a>
+                    <a href="#" id="password-reset-link" target="_blank" rel="noopener noreferrer" style="font-weight: bold;"></a>
                     <br><br>
                     <button class="btn btn-secondary" id="logout-after-reset-btn">Return to Login</button>
                 </div>
@@ -187,11 +187,8 @@ export function createProfileModal(store) {
 
     // Display Name Logic
     displayNameSaveBtn.addEventListener('click', async () => {
-        console.log("Save button clicked");
         const newName = displayNameInput.value.trim();
-        console.log("New name value:", newName);
         if (!newName) {
-            console.log("Name was empty, returning");
             displayNameError.textContent = "Display name cannot be empty";
             displayNameError.style.display = 'block';
             return;
@@ -201,28 +198,23 @@ export function createProfileModal(store) {
         displayNameSaveBtn.disabled = true;
         displayNameSaveBtn.textContent = 'Saving...';
 
-        console.log("Calling store.updateDisplayName...");
         try {
-            await store.updateDisplayName(newName);
-            console.log("updateDisplayName returned successfully");
+            const result = await store.updateDisplayName(newName);
             displayNameSuccess.style.display = 'block';
-            console.log("Set display-name-success to block");
-            // Update local state and re-fetch users so avatar placeholder is correct
-            store.setState({ currentUser: { ...store.state.currentUser, name: newName } });
+            // Update local state with server-returned display name (if any) and re-fetch users so avatar placeholder is correct
+            const updatedName = result?.displayName ? result.displayName : newName;
+            store.setState({ currentUser: { ...store.state.currentUser, name: updatedName } });
             await store.fetchUsers();
-            console.log("fetchUsers complete");
         } catch (error) {
-            console.error("Error in updateDisplayName:", error);
             displayNameError.textContent = error.message || "Failed to update display name";
             displayNameError.style.display = 'block';
         } finally {
-            console.log("Save button finally branch");
             displayNameSaveBtn.textContent = 'Save';
             displayNameSaveBtn.disabled = false;
         }
     });
 
-    displayNameInput.addEventListener('keypress', (e) => {
+    displayNameInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
             e.preventDefault();
             displayNameSaveBtn.click();
@@ -249,6 +241,23 @@ export function createProfileModal(store) {
 
             // Hide the button to prevent double-clicks
             passwordResetBtn.style.display = 'none';
+
+            // After a successful password reset, the server clears auth cookies and
+            // disconnects websockets. Ensure the client no longer behaves as authenticated.
+            if (store) {
+                if (typeof store.logout === 'function') {
+                    // Prefer a dedicated logout flow if available.
+                    await store.logout();
+                } else {
+                    // Fallback: clear local user state and disconnect websockets if supported.
+                    if (store.state && Object.hasOwn(store.state, 'currentUser')) {
+                        store.state.currentUser = null;
+                    }
+                    if (typeof store.disconnectWebSocket === 'function') {
+                        store.disconnectWebSocket();
+                    }
+                }
+            }
         } catch (error) {
             passwordResetError.textContent = error.message || "Failed to reset password";
             passwordResetError.style.display = 'block';

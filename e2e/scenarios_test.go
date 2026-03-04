@@ -299,7 +299,8 @@ func TestE2EProfileEdit(t *testing.T) {
 
 	// Handle the dismissable dialogs for password reset confirm
 	alicePage.OnDialog(func(dialog playwright.Dialog) {
-		dialog.Accept()
+		err := dialog.Accept()
+		require.NoError(t, err)
 	})
 
 	// Open Profile Modal
