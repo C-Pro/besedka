@@ -143,6 +143,67 @@ class Store {
         }
     }
 
+    async uploadAvatar(file) {
+        try {
+            const response = await fetch('/api/users/me/avatar', {
+                method: 'POST',
+                // API just accepts raw binary body without form-data wrap based on API.md
+                headers: {
+                    'Content-Type': file.type || 'application/octet-stream'
+                },
+                body: file
+            });
+
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(text || 'Avatar upload failed');
+            }
+
+            return await response.json();
+        } catch (error) {
+            console.error('Avatar upload error:', error);
+            throw error;
+        }
+    }
+
+    async updateDisplayName(displayName) {
+        try {
+            const response = await fetch('/api/users/me/display-name', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ displayName })
+            });
+
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(text || 'Failed to update display name');
+            }
+
+            return await response.json();
+        } catch (error) {
+            console.error('Update display name error:', error);
+            throw error;
+        }
+    }
+
+    async resetPassword() {
+        try {
+            const response = await fetch('/api/reset-password', {
+                method: 'POST'
+            });
+
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(text || 'Failed to reset password');
+            }
+
+            return await response.json();
+        } catch (error) {
+            console.error('Reset password error:', error);
+            throw error;
+        }
+    }
+
     async register(username, oldPassword, newPassword) {
         try {
             const response = await fetch('/api/register', {

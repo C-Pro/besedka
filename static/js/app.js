@@ -2,6 +2,7 @@ import { store } from './state.js';
 import { createChatList } from './components/ChatList.js';
 import { createChatWindow } from './components/ChatWindow.js';
 import { createInfoPanel } from './components/InfoPanel.js';
+import { createProfileModal } from './components/ProfileModal.js';
 
 const app = document.getElementById('app');
 
@@ -21,7 +22,7 @@ function renderApp() {
                 <div class="profile-menu-container" id="mobile-profile-menu">
                     <button type="button" class="avatar profile-avatar" id="mobile-profile-avatar" aria-expanded="false" aria-controls="mobile-profile-dropdown" aria-haspopup="true" aria-label="Profile Menu">?</button>
                     <div class="profile-dropdown" id="mobile-profile-dropdown">
-                        <button class="profile-menu-item disabled" type="button" disabled aria-disabled="true">Profile</button>
+                        <button class="profile-menu-item" id="mobile-profile-btn" type="button">Profile</button>
                         <button class="profile-menu-item disabled" type="button" disabled aria-disabled="true">Settings</button>
                         <button class="profile-menu-item" id="mobile-logoff-btn" type="button">Log Off</button>
                     </div>
@@ -173,6 +174,18 @@ function renderApp() {
             const dropdown = document.getElementById('desktop-profile-dropdown');
             const isOpen = dropdown?.classList.toggle('open');
             desktopAvatar.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+            return;
+        }
+
+        // Handle Profile Edit Button
+        if (e.target.closest('#mobile-profile-btn') || e.target.closest('#desktop-profile-btn')) {
+            createProfileModal(store);
+
+            // Close dropdowns
+            document.getElementById('mobile-profile-dropdown')?.classList.remove('open');
+            document.getElementById('desktop-profile-dropdown')?.classList.remove('open');
+            document.getElementById('mobile-profile-avatar')?.setAttribute('aria-expanded', 'false');
+            document.getElementById('desktop-profile-avatar')?.setAttribute('aria-expanded', 'false');
             return;
         }
 

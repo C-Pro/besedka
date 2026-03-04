@@ -17,6 +17,19 @@
     --accent-color: #3b82f6;
     --accent-hover: #60a5fa;
 
+    /* Aliases for components */
+    --surface-bg: var(--bg-panel);
+    --bg-primary: var(--bg-app);
+    --bg-secondary: var(--bg-panel);
+    --border-color: var(--border-subtle);
+    --primary-color: var(--accent-color);
+    --danger-color: #ef4444;
+    --spacing-xs: var(--space-xs);
+    --spacing-sm: var(--space-sm);
+    --spacing-md: var(--space-md);
+    --spacing-lg: var(--space-lg);
+    --spacing-xl: var(--space-xl);
+
     /* Typography */
     --font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     --font-size-sm: 0.875rem;

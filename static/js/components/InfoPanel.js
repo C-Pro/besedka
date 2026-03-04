@@ -5,7 +5,7 @@ export function createInfoPanel(container) {
             <div class="profile-menu-container" id="desktop-profile-menu">
                 <button type="button" class="avatar profile-avatar" id="desktop-profile-avatar" aria-expanded="false" aria-controls="desktop-profile-dropdown" aria-haspopup="true" aria-label="Profile Menu">?</button>
                 <div class="profile-dropdown" id="desktop-profile-dropdown">
-                    <button class="profile-menu-item disabled" type="button" disabled aria-disabled="true">Profile</button>
+                    <button class="profile-menu-item" id="desktop-profile-btn" type="button">Profile</button>
                     <button class="profile-menu-item disabled" type="button" disabled aria-disabled="true">Settings</button>
                     <button class="profile-menu-item" id="desktop-logoff-btn" type="button">Log Off</button>
                 </div>
