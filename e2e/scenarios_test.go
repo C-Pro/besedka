@@ -370,3 +370,69 @@ func TestE2EProfileEdit(t *testing.T) {
 	err = alicePage.Locator("#profile-modal-close").Click()
 	require.NoError(t, err)
 }
+
+func TestE2EReactivateDeletedUser(t *testing.T) {
+	server := startServer(t)
+	defer server.Stop()
+
+	pw, browser := setupPlaywright(t)
+	defer func() { _ = pw.Stop() }()
+	defer func() { _ = browser.Close() }()
+
+	// 1. Create a user
+	aliceSetupLink := server.CreateUser(t, "alice")
+
+	// 2. Register
+	aliceContext := createBrowserContext(t, browser)
+	alicePage, err := aliceContext.NewPage()
+	require.NoError(t, err)
+	registerUser(t, alicePage, aliceSetupLink, "Alice Smith", "password123")
+
+	// 3. Admin deletes the user
+	bobID := server.GetUserID(t, "alice")
+	server.DeleteUser(t, bobID)
+
+	// 4. Admin navigates to the Admin UI to reactivate
+	adminContext := createBrowserContext(t, browser)
+	adminContext.SetExtraHTTPHeaders(map[string]string{
+		"Authorization": "Basic YWRtaW46MTMzN2NoYXQ=", // base64("admin:1337chat")
+	})
+	adminPage, err := adminContext.NewPage()
+	require.NoError(t, err)
+
+	adminPage.OnDialog(func(dialog playwright.Dialog) {
+		err := dialog.Accept()
+		require.NoError(t, err)
+	})
+
+	_, err = adminPage.Goto("http://" + server.AdminAddr)
+	require.NoError(t, err)
+
+	// User should be visible as deleted
+	err = adminPage.Locator("tr.deleted:has-text(\"alice\")").WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	})
+	require.NoError(t, err)
+
+	// Click the Reactivate / Reset Password button
+	err = adminPage.Locator("tr.deleted:has-text(\"alice\") >> button:has-text(\"Reactivate\")").Click()
+	require.NoError(t, err)
+
+	// After clicking, the UI should show the new registration link
+	err = adminPage.Locator("#reg-link").WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	})
+	require.NoError(t, err)
+
+	newSetupLink, err := adminPage.Locator("#reg-link").InnerText()
+	require.NoError(t, err)
+
+	// 5. Register again using the new setup link
+	registerUser(t, alicePage, newSetupLink, "Alice Reactivated", "newpassword123")
+
+	// 6. Verify they can log in and see chat
+	err = alicePage.Locator(".chat-item:has-text(\"Town Hall\")").WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	})
+	require.NoError(t, err, "Reactivated user should see Town Hall chat")
+}

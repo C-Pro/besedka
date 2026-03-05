@@ -211,14 +211,30 @@ function renderApp() {
 
     // Subscribe to state changes to update profile initial
     const updateProfileIcons = (state) => {
-        if (state.currentUser?.name) {
-            const initial = state.currentUser.name.charAt(0).toUpperCase();
+        if (state.currentUser?.name || state.currentUser?.id) {
+            const initial = (state.currentUser.name || '?').charAt(0).toUpperCase();
+
+            let fullUser = null;
+            if (state.currentUser.id && state.users) {
+                fullUser = state.users.find(u => u.id === state.currentUser.id);
+            }
+            const avatarUrl = fullUser?.avatarUrl || state.currentUser.avatarUrl;
+
+            const renderHtml = avatarUrl
+                ? `<img src="${avatarUrl}" alt="Profile" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">`
+                : initial;
 
             const mobileAvatar = document.getElementById('mobile-profile-avatar');
-            if (mobileAvatar) mobileAvatar.textContent = initial;
+            if (mobileAvatar) {
+                if (avatarUrl) mobileAvatar.style.padding = '0';
+                mobileAvatar.innerHTML = renderHtml;
+            }
 
             const desktopAvatar = document.getElementById('desktop-profile-avatar');
-            if (desktopAvatar) desktopAvatar.textContent = initial;
+            if (desktopAvatar) {
+                if (avatarUrl) desktopAvatar.style.padding = '0';
+                desktopAvatar.innerHTML = renderHtml;
+            }
         }
     };
 

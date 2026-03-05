@@ -8,16 +8,26 @@ export function createChatList(container) {
                 <h2>Chats</h2>
             </div>
             <div class="chat-list-items">
-                ${state.chats.map(chat => `
+                ${state.chats.map(chat => {
+            let avatarHtml = `<div class="avatar">${chat.name.charAt(0)}</div>`;
+            if (chat.isDm) {
+                const otherUserId = chat.id.replace('dm_', '').split('_').find(id => id !== state.currentUser?.id);
+                const fullUser = state.users.find(u => u.id === otherUserId);
+                if (fullUser?.avatarUrl) {
+                    avatarHtml = `<div class="avatar" style="padding:0;"><img src="${fullUser.avatarUrl}" alt="Avatar" style="width:100%; height:100%; border-radius:50%; object-fit:cover;"></div>`;
+                }
+            }
+            return `
                     <div class="chat-item ${state.activeChatId === chat.id ? 'active' : ''}" data-id="${chat.id}">
-                        <div class="avatar">${chat.name.charAt(0)}</div>
+                        ${avatarHtml}
                         <div class="chat-info">
                             <div class="chat-name">${chat.name}</div>
                             <div class="chat-preview">${chat.isDm && chat.online ? '<span style="color: #4caf50; font-size: 0.8em;">● Online</span>' : ''}</div>
                         </div>
                         ${chat.unreadCount > 0 ? `<div class="unread-badge">${chat.unreadCount}</div>` : ''}
                     </div>
-                `).join('')}
+                    `;
+        }).join('')}
             </div>
         `;
 

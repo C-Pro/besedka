@@ -117,7 +117,7 @@
         </thead>
         <tbody>
             {{range .Users}}
-            <tr class="{{if eq .Status " deleted"}}deleted{{end}}">
+            <tr class="{{if eq .Status `deleted`}}deleted{{end}}">
                 <td>{{.UserName}}</td>
                 <td>{{.DisplayName}}</td>
                 <td>{{.Status}}</td>
@@ -130,6 +130,16 @@
                         <input type="hidden" name="id" value="{{.ID}}">
                         <button type="submit"
                             style="background: #ffebee; color: #c62828; border: 1px solid #ef9a9a;">Delete</button>
+                    </form>
+                    {{else}}
+                    <!-- nosemgrep: python.django.security.django-no-csrf-token.django-no-csrf-token -->
+                    <form action="/admin/users/reset" method="POST"
+                        onsubmit="return confirm('Reactivating user {{.UserName}} and resetting password. Are you sure?');"
+                        style="display:inline;">
+                        <input type="hidden" name="id" value="{{.ID}}">
+                        <button type="submit"
+                            style="background: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9;">Reactivate / Reset
+                            Password</button>
                     </form>
                     {{end}}
                 </td>

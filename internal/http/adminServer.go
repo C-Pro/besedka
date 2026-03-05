@@ -66,6 +66,7 @@ func NewAdminServer(cfg *config.Config, authService *auth.AuthService, hub *ws.H
 	mux.HandleFunc("GET /", withBasicAuth(s.handleListUsers))
 	mux.HandleFunc("POST /admin/users", withBasicAuth(s.handleAddUser))
 	mux.HandleFunc("POST /admin/users/delete", withBasicAuth(s.handleDeleteUser))
+	mux.HandleFunc("POST /admin/users/reset", withBasicAuth(s.handleResetUser))
 
 	// API Handlers
 	mux.HandleFunc("GET /api/users", withBasicAuth(s.handleListUsersJSON))
@@ -152,6 +153,31 @@ func (s *AdminServer) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	http.Redirect(w, r, "/", http.StatusFound)
+}
+
+func (s *AdminServer) handleResetUser(w http.ResponseWriter, r *http.Request) {
+	userID := r.FormValue("id")
+	data := map[string]any{}
+	if userID == "" {
+		data["Error"] = "User ID is required"
+	} else {
+		token, err := s.authService.ResetPassword(userID)
+		if err != nil {
+			data["Error"] = "Failed to reset password: " + err.Error()
+		} else {
+			s.hub.DisconnectUser(userID)
+			base := strings.TrimRight(s.baseURL, "/")
+			data["NewLink"] = fmt.Sprintf("%s/register.html?token=%s", base, url.QueryEscape(token))
+		}
+	}
+
+	// Refresh user list
+	users, _ := s.authService.GetAllUsers()
+	data["Users"] = users
+
+	if err := s.tmpl.Execute(w, data); err != nil {
+		log.Printf("failed to execute template: %v", err)
+	}
 }
 
 func (s *AdminServer) Server() *http.Server {
