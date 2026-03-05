@@ -78,10 +78,18 @@ export function createProfileModal(store) {
 
         // Find full user object to get avatarUrl
         const fullUser = store.state.users.find(u => u.id === currentUser.id);
+        avatarPreview.innerHTML = '';
         if (fullUser?.avatarUrl) {
-            avatarPreview.innerHTML = `<img src="${fullUser.avatarUrl}" alt="Avatar" class="avatar-image-full">`;
+            const img = document.createElement('img');
+            img.src = fullUser.avatarUrl;
+            img.alt = 'Avatar';
+            img.className = 'avatar-image-full';
+            avatarPreview.appendChild(img);
         } else {
-            avatarPreview.innerHTML = `<div class="avatar-placeholder">${(currentUser.name || '?').charAt(0).toUpperCase()}</div>`;
+            const div = document.createElement('div');
+            div.className = 'avatar-placeholder';
+            div.textContent = (currentUser.name || '?').charAt(0).toUpperCase();
+            avatarPreview.appendChild(div);
         }
     }
 
@@ -151,7 +159,12 @@ export function createProfileModal(store) {
             // Preview
             const reader = new FileReader();
             reader.onload = (re) => {
-                avatarPreview.innerHTML = `<img src="${re.target.result}" alt="Preview" class="avatar-image-full">`;
+                avatarPreview.innerHTML = '';
+                const img = document.createElement('img');
+                img.src = re.target.result;
+                img.alt = 'Preview';
+                img.className = 'avatar-image-full';
+                avatarPreview.appendChild(img);
             };
             reader.readAsDataURL(selectedAvatarFile);
 
