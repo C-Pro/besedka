@@ -40,6 +40,7 @@ func TestE2ERestartRecovery(t *testing.T) {
 	require.NoError(t, err)
 
 	bobSecret := registerUser(t, bobPage, bobSetupLink, "Bob Jones", "password456")
+	require.NotEmpty(t, bobSecret)
 
 	// Alice reload to make sure she sees Bob
 	_, err = alicePage.Reload()
