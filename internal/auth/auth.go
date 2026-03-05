@@ -239,7 +239,7 @@ func (as *AuthService) hashPassword(username, password string) string {
 func (as *AuthService) hashToken(token string) string {
 	h := hmac.New(sha512.New, as.secretBytes)
 	h.Write([]byte(token))
-	return string(h.Sum(nil))
+	return base64.StdEncoding.EncodeToString(h.Sum(nil))
 }
 
 func (as *AuthService) UpdateAvatarURL(userID string, avatarURL string) error {

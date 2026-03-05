@@ -228,7 +228,7 @@ func TestE2ELogoff(t *testing.T) {
 	}, 5*time.Second, 200*time.Millisecond, "User should be redirected back to login page if token is cleared")
 }
 
-func registerUser(t *testing.T, page playwright.Page, setupLink string, displayName string, password string) {
+func registerUser(t *testing.T, page playwright.Page, setupLink string, displayName string, password string) string {
 	_, err := page.Goto(setupLink)
 	require.NoError(t, err)
 
@@ -270,6 +270,7 @@ func registerUser(t *testing.T, page playwright.Page, setupLink string, displayN
 		State: playwright.WaitForSelectorStateVisible,
 	})
 	require.NoError(t, err)
+	return secret
 }
 
 func TestE2EProfileEdit(t *testing.T) {

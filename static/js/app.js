@@ -220,21 +220,26 @@ function renderApp() {
             }
             const avatarUrl = fullUser?.avatarUrl || state.currentUser.avatarUrl;
 
-            const renderHtml = avatarUrl
-                ? `<img src="${avatarUrl}" alt="Profile" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">`
-                : initial;
+            const updateAvatarNode = (avatarNode) => {
+                if (!avatarNode) return;
+                avatarNode.innerHTML = '';
+                if (avatarUrl) {
+                    avatarNode.style.padding = '0';
+                    const img = document.createElement('img');
+                    img.src = avatarUrl;
+                    img.alt = 'Profile';
+                    img.style.width = '100%';
+                    img.style.height = '100%';
+                    img.style.borderRadius = '50%';
+                    img.style.objectFit = 'cover';
+                    avatarNode.appendChild(img);
+                } else {
+                    avatarNode.textContent = initial;
+                }
+            };
 
-            const mobileAvatar = document.getElementById('mobile-profile-avatar');
-            if (mobileAvatar) {
-                if (avatarUrl) mobileAvatar.style.padding = '0';
-                mobileAvatar.innerHTML = renderHtml;
-            }
-
-            const desktopAvatar = document.getElementById('desktop-profile-avatar');
-            if (desktopAvatar) {
-                if (avatarUrl) desktopAvatar.style.padding = '0';
-                desktopAvatar.innerHTML = renderHtml;
-            }
+            updateAvatarNode(document.getElementById('mobile-profile-avatar'));
+            updateAvatarNode(document.getElementById('desktop-profile-avatar'));
         }
     };
 

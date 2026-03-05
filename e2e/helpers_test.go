@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"besedka/internal/auth"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -83,14 +84,46 @@ func startServer(t *testing.T) *TestServer {
 	}
 }
 
-func (s *TestServer) Stop() {
+func (s *TestServer) Kill() {
 	if s.Cmd != nil && s.Cmd.Process != nil {
 		_ = s.Cmd.Process.Kill()
+		_ = s.Cmd.Wait()
 	}
+}
+
+func (s *TestServer) Stop() {
+	s.Kill()
 	if s.DBPath != "" {
 		_ = os.Remove(s.DBPath)
 		_ = os.Remove(s.DBPath + "-lock") // bbolt lock file
 	}
+}
+
+func (s *TestServer) Restart(t *testing.T) {
+	s.Kill()
+
+	cmd := exec.Command(serverBinPath)
+	cmd.Env = append(os.Environ(),
+		"AUTH_SECRET=test-secret-key-must-be-long-enough-for-base64-if-needed",
+		fmt.Sprintf("API_ADDR=%s", s.APIAddr),
+		fmt.Sprintf("ADMIN_ADDR=%s", s.AdminAddr),
+		fmt.Sprintf("BASE_URL=%s", s.BaseURL),
+		fmt.Sprintf("BESEDKA_DB=%s", s.DBPath),
+	)
+
+	err := cmd.Start()
+	require.NoError(t, err)
+	s.Cmd = cmd
+
+	// Wait for server to be ready
+	require.Eventually(t, func() bool {
+		conn, err := net.DialTimeout("tcp", s.APIAddr, 100*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
+			return true
+		}
+		return false
+	}, 10*time.Second, 200*time.Millisecond, "Server failed to start after restart")
 }
 
 func (s *TestServer) CreateUser(t *testing.T, username string) string {
@@ -111,6 +144,26 @@ func (s *TestServer) CreateUser(t *testing.T, username string) string {
 	require.Len(t, matches, 2, "Could not find setup link in output: %s", string(output))
 
 	return matches[1]
+}
+
+func (s *TestServer) CreateUserAPI(t *testing.T, username string) string {
+	reqBody, _ := json.Marshal(map[string]string{"username": username})
+	req, err := http.NewRequest("POST", fmt.Sprintf("http://%s/api/users", s.AdminAddr), bytes.NewReader(reqBody))
+	require.NoError(t, err)
+	req.SetBasicAuth("admin", "1337chat")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var result struct {
+		SetupLink string `json:"setupLink"`
+	}
+	err = json.NewDecoder(resp.Body).Decode(&result)
+	require.NoError(t, err)
+	return result.SetupLink
 }
 
 func getTOTP(t *testing.T, secret string) string {
