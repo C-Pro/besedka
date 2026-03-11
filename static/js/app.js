@@ -32,7 +32,7 @@ function renderApp() {
             <div class="mobile-menu-overlay" id="mobile-menu-overlay"></div>
             <div class="mobile-menu" id="mobile-menu">
                 <div class="mobile-menu-item" data-tab="chat-list">Chats</div>
-                <div class="mobile-menu-item" data-tab="chat-window">Message</div>
+                <div class="mobile-menu-item" data-tab="chat-window">Messages</div>
                 <div class="mobile-menu-item" data-tab="info-panel">Info</div>
             </div>
 
@@ -75,7 +75,7 @@ function renderApp() {
             mobileTitle.textContent = 'Chats';
         } else if (state.mobileActiveTab === 'chat-window') {
             const activeChat = state.chats.find(c => c.id === state.activeChatId);
-            mobileTitle.textContent = activeChat ? activeChat.name : 'Message';
+            mobileTitle.textContent = activeChat ? activeChat.name : 'Messages';
         } else if (state.mobileActiveTab === 'info-panel') {
             mobileTitle.textContent = 'Info';
         }
@@ -116,7 +116,6 @@ function renderApp() {
     document.querySelectorAll('.mobile-menu-item').forEach(item => {
         item.addEventListener('click', () => {
             store.setMobileTab(item.dataset.tab);
-            toggleMenu();
         });
     });
 
