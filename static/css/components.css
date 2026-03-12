@@ -608,7 +608,7 @@
     margin-top: var(--spacing-sm);
 }
 
-.danger-zone {
+.profile-section.danger-zone {
     background-color: rgba(239, 68, 68, 0.05);
     /* danger color with low opacity */
     padding: var(--spacing-md);
