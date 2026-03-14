@@ -319,17 +319,7 @@ func (h *Hub) Dispatch(userID string, msg models.ClientMessage) {
 			return
 		}
 
-		messages := make([]models.Message, len(records))
-		for i, r := range records {
-			messages[i] = models.Message{
-				Seq:         int64(r.Seq),
-				UserID:      r.UserID,
-				Content:     content.Escape(r.Content),
-				Timestamp:   r.Timestamp,
-				Attachments: r.Attachments,
-			}
-		}
-
+		messages := mapRecordsToMessages(records)
 		serverMsg := models.ServerMessage{
 			Type:     models.ServerMessageTypeMessages,
 			ChatID:   c.ID,
@@ -352,17 +342,7 @@ func (h *Hub) Dispatch(userID string, msg models.ClientMessage) {
 			return
 		}
 
-		messages := make([]models.Message, len(records))
-		for i, r := range records {
-			messages[i] = models.Message{
-				Seq:         int64(r.Seq),
-				UserID:      r.UserID,
-				Content:     content.Escape(r.Content),
-				Timestamp:   r.Timestamp,
-				Attachments: r.Attachments,
-			}
-		}
-
+		messages := mapRecordsToMessages(records)
 		serverMsg := models.ServerMessage{
 			Type:     models.ServerMessageTypeMessages,
 			ChatID:   c.ID,
@@ -474,18 +454,7 @@ func (h *Hub) GetChatRecords(userID, chatID string, from, to int64) ([]models.Me
 		return nil, err
 	}
 
-	messages := make([]models.Message, len(records))
-	for i, r := range records {
-		messages[i] = models.Message{
-			Seq:         int64(r.Seq),
-			UserID:      r.UserID,
-			Content:     content.Escape(r.Content),
-			Timestamp:   r.Timestamp,
-			Attachments: r.Attachments,
-		}
-	}
-
-	return messages, nil
+	return mapRecordsToMessages(records), nil
 }
 
 func (h *Hub) GetUser(userID string) (models.User, error) {
@@ -504,15 +473,7 @@ func (h *Hub) handleRecordCallback(receiverID string, chatID string, record chat
 	msg := models.ServerMessage{
 		Type:   models.ServerMessageTypeMessages,
 		ChatID: chatID,
-		Messages: []models.Message{
-			{
-				Seq:         int64(record.Seq),
-				UserID:      record.UserID,
-				Content:     content.Escape(record.Content),
-				Timestamp:   record.Timestamp,
-				Attachments: record.Attachments,
-			},
-		},
+		Messages: mapRecordsToMessages([]chat.ChatRecord{record}),
 	}
 
 	select {
@@ -522,6 +483,20 @@ func (h *Hub) handleRecordCallback(receiverID string, chatID string, record chat
 		// is 100 messages behind, there's something off with it.
 		slog.Warn("Message channel full, dropping message", "chatID", chatID, "userID", receiverID)
 	}
+}
+
+func mapRecordsToMessages(records []chat.ChatRecord) []models.Message {
+	messages := make([]models.Message, len(records))
+	for i, r := range records {
+		messages[i] = models.Message{
+			Seq:         int64(r.Seq),
+			UserID:      r.UserID,
+			Content:     content.Escape(r.Content),
+			Timestamp:   r.Timestamp,
+			Attachments: r.Attachments,
+		}
+	}
+	return messages
 }
 
 func getDMID(u1, u2 string) string {

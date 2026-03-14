@@ -400,7 +400,7 @@ class Store {
         const newMessages = [];
         for (const m of (msg.messages || [])) {
             newMessages.push({
-                id: m.timestamp + m.userId + m.seq, // unique id
+                id: `${chatId}-${m.seq}`, // unique id
                 seq: m.seq,
                 text: m.content,
                 sender: m.userId === this.state.currentUser?.id ? 'me' : m.userId,

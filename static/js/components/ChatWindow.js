@@ -206,15 +206,21 @@ export function createChatWindow(container) {
                 newMessagesContainer.scrollTop = prevScrollTop + heightDiff;
             }
 
+            let scrollThrottleTimer = null;
             newMessagesContainer.addEventListener('scroll', () => {
-                if (newMessagesContainer.scrollTop <= 100) {
-                    const isLoading = store.state.isLoadingHistory && store.state.isLoadingHistory[state.activeChatId];
-                    const activeMessages = store.state.messages[state.activeChatId] || [];
-                    const minSeq = activeMessages.length > 0 ? activeMessages[0].seq : 0;
-                    if (!isLoading && activeMessages.length > 0 && minSeq > 1) {
-                        store.fetchMessages(state.activeChatId, minSeq - 100, minSeq - 1);
+                if (scrollThrottleTimer) return;
+                scrollThrottleTimer = setTimeout(() => {
+                    scrollThrottleTimer = null;
+                    const activeChatId = store.state.activeChatId;
+                    if (newMessagesContainer.scrollTop <= 100 && activeChatId) {
+                        const isLoading = store.state.isLoadingHistory && store.state.isLoadingHistory[activeChatId];
+                        const activeMessages = store.state.messages[activeChatId] || [];
+                        const minSeq = activeMessages.length > 0 ? activeMessages[0].seq : 0;
+                        if (!isLoading && activeMessages.length > 0 && minSeq > 1) {
+                            store.fetchMessages(activeChatId, minSeq - 100, minSeq - 1);
+                        }
                     }
-                }
+                }, 200);
             });
         }
 
