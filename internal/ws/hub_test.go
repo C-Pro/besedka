@@ -448,3 +448,63 @@ func TestHub_RemoveDeletedUser(t *testing.T) {
 		t.Error("Timeout waiting for deletion message on ch3")
 	}
 }
+
+func TestHub_FetchMessages_ReturnsRange(t *testing.T) {
+	user1 := models.User{ID: "u1", DisplayName: "User 1"}
+
+	provider := &MockUserProvider{
+		users: []models.User{user1},
+	}
+	store := NewMockStorage()
+	h := NewHub(provider, store)
+
+	ch1 := h.Join(user1.ID)
+	if ch1 == nil {
+		t.Fatal("Join returned nil channel")
+	}
+
+	// User 1 sends 10 messages
+	for i := 0; i < 10; i++ {
+		h.Dispatch(user1.ID, models.ClientMessage{
+			Type:    models.ClientMessageTypeSend,
+			ChatID:  "townhall",
+			Content: fmt.Sprintf("msg %d", i),
+		})
+		<-ch1 // Consume own message
+	}
+
+	// Fetch messages from sequence 3 to 6
+	h.Dispatch(user1.ID, models.ClientMessage{
+		Type:    models.ClientMessageTypeFetch,
+		ChatID:  "townhall",
+		FromSeq: 3,
+		ToSeq:   6,
+	})
+
+	timeout := time.After(1 * time.Second)
+	var found bool
+	for !found {
+		select {
+		case msg := <-ch1:
+			if msg.Type == models.ServerMessageTypeMessages {
+				if len(msg.Messages) != 4 {
+					t.Errorf("Expected 4 messages, got %d", len(msg.Messages))
+				}
+				// Verify sequences (3, 4, 5, 6)
+				for i, m := range msg.Messages {
+					expectedSeq := int64(3 + i)
+					if m.Seq != expectedSeq {
+						t.Errorf("Message %d: expected seq %d, got %d", i, expectedSeq, m.Seq)
+					}
+					expectedContent := fmt.Sprintf("msg %d", expectedSeq-1)
+					if m.Content != expectedContent {
+						t.Errorf("Message %d: expected content %q, got %q", i, expectedContent, m.Content)
+					}
+				}
+				found = true
+			}
+		case <-timeout:
+			t.Fatal("Timeout waiting for fetched messages")
+		}
+	}
+}

@@ -69,15 +69,22 @@ export function createChatWindow(container) {
     }
 
     const render = (state) => {
-        // preserve input state
         const oldInput = container.querySelector('#message-input');
         let currentText = '';
         if (oldInput && lastChatId === state.activeChatId) {
             currentText = oldInput.value;
         }
-        // Force reset input if we just sent a message (detected by logic elsewhere? No, simple re-render might not be enough)
-        // With current primitive re-render, we lose focus and cursor.
-        // Ideally we should virtual DOM this, but for now we re-render.
+
+        // Preserve scroll state
+        let prevScrollHeight = 0;
+        let prevScrollTop = 0;
+        let wasAtBottom = true;
+        const oldMessagesContainer = container.querySelector('#messages-container');
+        if (oldMessagesContainer) {
+            prevScrollHeight = oldMessagesContainer.scrollHeight;
+            prevScrollTop = oldMessagesContainer.scrollTop;
+            wasAtBottom = (oldMessagesContainer.scrollHeight - oldMessagesContainer.scrollTop - oldMessagesContainer.clientHeight) < 50;
+        }
 
         lastChatId = state.activeChatId;
 
@@ -155,6 +162,15 @@ export function createChatWindow(container) {
             `;
         }
 
+        let loadingIndicatorHtml = '';
+        if (state.isLoadingHistory && state.isLoadingHistory[state.activeChatId]) {
+            loadingIndicatorHtml = `
+                <div class="history-loading">
+                    Loading<span class="loading-dots"></span>
+                </div>
+            `;
+        }
+
         // nosemgrep
         container.innerHTML = `
             <div class="chat-header">
@@ -162,6 +178,7 @@ export function createChatWindow(container) {
                 <div class="actions"></div>
             </div>
             <div class="messages-container" id="messages-container">
+                ${loadingIndicatorHtml}
                 ${messagesHtml}
             </div>
             <div class="input-area">
@@ -180,10 +197,31 @@ export function createChatWindow(container) {
             </div>
         `;
 
-        // Scroll logic (simple for now)
-        const messagesContainer = container.querySelector('#messages-container');
-        if (messagesContainer) {
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        const newMessagesContainer = container.querySelector('#messages-container');
+        if (newMessagesContainer) {
+            if (wasAtBottom) {
+                newMessagesContainer.scrollTop = newMessagesContainer.scrollHeight;
+            } else if (prevScrollHeight > 0) {
+                const heightDiff = newMessagesContainer.scrollHeight - prevScrollHeight;
+                newMessagesContainer.scrollTop = prevScrollTop + heightDiff;
+            }
+
+            let scrollThrottleTimer = null;
+            newMessagesContainer.addEventListener('scroll', () => {
+                if (scrollThrottleTimer) return;
+                scrollThrottleTimer = setTimeout(() => {
+                    scrollThrottleTimer = null;
+                    const activeChatId = store.state.activeChatId;
+                    if (newMessagesContainer.scrollTop <= 100 && activeChatId) {
+                        const isLoading = store.state.isLoadingHistory && store.state.isLoadingHistory[activeChatId];
+                        const activeMessages = store.state.messages[activeChatId] || [];
+                        const minSeq = activeMessages.length > 0 ? activeMessages[0].seq : 0;
+                        if (!isLoading && activeMessages.length > 0 && minSeq > 1) {
+                            store.fetchMessages(activeChatId, minSeq - 100, minSeq - 1);
+                        }
+                    }
+                }, 200);
+            });
         }
 
         // Attachments Preview Click

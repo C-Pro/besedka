@@ -38,6 +38,7 @@ func NewAPIServer(authService *auth.AuthService, hub *ws.Hub, filestore filestor
 	mux.HandleFunc("POST /api/reset-password", api.RequireSameOrigin(apiHandlers.RequireAuth(apiHandlers.ResetPasswordHandler)))
 	mux.HandleFunc("GET /api/users", apiHandlers.RequireAuth(apiHandlers.UsersHandler))
 	mux.HandleFunc("GET /api/chats", apiHandlers.RequireAuth(apiHandlers.ChatsHandler))
+	mux.HandleFunc("GET /api/chats/{id}/messages", apiHandlers.RequireAuth(apiHandlers.ChatMessagesHandler))
 	mux.HandleFunc("GET /api/me", apiHandlers.RequireAuth(apiHandlers.MeHandler))
 	mux.HandleFunc("POST /api/users/me/avatar", api.RequireSameOrigin(apiHandlers.RequireAuth(apiHandlers.UploadAvatarHandler)))
 	mux.HandleFunc("POST /api/users/me/display-name", api.RequireSameOrigin(apiHandlers.RequireAuth(apiHandlers.UpdateDisplayNameHandler)))

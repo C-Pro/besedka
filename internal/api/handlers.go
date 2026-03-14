@@ -281,6 +281,68 @@ func (a *API) ChatsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (a *API) ChatMessagesHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	chatID := r.PathValue("id")
+	if chatID == "" {
+		http.Error(w, "Missing chat ID", http.StatusBadRequest)
+		return
+	}
+
+	fromSeqStr := r.URL.Query().Get("fromSeq")
+	toSeqStr := r.URL.Query().Get("toSeq")
+
+	var fromSeq, toSeq int64
+	var err error
+
+	if fromSeqStr != "" {
+		fromSeq, err = strconv.ParseInt(fromSeqStr, 10, 64)
+		if err != nil || fromSeq < 1 {
+			fromSeq = 1
+		}
+	} else {
+		fromSeq = 1
+	}
+
+	if toSeqStr != "" {
+		toSeq, err = strconv.ParseInt(toSeqStr, 10, 64)
+		if err != nil {
+			http.Error(w, "Invalid toSeq", http.StatusBadRequest)
+			return
+		}
+	} else {
+		http.Error(w, "Missing toSeq", http.StatusBadRequest)
+		return
+	}
+
+	if fromSeq > toSeq {
+		http.Error(w, "Invalid sequence range", http.StatusBadRequest)
+		return
+	}
+
+	userID := UserIDFromContext(r.Context())
+
+	messages, err := a.hub.GetChatRecords(userID, chatID, fromSeq, toSeq)
+	if err != nil {
+		if errors.Is(err, models.ErrNotFound) {
+			http.Error(w, "Chat not found or access denied", http.StatusForbidden)
+		} else {
+			log.Printf("failed to get chat records: %v", err)
+			http.Error(w, "Server error", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(messages); err != nil {
+		log.Printf("failed to encode messages response: %v", err)
+	}
+}
+
 func (a *API) MeHandler(w http.ResponseWriter, r *http.Request) {
 	userID := UserIDFromContext(r.Context())
 

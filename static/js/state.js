@@ -8,7 +8,8 @@ class Store {
             mobileActiveTab: 'chat-list', // 'chat-list', 'chat-window', 'info-panel'
             chats: [],
             users: [],
-            messages: {} // chatId -> [messages]
+            messages: {}, // chatId -> [messages]
+            isLoadingHistory: {} // chatId -> boolean
         };
         this.listeners = [];
         this.socket = null;
@@ -396,45 +397,54 @@ class Store {
         const chatId = msg.chatId;
         const currentMessages = this.state.messages[chatId] || [];
 
-        // Find the maximum sequence number we currently have for this chat
-        let maxSeq = -1;
-        if (currentMessages.length > 0) {
-            // Assuming messages are stored in order, but let's be safe
-            for (const m of currentMessages) {
-                if (m.seq > maxSeq) maxSeq = m.seq;
-            }
-        }
-
-        // Filter out messages that we already have (seq <= maxSeq)
-        // Note: m.seq comes from server and should be present.
         const newMessages = [];
         for (const m of (msg.messages || [])) {
-            if (m.seq > maxSeq) {
-                newMessages.push({
-                    id: m.timestamp + m.userId + m.seq, // unique id
-                    seq: m.seq,
-                    text: m.content,
-                    sender: m.userId === this.state.currentUser?.id ? 'me' : m.userId,
-                    timestamp: (() => {
-                        const d = new Date(m.timestamp * 1000);
-                        const pad = (n) => n.toString().padStart(2, '0');
-                        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-                    })(),
-                    userId: m.userId,
-                    attachments: m.attachments || []
-                });
-            }
+            newMessages.push({
+                id: `${chatId}-${m.seq}`, // unique id
+                seq: m.seq,
+                text: m.content,
+                sender: m.userId === this.state.currentUser?.id ? 'me' : m.userId,
+                timestamp: (() => {
+                    const d = new Date(m.timestamp * 1000);
+                    const pad = (n) => n.toString().padStart(2, '0');
+                    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+                })(),
+                userId: m.userId,
+                attachments: m.attachments || []
+            });
         }
 
-        if (newMessages.length === 0) return;
+        if (newMessages.length === 0) {
+            // If we get an empty array (e.g. at the beginning of chat), we still need to clear the loading state
+            this.setState({
+                isLoadingHistory: {
+                    ...this.state.isLoadingHistory,
+                    [chatId]: false
+                }
+            });
+            return;
+        }
 
-        // Sort new messages by seq just in case
-        newMessages.sort((a, b) => a.seq - b.seq);
+        // Merge messages by unique seq
+        const mergedMap = new Map();
+        for (const m of currentMessages) {
+            mergedMap.set(m.seq, m);
+        }
+        for (const m of newMessages) {
+            mergedMap.set(m.seq, m);
+        }
+
+        const mergedMessages = Array.from(mergedMap.values());
+        mergedMessages.sort((a, b) => a.seq - b.seq);
 
         this.setState({
             messages: {
                 ...this.state.messages,
-                [chatId]: [...currentMessages, ...newMessages]
+                [chatId]: mergedMessages
+            },
+            isLoadingHistory: {
+                ...this.state.isLoadingHistory,
+                [chatId]: false
             }
         });
     }
@@ -475,6 +485,23 @@ class Store {
             chatId,
             content: text,
             attachments
+        });
+    }
+
+    fetchMessages(chatId, fromSeq, toSeq) {
+        fromSeq = Math.max(1, fromSeq);
+        if (fromSeq > toSeq) return;
+        this.setState({
+            isLoadingHistory: {
+                ...this.state.isLoadingHistory,
+                [chatId]: true
+            }
+        });
+        this.sendWebSocketMessage({
+            type: 'fetch',
+            chatId,
+            fromSeq,
+            toSeq
         });
     }
 }

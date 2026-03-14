@@ -158,9 +158,14 @@ func (c *Chat) GetRecords(from, to Seq) ([]ChatRecord, error) {
 			mFrom = memFrom
 		}
 
-		if mFrom < to && mFrom >= c.FirstSeq {
+		if mFrom <= to && mFrom >= c.FirstSeq {
 			// Memory fetch logic...
-			count := int(to - mFrom)
+			count := int(to - mFrom + 1)
+			
+			// Cap count to available records if `to` is higher than `LastSeq`
+			if to > c.LastSeq {
+				count = int(c.LastSeq - mFrom + 1)
+			}
 
 			// Calculate start index in ring buffer
 			head := 0
