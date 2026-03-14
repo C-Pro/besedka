@@ -337,6 +337,39 @@ func (h *Hub) Dispatch(userID string, msg models.ClientMessage) {
 		}
 
 		h.sendToUser(userID, serverMsg)
+
+	case models.ClientMessageTypeFetch:
+		if msg.FromSeq < 1 {
+			msg.FromSeq = 1
+		}
+		if msg.FromSeq > msg.ToSeq {
+			return // invalid range
+		}
+
+		records, err := c.GetRecords(chat.Seq(msg.FromSeq), chat.Seq(msg.ToSeq))
+		if err != nil {
+			slog.Error("failed to get records", "error", err, "fromSeq", msg.FromSeq, "toSeq", msg.ToSeq)
+			return
+		}
+
+		messages := make([]models.Message, len(records))
+		for i, r := range records {
+			messages[i] = models.Message{
+				Seq:         int64(r.Seq),
+				UserID:      r.UserID,
+				Content:     content.Escape(r.Content),
+				Timestamp:   r.Timestamp,
+				Attachments: r.Attachments,
+			}
+		}
+
+		serverMsg := models.ServerMessage{
+			Type:     models.ServerMessageTypeMessages,
+			ChatID:   c.ID,
+			Messages: messages,
+		}
+
+		h.sendToUser(userID, serverMsg)
 	}
 }
 
@@ -421,6 +454,38 @@ func (h *Hub) GetChats(userID string) []models.Chat {
 	})
 
 	return result
+}
+
+func (h *Hub) GetChatRecords(userID, chatID string, from, to int64) ([]models.Message, error) {
+	h.mu.RLock()
+	c, ok := h.chats[chatID]
+	h.mu.RUnlock()
+
+	if !ok {
+		return nil, models.ErrNotFound
+	}
+
+	if c.ID != "townhall" && !isUserInDM(userID, c.ID) {
+		return nil, models.ErrNotFound
+	}
+
+	records, err := c.GetRecords(chat.Seq(from), chat.Seq(to))
+	if err != nil {
+		return nil, err
+	}
+
+	messages := make([]models.Message, len(records))
+	for i, r := range records {
+		messages[i] = models.Message{
+			Seq:         int64(r.Seq),
+			UserID:      r.UserID,
+			Content:     content.Escape(r.Content),
+			Timestamp:   r.Timestamp,
+			Attachments: r.Attachments,
+		}
+	}
+
+	return messages, nil
 }
 
 func (h *Hub) GetUser(userID string) (models.User, error) {

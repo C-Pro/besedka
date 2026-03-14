@@ -168,6 +168,30 @@ All endpoints below require a valid JWT token.
 ]
 ```
 
+### Get Chat Messages
+**Endpoint:** `GET /api/chats/{id}/messages`
+
+**Description:** Returns a list of messages for a chat within a sequence range.
+
+**Query Parameters:**
+- `fromSeq`: The starting sequence number (inclusive). Defaults to 1.
+- `toSeq`: The ending sequence number (inclusive). Required.
+
+**Response:**
+```json
+[
+  {
+    "seq": number,
+    "timestamp": number,
+    "userId": "string",
+    "content": "string",
+    "attachments": [
+       // List of attachments
+    ]
+  }
+]
+```
+
 ## WebSocket Protocol
 
 **Endpoint:** `GET /api/chat`
@@ -201,6 +225,17 @@ Sends a message to a chat.
   "type": "send",
   "chatId": "string",
   "content": "string"
+}
+```
+
+#### Fetch Messages
+Fetches older messages from a chat by sequence range.
+```json
+{
+  "type": "fetch",
+  "chatId": "string",
+  "fromSeq": 1,
+  "toSeq": 100
 }
 ```
 

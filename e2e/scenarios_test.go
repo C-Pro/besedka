@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -436,4 +437,79 @@ func TestE2EReactivateDeletedUser(t *testing.T) {
 		State: playwright.WaitForSelectorStateVisible,
 	})
 	require.NoError(t, err, "Reactivated user should see Town Hall chat")
+}
+
+func TestE2EInfiniteScroll(t *testing.T) {
+	server := startServer(t)
+	defer server.Stop()
+
+	pw, browser := setupPlaywright(t)
+	defer func() { _ = pw.Stop() }()
+	defer func() { _ = browser.Close() }()
+
+	aliceSetupLink := server.CreateUser(t, "alice")
+	aliceContext := createBrowserContext(t, browser)
+	alicePage, err := aliceContext.NewPage()
+	require.NoError(t, err)
+
+	registerUser(t, alicePage, aliceSetupLink, "Alice Smith", "password123")
+
+	// Wait for default load of Town Hall
+	require.Eventually(t, func() bool {
+		content, _ := alicePage.Locator(".chat-header h3").InnerHTML()
+		return strings.Contains(content, "Town Hall")
+	}, 5*time.Second, 200*time.Millisecond)
+
+	// Send 110 messages
+	t.Log("Sending 110 messages to fill the chat...")
+	for i := 1; i <= 110; i++ {
+		if i%10 == 0 {
+			t.Logf("Sending message %d...", i)
+		}
+		err = alicePage.Locator("#message-input").Fill(fmt.Sprintf("fetch_scroll_test_msg_%d", i))
+		require.NoError(t, err)
+		err = alicePage.Locator("#send-btn").Click()
+		require.NoError(t, err)
+	}
+
+	// Verify the latest message is loaded
+	t.Log("Waiting for message 110...")
+	require.Eventually(t, func() bool {
+		content, _ := alicePage.Locator(".messages-container").InnerHTML()
+		return strings.Contains(content, "fetch_scroll_test_msg_110")
+	}, 10*time.Second, 200*time.Millisecond)
+
+	// Refresh the page to reload the chat from scratch (should fetch only the last 100 msgs initially)
+	t.Log("Reloading page...")
+	_, err = alicePage.Reload()
+	require.NoError(t, err)
+	
+	// Wait for chat load
+	require.Eventually(t, func() bool {
+		content, _ := alicePage.Locator(".messages-container").InnerHTML()
+		return strings.Contains(content, "fetch_scroll_test_msg_110")
+	}, 10*time.Second, 200*time.Millisecond)
+
+	time.Sleep(1 * time.Second)
+
+	// Check if msg 1 is NOT visible (since only the last 100 are loaded by default)
+	content, _ := alicePage.Locator(".messages-container").InnerHTML()
+	require.NotContains(t, content, "fetch_scroll_test_msg_1<", "msg 1 should not be loaded yet")
+	
+	// Scroll to top — set scrollTop and dispatch a scroll event since programmatic
+	// changes to scrollTop don't fire scroll events in headless browsers.
+	t.Log("Scrolling to top to trigger infinite scroll...")
+	_, err = alicePage.Evaluate(`() => {
+		const el = document.querySelector('#messages-container');
+		el.scrollTop = 0;
+		el.dispatchEvent(new Event('scroll'));
+	}`)
+	require.NoError(t, err)
+
+	// Verify old messages appear
+	t.Log("Waiting for msg 1...")
+	require.Eventually(t, func() bool {
+		content, _ := alicePage.Locator(".messages-container").InnerHTML()
+		return strings.Contains(content, "fetch_scroll_test_msg_1<")
+	}, 10*time.Second, 200*time.Millisecond)
 }

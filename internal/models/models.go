@@ -72,6 +72,8 @@ type ClientMessage struct {
 	ChatID      string            `json:"chatId"`
 	Content     string            `json:"content"`
 	Attachments []Attachment      `json:"attachments,omitempty"`
+	FromSeq     int64             `json:"fromSeq,omitempty"`
+	ToSeq       int64             `json:"toSeq,omitempty"`
 }
 
 // ServerMessage represents a message to the client.
@@ -105,6 +107,7 @@ const (
 	ClientMessageTypeJoin  ClientMessageType = "join"
 	ClientMessageTypeLeave ClientMessageType = "leave"
 	ClientMessageTypeSend  ClientMessageType = "send"
+	ClientMessageTypeFetch ClientMessageType = "fetch"
 )
 
 type ServerMessageType string
