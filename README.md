@@ -55,11 +55,13 @@ To run locally from source:
 ## Future Roadmap
 
 - [x] Realtime updates for user presence/creation/deletion
-- [ ] User profile/settings
-- [ ] Password reset
+- [x] User profile/settings
+- [x] Password reset
 - [x] User deletion
 - [x] Admin UI
 - [ ] File attachments and media support
-- [ ] Infinite scrolling
+- [x] Infinite scrolling
 - [ ] Rich text editing
 - [ ] Emojis and reactions
+- [ ] Notifications
+- [ ] Messages backup
