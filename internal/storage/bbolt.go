@@ -75,7 +75,15 @@ func NewBboltStorage(path string, key []byte) (*BboltStorage, error) {
 		}
 
 		// Empty salt is expected for old versions of the application.
-		salt, _ := base64.StdEncoding.DecodeString(b64salt)
+		var salt []byte
+		if b64salt != "" {
+			var err error
+			salt, err = base64.StdEncoding.DecodeString(b64salt)
+			if err != nil {
+				_ = db.Close()
+				return nil, fmt.Errorf("failed to decode salt: %w", err)
+			}
+		}
 
 		crypter, err := NewCrypter(key, salt)
 		if err != nil {

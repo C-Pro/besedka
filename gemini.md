@@ -41,3 +41,26 @@ Always test the new features manually in the browser.
 Make sure the server is running and the app is accessible at `http://localhost:8080`.
 To run the server use `AUTH_SECRET=very-secure-secret-key-for-development-mode go run .`
 To generate a TOTP key use `go run ./cmd/totp/main.go <base32 secret>`.
+
+# Temporary files
+
+When you need to create a temporary file, create it in the project directory:
+
+`mktemp -p .` for an ordinary file
+`mktemp -dp .` for a temporary directory
+
+Delete temporary files and directories when not needed anymore.
+
+# Running commands
+
+When executing shell commands that can produce large output, always save it to a temporary file.
+
+```bash
+export _TMPFILE=$(mktemp -p .)
+echo $_TMPFILE
+# do your work
+go test -v ./... | tee $_TMPFILE 2>&1
+unset _TMPFILE
+```
+
+Later do `rm <tmpfile>` to remove the temporary file (we echoed its name before).

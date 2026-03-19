@@ -38,6 +38,13 @@ func (s *BboltStorage) UpsertFileMetadata(meta FileMetadata) error {
 		if err != nil {
 			return fmt.Errorf("failed to marshal file metadata: %w", err)
 		}
+		if s.isEncrypted {
+			var err error
+			data, err = s.crypter.Encrypt(data)
+			if err != nil {
+				return fmt.Errorf("failed to encrypt file metadata: %w", err)
+			}
+		}
 		return b.Put(meta.Key(), data)
 	})
 }
@@ -49,6 +56,13 @@ func (s *BboltStorage) GetFileMetadata(id string) (FileMetadata, error) {
 		data := b.Get([]byte(id))
 		if data == nil {
 			return fmt.Errorf("file metadata not found for id %s", id)
+		}
+		if s.isEncrypted {
+			var err error
+			data, err = s.crypter.Decrypt(data)
+			if err != nil {
+				return fmt.Errorf("failed to decrypt file metadata: %w", err)
+			}
 		}
 		return meta.UnmarshalBinary(data)
 	})

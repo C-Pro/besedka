@@ -55,7 +55,9 @@ func NewCrypter(secret []byte, salt []byte) (*Crypter, error) {
 // It must be persisted alongside encrypted data so that the Crypter can be
 // reconstructed with the same key on load.
 func (c *Crypter) Salt() []byte {
-	return c.salt
+	saltCopy := make([]byte, len(c.salt))
+	copy(saltCopy, c.salt)
+	return saltCopy
 }
 
 func genSalt() ([]byte, error) {
