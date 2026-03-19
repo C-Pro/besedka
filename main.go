@@ -38,7 +38,7 @@ func run(ctx context.Context, addUser string) error {
 		TokenExpiry: cfg.TokenExpiry,
 	}
 
-	bbStorage, err := storage.NewBboltStorage(cfg.DBFile)
+	bbStorage, err := storage.NewBboltStorage(cfg.DBFile, []byte(cfg.AuthSecret))
 	if err != nil {
 		return err
 	}

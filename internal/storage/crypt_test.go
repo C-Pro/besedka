@@ -2,7 +2,11 @@ package storage
 
 import (
 	"bytes"
+	"crypto/rand"
+	"fmt"
 	"testing"
+
+	"golang.org/x/crypto/argon2"
 )
 
 func TestNewCrypter(t *testing.T) {
@@ -37,9 +41,7 @@ func TestNewCrypter(t *testing.T) {
 				return
 			}
 
-			if len(c.key) != keyLen {
-				t.Errorf("key length = %d, want %d", len(c.key), keyLen)
-			}
+
 			if len(c.salt) != saltLen {
 				t.Errorf("salt length = %d, want %d", len(c.salt), saltLen)
 			}
@@ -64,8 +66,15 @@ func TestNewCrypter_DeterministicKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !bytes.Equal(c1.key, c2.key) {
-		t.Error("same secret+salt must produce the same key")
+	msg := []byte("hello")
+	ct, err := c1.Encrypt(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pt, err := c2.Decrypt(ct)
+	if err != nil || !bytes.Equal(pt, msg) {
+		t.Error("same secret+salt must produce the same decryption capabilities")
 	}
 }
 
@@ -196,4 +205,22 @@ func TestSalt_Persistence(t *testing.T) {
 	if !bytes.Equal(got, []byte("important data")) {
 		t.Errorf("got %q", got)
 	}
+}
+
+func BenchmarkArgon(b *testing.B) {
+	// To find suitable argon2 number of rounds.
+	secret := make([]byte, keyLen)
+	salt := make([]byte, saltLen)
+	_, _ = rand.Read(secret)
+	_, _ = rand.Read(salt)
+	times := 10
+	for i := 1; i < 10; i++ {
+		b.Run(fmt.Sprintf("time=%d", times), func(b *testing.B) {
+			for b.Loop() {
+				argon2.IDKey(secret, salt, uint32(times), argonMem, argonThr, keyLen)
+			}
+		})
+		times = times + 5
+	}
+
 }

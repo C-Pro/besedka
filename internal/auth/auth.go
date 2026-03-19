@@ -46,7 +46,6 @@ type storage interface {
 	UpsertRegistrationToken(userID string, token string) error
 	DeleteRegistrationToken(userID string) error
 	ListRegistrationTokens() (map[string]string, error)
-	MigrateTokens(hasher func(string) string) error
 }
 
 type LoginRequest struct {
@@ -161,12 +160,6 @@ func NewAuthService(ctx context.Context, config Config, storage storage) (*AuthS
 		userTokens:         geche.NewLocker(geche.NewMapCache[string, []string]()),
 		registrationTokens: geche.NewMapTTLCache[string, string](ctx, config.RegistrationTokenExpiry, time.Minute),
 		now:                time.Now,
-	}
-
-	if err := storage.MigrateTokens(func(token string) string {
-		return as.hashToken(token)
-	}); err != nil {
-		return nil, fmt.Errorf("failed to migrate tokens: %w", err)
 	}
 
 	// Load users from storage

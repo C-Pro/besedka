@@ -4,7 +4,6 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"errors"
 
 	"golang.org/x/crypto/argon2"
 )
@@ -12,16 +11,20 @@ import (
 const (
 	saltLen    = 16
 	keyLen     = 32
-	argonTime  = 1
+	// 15 rounds shows around 0.15s in BenchmarkArgon on my machine.
+	argonTime  = 15
 	argonMem   = 64 * 1024
 	argonThr   = 4
 )
 
 type Crypter struct {
-	key  []byte
 	salt []byte
+	aead cipher.AEAD
 }
 
+// NewCrypter creates an instance of Crypter to encode/decode byte slices.
+// If salt parameter is empty, it will be generated randomly.
+// Make sure to store the salt somewhere to be able to decrypt the data later.
 func NewCrypter(secret []byte, salt []byte) (*Crypter, error) {
 	var err error
 	if len(salt) == 0 {
@@ -32,9 +35,19 @@ func NewCrypter(secret []byte, salt []byte) (*Crypter, error) {
 
 	key := deriveKey(secret, salt)
 
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+
+	aead, err := cipher.NewGCMWithRandomNonce(block)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Crypter{
-		key:  key,
 		salt: salt,
+		aead: aead,
 	}, nil
 }
 
@@ -60,43 +73,11 @@ func deriveKey(secret, salt []byte) []byte {
 // Encrypt encrypts data using AES-256-GCM with a random nonce prepended to
 // the ciphertext.
 func (c *Crypter) Encrypt(data []byte) ([]byte, error) {
-	block, err := aes.NewCipher(c.key)
-	if err != nil {
-		return nil, err
-	}
-
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err = rand.Read(nonce); err != nil {
-		return nil, err
-	}
-
-	ciphertext := gcm.Seal(nonce, nonce, data, nil)
-	return ciphertext, nil
+	return c.aead.Seal(nil, nil, data, nil), nil
 }
 
 // Decrypt decrypts data produced by Encrypt, extracting the prepended nonce
 // and using AES-256-GCM to recover the plaintext.
 func (c *Crypter) Decrypt(data []byte) ([]byte, error) {
-	block, err := aes.NewCipher(c.key)
-	if err != nil {
-		return nil, err
-	}
-
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-
-	nonceSize := gcm.NonceSize()
-	if len(data) < nonceSize {
-		return nil, errors.New("ciphertext too short")
-	}
-
-	nonce, ciphertext := data[:nonceSize], data[nonceSize:]
-	return gcm.Open(nil, nonce, ciphertext, nil)
+	return c.aead.Open(nil, nil, data, nil)
 }

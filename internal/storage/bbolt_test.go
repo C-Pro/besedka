@@ -20,7 +20,7 @@ func TestStorage(t *testing.T) {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	dbPath := filepath.Join(tmpDir, "test.db")
-	store, err := NewBboltStorage(dbPath)
+	store, err := NewBboltStorage(dbPath, nil)
 	if err != nil {
 		t.Fatalf("failed to create storage: %v", err)
 	}
