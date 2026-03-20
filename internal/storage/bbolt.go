@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"besedka/internal/auth"
+	"besedka/internal/filestore"
 	"besedka/internal/models"
 
 	"go.etcd.io/bbolt"
@@ -28,9 +29,10 @@ type BboltStorage struct {
 	db          *bbolt.DB
 	crypter     *Crypter
 	isEncrypted bool
+	fs          filestore.FileStore
 }
 
-func NewBboltStorage(path string, key []byte) (*BboltStorage, error) {
+func NewBboltStorage(path string, key []byte, fs filestore.FileStore) (*BboltStorage, error) {
 	db, err := bbolt.Open(path, 0600, &bbolt.Options{Timeout: 1 * time.Second})
 	if err != nil {
 		return nil, fmt.Errorf("failed to open bbolt db: %w", err)
@@ -65,7 +67,7 @@ func NewBboltStorage(path string, key []byte) (*BboltStorage, error) {
 		return nil, fmt.Errorf("failed to create buckets: %w", err)
 	}
 
-	bs := &BboltStorage{db: db}
+	bs := &BboltStorage{db: db, fs: fs}
 
 	if len(key) > 0 {
 		b64salt, err := bs.GetConfig("salt")
@@ -92,12 +94,48 @@ func NewBboltStorage(path string, key []byte) (*BboltStorage, error) {
 		}
 		bs.crypter = crypter
 
-		// If salt is not set, we need to encrypt all data in the database.
+		// If salt is not set, we need to check if DB is empty
 		if len(salt) == 0 {
-			if err := bs.encryptStorage(); err != nil {
+			isEmpty := true
+			err := db.View(func(tx *bbolt.Tx) error {
+				b := tx.Bucket(bucketUsers)
+				c := b.Cursor()
+				k, _ := c.First()
+				if k != nil {
+					isEmpty = false
+				}
+				return nil
+			})
+			if err != nil {
 				_ = db.Close()
-				return nil, fmt.Errorf("failed to encrypt storage: %w", err)
+				return nil, fmt.Errorf("failed to check if storage is empty: %w", err)
 			}
+
+			if !isEmpty {
+				_ = db.Close()
+				return nil, errors.New("data encryption salt is not set and database is not empty. Please run the migration tool")
+			}
+
+			// Empty database: generate random salt and persist it
+			salt, err = genSalt()
+			if err != nil {
+				_ = db.Close()
+				return nil, fmt.Errorf("failed to generate salt: %w", err)
+			}
+			b64salt = base64.StdEncoding.EncodeToString(salt)
+
+			if err := bs.SetConfig("salt", b64salt); err != nil {
+				_ = db.Close()
+				return nil, fmt.Errorf("failed to persist new salt: %w", err)
+			}
+
+			crypter, err = NewCrypter(key, salt)
+			if err != nil {
+				_ = db.Close()
+				return nil, fmt.Errorf("failed to recreate crypter with new salt: %w", err)
+			}
+			bs.crypter = crypter
+			bs.isEncrypted = true
 		} else {
 			bs.isEncrypted = true
 			if err := bs.SetConfig("salt", b64salt); err != nil {

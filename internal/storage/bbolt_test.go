@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"besedka/internal/auth"
+	"besedka/internal/filestore"
 	"besedka/internal/models"
 
 	"go.etcd.io/bbolt"
@@ -22,7 +23,8 @@ func TestStorage(t *testing.T) {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	dbPath := filepath.Join(tmpDir, "test.db")
-	store, err := NewBboltStorage(dbPath, testSecret)
+	fs, _ := filestore.NewLocalFileStore(filepath.Join(tmpDir, "fs"))
+	store, err := NewBboltStorage(dbPath, testSecret, fs)
 	if err != nil {
 		t.Fatalf("failed to create storage: %v", err)
 	}
@@ -324,81 +326,38 @@ func TestStorage(t *testing.T) {
 	})
 }
 
-func TestStorageEncryption(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "storage_enc_test")
+func TestNewBboltStorage_UnencryptedDbFailsWithKey(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "storage_fail_test")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	dbPath := filepath.Join(tmpDir, "enc_test.db")
+	dbPath := filepath.Join(tmpDir, "fail_test.db")
+	fs, _ := filestore.NewLocalFileStore(filepath.Join(tmpDir, "fs"))
 
-	// 1. Create unencrypted DB and add some data
-	store, err := NewBboltStorage(dbPath, nil)
+	// 1. Create unencrypted populated DB
+	store, err := NewBboltStorage(dbPath, nil, fs)
 	if err != nil {
-		t.Fatalf("failed to create unencrypted storage: %v", err)
+		t.Fatal(err)
 	}
-
 	creds := auth.UserCredentials{
-		User:         models.User{ID: "enc_user", Status: models.UserStatusActive},
-		PasswordHash: "hash123",
+		User:         models.User{ID: "fail_user"},
+		PasswordHash: "empty",
 	}
-	_ = store.UpsertCredentials(creds)
-	_ = store.UpsertChat(models.Chat{ID: "chat1"})
-	_ = store.UpsertMessage(models.Message{ChatID: "chat1", Seq: 1, Content: "unencrypted"})
+	if err := store.UpsertCredentials(creds); err != nil {
+		t.Fatal(err)
+	}
 	_ = store.Close()
 
-	// 2. Open with encryption key - triggers migration
+	// 2. Open populated DB with key - should FAIL
 	key := []byte("12345678901234567890123456789012") // 32 bytes
-	storeEnc, err := NewBboltStorage(dbPath, key)
-	if err != nil {
-		t.Fatalf("failed to open storage with encryption: %v", err)
-	}
-
-	// Verify data is readable
-	readCreds, err := storeEnc.ListCredentials()
-	if err != nil || len(readCreds) != 1 || readCreds[0].PasswordHash != "hash123" {
-		t.Fatalf("failed to read migrated credentials: %v", err)
-	}
-
-	msgs, err := storeEnc.ListMessages("chat1", 0, 10)
-	if err != nil || len(msgs) != 1 || msgs[0].Content != "unencrypted" {
-		t.Fatalf("failed to read migrated messages: %v", msgs)
-	}
-
-	// Add new encrypted data
-	_ = storeEnc.UpsertMessage(models.Message{ChatID: "chat1", Seq: 2, Content: "encrypted"})
-
-	// Verify salt is stored
-	salt, _ := storeEnc.GetConfig("salt")
-	if salt == "" {
-		t.Fatalf("expected salt to be stored")
-	}
-
-	_ = storeEnc.Close()
-
-	// 3. Open again with key - should read using existing salt
-	storeEnc2, err := NewBboltStorage(dbPath, key)
-	if err != nil {
-		t.Fatalf("failed to reopen encrypted storage: %v", err)
-	}
-
-	msgs2, err := storeEnc2.ListMessages("chat1", 0, 10)
-	if err != nil || len(msgs2) != 2 || msgs2[1].Content != "encrypted" {
-		t.Fatalf("failed to read existing encrypted messages: %v", msgs2)
-	}
-
-	_ = storeEnc2.Close()
-
-	// 4. Opening with invalid salt should fail gracefully
-	badSaltStore, _ := bbolt.Open(dbPath, 0600, nil)
-	_ = badSaltStore.Update(func(tx *bbolt.Tx) error {
-		return tx.Bucket(bucketSettings).Put([]byte("salt"), []byte("invalid-base64-$"))
-	})
-	_ = badSaltStore.Close()
-
-	_, err = NewBboltStorage(dbPath, key)
+	_, err = NewBboltStorage(dbPath, key, fs)
 	if err == nil {
-		t.Fatalf("expected error when salt is invalid base64")
+		t.Fatal("expected NewBboltStorage to fail when opening unencrypted database with key")
+	}
+	if err.Error() != "data encryption salt is not set and database is not empty. Please run the migration tool" {
+		t.Fatalf("unexpected error message: %v", err)
 	}
 }
+

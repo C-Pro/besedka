@@ -4,6 +4,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"fmt"
 
 	"golang.org/x/crypto/argon2"
 )
@@ -31,6 +32,8 @@ func NewCrypter(secret []byte, salt []byte) (*Crypter, error) {
 		if salt, err = genSalt(); err != nil {
 			return nil, err
 		}
+	} else if len(salt) != saltLen {
+		return nil, fmt.Errorf("invalid salt length: expected %d, got %d", saltLen, len(salt))
 	}
 
 	key := deriveKey(secret, salt)

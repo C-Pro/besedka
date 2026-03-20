@@ -52,6 +52,30 @@ To run locally from source:
 4. Create a user and follow the provided registration link to register.
 5. Chat is available at [http://localhost:8080](http://localhost:8080)
 
+## Encryption & Migration
+
+Besedka supports at-rest encryption for the database and uploaded files. When `AUTH_SECRET` is provided, all sensitive data (users, messages, tokens, files) will be encrypted.
+
+### Upgrading to Encryption
+
+If you are upgrading from an older version of Besedka that did not have encryption enabled, you **must** migrate your data before the server can start with an `AUTH_SECRET`.
+
+1. Ensure your configuration (`AUTH_SECRET`, `BESEDKA_DB`, `UPLOADS_PATH`) is set.
+2. Run the migration tool:
+   ```bash
+   go run cmd/migrate/main.go
+   ```
+
+The migration tool will:
+- Create a backup of your database (`besedka.db.[TIMESTAMP].tar.gz`).
+- Create a backup of your uploads directory (`uploads.[TIMESTAMP].tar.gz`).
+- Encrypt all existing data and files.
+- Generate a unique encryption salt and store it in the database.
+
+Once migrated, you can start the server normally.
+
+**Note:** If you start with a fresh (empty) database and an `AUTH_SECRET`, encryption will be enabled and initialized automatically.
+
 ## Future Roadmap
 
 - [x] Realtime updates for user presence/creation/deletion
