@@ -24,7 +24,10 @@ func TestMigrationTool(t *testing.T) {
 	fsPath := filepath.Join(tmpDir, "fs")
 
 	// 1. Create UNENCRYPTED database by passing nil key
-	fs, _ := filestore.NewLocalFileStore(fsPath)
+	fs, err := filestore.NewLocalFileStore(fsPath)
+	if err != nil {
+		t.Fatalf("failed to create file store: %v", err)
+	}
 	store, err := storage.NewBboltStorage(dbPath, nil, fs)
 	if err != nil {
 		t.Fatalf("failed to create unencrypted DB: %v", err)
