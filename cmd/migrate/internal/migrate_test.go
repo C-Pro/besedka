@@ -88,15 +88,23 @@ func TestMigrationTool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	read, _ := io.ReadAll(rc)
-	_ = rc.Close()
+	read, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rc.Close(); err != nil {
+		t.Fatal(err)
+	}
 	if string(read) != string(content) {
 		t.Fatalf("after migration expected %s, got %s", content, read)
 	}
 
 	// Read literal disk file, it should NOT be plaintext
 	diskPath := filepath.Join(tmpDir, "fs", hash[:2], hash)
-	diskData, _ := os.ReadFile(diskPath)
+	diskData, err := os.ReadFile(diskPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if string(diskData) == string(content) {
 		t.Fatalf("file content on disk should be encrypted")
 	}
