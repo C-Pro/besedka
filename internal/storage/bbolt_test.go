@@ -23,7 +23,10 @@ func TestStorage(t *testing.T) {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	dbPath := filepath.Join(tmpDir, "test.db")
-	fs, _ := filestore.NewLocalFileStore(filepath.Join(tmpDir, "fs"))
+	fs, err := filestore.NewLocalFileStore(filepath.Join(tmpDir, "fs"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	store, err := NewBboltStorage(dbPath, testSecret, fs)
 	if err != nil {
 		t.Fatalf("failed to create storage: %v", err)
@@ -334,7 +337,10 @@ func TestNewBboltStorage_UnencryptedDbFailsWithKey(t *testing.T) {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	dbPath := filepath.Join(tmpDir, "fail_test.db")
-	fs, _ := filestore.NewLocalFileStore(filepath.Join(tmpDir, "fs"))
+	fs, err := filestore.NewLocalFileStore(filepath.Join(tmpDir, "fs"))
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// 1. Create unencrypted populated DB
 	store, err := NewBboltStorage(dbPath, nil, fs)
