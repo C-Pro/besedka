@@ -77,25 +77,22 @@ func NewBboltStorage(path string, key []byte, fs filestore.FileStore) (*BboltSto
 		}
 
 		// Empty salt is expected for old versions of the application.
-		var salt []byte
 		if b64salt != "" {
-			var err error
-			salt, err = base64.StdEncoding.DecodeString(b64salt)
+			salt, err := base64.StdEncoding.DecodeString(b64salt)
 			if err != nil {
 				_ = db.Close()
 				return nil, fmt.Errorf("failed to decode salt: %w", err)
 			}
-		}
 
-		crypter, err := NewCrypter(key, salt)
-		if err != nil {
-			_ = db.Close()
-			return nil, fmt.Errorf("failed to create crypter: %w", err)
-		}
-		bs.crypter = crypter
-
-		// If salt is not set, we need to check if DB is empty
-		if len(salt) == 0 {
+			crypter, err := NewCrypter(key, salt)
+			if err != nil {
+				_ = db.Close()
+				return nil, fmt.Errorf("failed to create crypter: %w", err)
+			}
+			bs.crypter = crypter
+			bs.isEncrypted = true
+		} else {
+			// If salt is not set, we need to check if DB is empty
 			isEmpty := true
 			err := db.View(func(tx *bbolt.Tx) error {
 				b := tx.Bucket(bucketUsers)
@@ -117,7 +114,7 @@ func NewBboltStorage(path string, key []byte, fs filestore.FileStore) (*BboltSto
 			}
 
 			// Empty database: generate random salt and persist it
-			salt, err = genSalt()
+			salt, err := genSalt()
 			if err != nil {
 				_ = db.Close()
 				return nil, fmt.Errorf("failed to generate salt: %w", err)
@@ -129,19 +126,13 @@ func NewBboltStorage(path string, key []byte, fs filestore.FileStore) (*BboltSto
 				return nil, fmt.Errorf("failed to persist new salt: %w", err)
 			}
 
-			crypter, err = NewCrypter(key, salt)
+			crypter, err := NewCrypter(key, salt)
 			if err != nil {
 				_ = db.Close()
 				return nil, fmt.Errorf("failed to recreate crypter with new salt: %w", err)
 			}
 			bs.crypter = crypter
 			bs.isEncrypted = true
-		} else {
-			bs.isEncrypted = true
-			if err := bs.SetConfig("salt", b64salt); err != nil {
-				_ = db.Close()
-				return nil, fmt.Errorf("failed to set salt: %w", err)
-			}
 		}
 	}
 

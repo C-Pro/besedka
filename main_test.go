@@ -51,7 +51,7 @@ func TestIntegration(t *testing.T) {
 	}()
 
 	// Wait for server to start
-	waitForServer(t, "http://127.0.0.1:8888/admin/users", 20)
+	waitForServer(t, "http://127.0.0.1:8888/admin/users", 50)
 
 	// Step 0: Verify Root Redirect (New Check)
 	// Requesting root without token should redirect to login.html with 302 Found

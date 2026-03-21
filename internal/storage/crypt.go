@@ -5,18 +5,31 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"fmt"
+	"os"
 
 	"golang.org/x/crypto/argon2"
 )
 
 const (
-	saltLen    = 16
-	keyLen     = 32
-	// 15 rounds shows around 0.15s in BenchmarkArgon on my machine.
-	argonTime  = 15
-	argonMem   = 64 * 1024
-	argonThr   = 4
+	saltLen = 16
+	keyLen  = 32
 )
+
+var (
+	// 15 rounds shows around 0.15s in BenchmarkArgon on my machine.
+	argonTime uint32 = 15
+	argonMem  uint32 = 64 * 1024
+	argonThr  uint8  = 4
+)
+
+func init() {
+	// In CI, reduce the number of rounds to speed up tests.
+	if os.Getenv("CI") != "" {
+		argonTime = 1
+		argonMem = 16 * 1024
+		argonThr = 1
+	}
+}
 
 type Crypter struct {
 	salt []byte

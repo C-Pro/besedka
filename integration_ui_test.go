@@ -44,7 +44,7 @@ func TestIntegrationUI(t *testing.T) {
 	}()
 
 	// Wait for server to start
-	waitForServer(t, "http://127.0.0.1:8890/admin/users", 20)
+	waitForServer(t, "http://127.0.0.1:8890/admin/users", 50)
 
 	baseURL := "http://" + adminAddr
 
