@@ -3,7 +3,6 @@ package api
 import (
 	"besedka/internal/auth"
 	"besedka/internal/content"
-	"besedka/internal/filestore"
 	"besedka/internal/models"
 	"besedka/internal/storage"
 	"besedka/internal/ws"
@@ -26,18 +25,16 @@ import (
 )
 
 type API struct {
-	auth      *auth.AuthService
-	hub       *ws.Hub
-	filestore filestore.FileStore
-	storage   *storage.BboltStorage
+	auth    *auth.AuthService
+	hub     *ws.Hub
+	storage *storage.BboltStorage
 }
 
-func New(auth *auth.AuthService, hub *ws.Hub, filestore filestore.FileStore, storage *storage.BboltStorage) *API {
+func New(auth *auth.AuthService, hub *ws.Hub, storage *storage.BboltStorage) *API {
 	return &API{
-		auth:      auth,
-		hub:       hub,
-		filestore: filestore,
-		storage:   storage,
+		auth:    auth,
+		hub:     hub,
+		storage: storage,
 	}
 }
 
@@ -479,7 +476,7 @@ func (a *API) processImageUpload(w http.ResponseWriter, r *http.Request, maxByte
 		return "", err
 	}
 
-	if err := a.filestore.Save(bytes.NewReader(data), hash); err != nil {
+	if err := a.storage.SaveFileBlob(bytes.NewReader(data), hash); err != nil {
 		log.Printf("failed to save file blob: %v", err)
 		http.Error(w, "Internal Storage Error", http.StatusInternalServerError)
 		return "", err
@@ -635,7 +632,7 @@ func (a *API) GetImageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rc, err := a.filestore.Get(meta.Hash)
+	rc, err := a.storage.GetFileBlob(meta.Hash)
 	if err != nil {
 		log.Printf("failed to retrieve file blob: %v", err)
 		http.Error(w, "File content missing", http.StatusInternalServerError)

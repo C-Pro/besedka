@@ -2,12 +2,14 @@ package storage
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"time"
 
 	"besedka/internal/auth"
+	"besedka/internal/filestore"
 	"besedka/internal/models"
 
 	"go.etcd.io/bbolt"
@@ -17,17 +19,20 @@ var (
 	bucketUsers              = []byte("users")
 	bucketChats              = []byte("chats")
 	bucketMessages           = []byte("messages")
-	bucketTokens             = []byte("tokens")
 	bucketTokensV2           = []byte("tokens_v2")
 	bucketRegistrationTokens = []byte("registration_tokens")
 	bucketFiles              = []byte("files")
+	bucketSettings           = []byte("settings")
 )
 
 type BboltStorage struct {
-	db *bbolt.DB
+	db          *bbolt.DB
+	crypter     *Crypter
+	isEncrypted bool
+	fs          filestore.FileStore
 }
 
-func NewBboltStorage(path string) (*BboltStorage, error) {
+func NewBboltStorage(path string, key []byte, fs filestore.FileStore) (*BboltStorage, error) {
 	db, err := bbolt.Open(path, 0600, &bbolt.Options{Timeout: 1 * time.Second})
 	if err != nil {
 		return nil, fmt.Errorf("failed to open bbolt db: %w", err)
@@ -52,6 +57,9 @@ func NewBboltStorage(path string) (*BboltStorage, error) {
 		if _, err := tx.CreateBucketIfNotExists(bucketFiles); err != nil {
 			return err
 		}
+		if _, err := tx.CreateBucketIfNotExists(bucketSettings); err != nil {
+			return err
+		}
 		return nil
 	})
 	if err != nil {
@@ -59,11 +67,108 @@ func NewBboltStorage(path string) (*BboltStorage, error) {
 		return nil, fmt.Errorf("failed to create buckets: %w", err)
 	}
 
-	return &BboltStorage{db: db}, nil
+	bs := &BboltStorage{db: db, fs: fs}
+
+	if len(key) > 0 {
+		b64salt, err := bs.GetConfig("salt")
+		if err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("failed to get salt: %w", err)
+		}
+
+		// Empty salt is expected for old versions of the application.
+		var salt []byte
+		if b64salt != "" {
+			var err error
+			salt, err = base64.StdEncoding.DecodeString(b64salt)
+			if err != nil {
+				_ = db.Close()
+				return nil, fmt.Errorf("failed to decode salt: %w", err)
+			}
+		}
+
+		crypter, err := NewCrypter(key, salt)
+		if err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("failed to create crypter: %w", err)
+		}
+		bs.crypter = crypter
+
+		// If salt is not set, we need to check if DB is empty
+		if len(salt) == 0 {
+			isEmpty := true
+			err := db.View(func(tx *bbolt.Tx) error {
+				b := tx.Bucket(bucketUsers)
+				c := b.Cursor()
+				k, _ := c.First()
+				if k != nil {
+					isEmpty = false
+				}
+				return nil
+			})
+			if err != nil {
+				_ = db.Close()
+				return nil, fmt.Errorf("failed to check if storage is empty: %w", err)
+			}
+
+			if !isEmpty {
+				_ = db.Close()
+				return nil, errors.New("data encryption salt is not set and database is not empty. Please run the migration tool")
+			}
+
+			// Empty database: generate random salt and persist it
+			salt, err = genSalt()
+			if err != nil {
+				_ = db.Close()
+				return nil, fmt.Errorf("failed to generate salt: %w", err)
+			}
+			b64salt = base64.StdEncoding.EncodeToString(salt)
+
+			if err := bs.SetConfig("salt", b64salt); err != nil {
+				_ = db.Close()
+				return nil, fmt.Errorf("failed to persist new salt: %w", err)
+			}
+
+			crypter, err = NewCrypter(key, salt)
+			if err != nil {
+				_ = db.Close()
+				return nil, fmt.Errorf("failed to recreate crypter with new salt: %w", err)
+			}
+			bs.crypter = crypter
+			bs.isEncrypted = true
+		} else {
+			bs.isEncrypted = true
+			if err := bs.SetConfig("salt", b64salt); err != nil {
+				_ = db.Close()
+				return nil, fmt.Errorf("failed to set salt: %w", err)
+			}
+		}
+	}
+
+	return bs, nil
 }
 
 func (s *BboltStorage) Close() error {
 	return s.db.Close()
+}
+
+// GetConfig returns the config value by key.
+func (s *BboltStorage) GetConfig(key string) (string, error) {
+	var value string
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketSettings)
+		value = string(b.Get([]byte(key)))
+		return nil
+	})
+	return value, err
+}
+
+// SetConfig sets the value in the config by key.
+func (s *BboltStorage) SetConfig(key string, value string) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketSettings)
+		return b.Put([]byte(key), []byte(value))
+	})
 }
 
 // UpsertCredentials stores new or updated user credentials.
@@ -86,6 +191,15 @@ func (s *BboltStorage) UpsertCredentials(credentials auth.UserCredentials) error
 		if err != nil {
 			return err
 		}
+
+		if s.isEncrypted {
+			var err error
+			data, err = s.crypter.Encrypt(data)
+			if err != nil {
+				return fmt.Errorf("failed to encrypt user record: %w", err)
+			}
+		}
+
 		return b.Put(dbUser.Key(), data)
 	})
 }
@@ -111,6 +225,15 @@ func (s *BboltStorage) ListAllCredentials() ([]auth.UserCredentials, error) {
 		b := tx.Bucket(bucketUsers)
 		return b.ForEach(func(k, v []byte) error {
 			var dbUser DBUser
+
+			if s.isEncrypted {
+				var err error
+				v, err = s.crypter.Decrypt(v)
+				if err != nil {
+					return fmt.Errorf("failed to decrypt user record: %w", err)
+				}
+			}
+
 			if err := dbUser.UnmarshalBinary(v); err != nil {
 				return err
 			}
@@ -164,6 +287,11 @@ func (s *BboltStorage) UpsertChat(chat models.Chat) error {
 		if err != nil {
 			return err
 		}
+
+		// We do not encrypt chat metadata. It only contains IDs and last sequence number,
+		// and sequence number can be inferred by number of messages anyway.
+		// Encrypting chat metadata would require decrypting/encrypting it for every message upsert,
+		// which is too much fuss.
 		return b.Put(dbChat.Key(), data)
 	})
 }
@@ -229,6 +357,14 @@ func (s *BboltStorage) UpsertMessage(message models.Message) error {
 			return fmt.Errorf("failed to marshal message: %w", err)
 		}
 
+		if s.isEncrypted {
+			var err error
+			data, err = s.crypter.Encrypt(data)
+			if err != nil {
+				return fmt.Errorf("failed to encrypt message record: %w", err)
+			}
+		}
+
 		if err := chatBucket.Put(dbMessage.Key(), data); err != nil {
 			return fmt.Errorf("failed to put message: %w", err)
 		}
@@ -282,6 +418,14 @@ func (s *BboltStorage) ListMessages(chatID string, from, to int64) ([]models.Mes
 		binary.BigEndian.PutUint64(maxKey, uint64(to))
 
 		for k, v := c.Seek(minKey); k != nil && bytes.Compare(k, maxKey) <= 0; k, v = c.Next() {
+			if s.isEncrypted {
+				var err error
+				v, err = s.crypter.Decrypt(v)
+				if err != nil {
+					return fmt.Errorf("failed to decrypt message record: %w", err)
+				}
+			}
+
 			var dbMsg DBMessage
 			if err := dbMsg.UnmarshalBinary(v); err != nil {
 				return err
@@ -322,6 +466,13 @@ func (s *BboltStorage) UpsertToken(userID string, tokenHash string) error {
 		if err != nil {
 			return err
 		}
+		if s.isEncrypted {
+			var err error
+			data, err = s.crypter.Encrypt(data)
+			if err != nil {
+				return fmt.Errorf("failed to encrypt token record: %w", err)
+			}
+		}
 		// Key is now tokenHash
 		return b.Put(dbToken.Key(), data)
 	})
@@ -340,6 +491,14 @@ func (s *BboltStorage) ListTokens() (map[string]string, error) {
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketTokensV2)
 		return b.ForEach(func(k, v []byte) error {
+			if s.isEncrypted {
+				var err error
+				v, err = s.crypter.Decrypt(v)
+				if err != nil {
+					return fmt.Errorf("failed to decrypt token record: %w", err)
+				}
+			}
+
 			var dbToken DBToken
 			if err := dbToken.UnmarshalBinary(v); err != nil {
 				return err
@@ -350,54 +509,6 @@ func (s *BboltStorage) ListTokens() (map[string]string, error) {
 		})
 	})
 	return tokens, err
-}
-
-func (s *BboltStorage) MigrateTokens(hasher func(token string) string) error {
-	return s.db.Update(func(tx *bbolt.Tx) error {
-		oldBucket := tx.Bucket(bucketTokens)
-		if oldBucket == nil {
-			return nil // nothing to migrate
-		}
-
-		newBucket := tx.Bucket(bucketTokensV2)
-
-		// Iterate over old tokens
-		err := oldBucket.ForEach(func(k, v []byte) error {
-			// In old schema: Key=UserID, Value=DBToken{UserID, Token}
-			var oldToken DBToken
-			if err := oldToken.UnmarshalBinary(v); err != nil {
-				// If unmarshal fails, we can't migrate this token. Log or skip?
-				// Returning error aborts migration.
-				return fmt.Errorf("corrupt token for user %s: %w", string(k), err)
-			}
-
-			// oldToken.Token is the Raw Token
-			hashedToken := hasher(oldToken.Token)
-
-			newToken := DBToken{
-				UserID: oldToken.UserID,
-				Token:  hashedToken,
-			}
-
-			data, err := newToken.MarshalBinary()
-			if err != nil {
-				return err
-			}
-
-			if err := newBucket.Put(newToken.Key(), data); err != nil {
-				return err
-			}
-
-			return nil
-		})
-
-		if err != nil {
-			return err
-		}
-
-		// Delete old bucket after successful migration
-		return tx.DeleteBucket(bucketTokens)
-	})
 }
 
 func (s *BboltStorage) UpsertRegistrationToken(userID string, token string) error {
@@ -411,6 +522,14 @@ func (s *BboltStorage) UpsertRegistrationToken(userID string, token string) erro
 		if err != nil {
 			return err
 		}
+		if s.isEncrypted {
+			var err error
+			data, err = s.crypter.Encrypt(data)
+			if err != nil {
+				return fmt.Errorf("failed to encrypt token record: %w", err)
+			}
+		}
+
 		// Use UserID as key
 		return b.Put([]byte(userID), data)
 	})
@@ -428,6 +547,14 @@ func (s *BboltStorage) ListRegistrationTokens() (map[string]string, error) {
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketRegistrationTokens)
 		return b.ForEach(func(k, v []byte) error {
+			if s.isEncrypted {
+				var err error
+				v, err = s.crypter.Decrypt(v)
+				if err != nil {
+					return fmt.Errorf("failed to decrypt token record: %w", err)
+				}
+			}
+
 			var dbToken DBToken
 			if err := dbToken.UnmarshalBinary(v); err != nil {
 				return err

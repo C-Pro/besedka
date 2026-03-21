@@ -163,7 +163,7 @@ export function createChatWindow(container) {
         }
 
         let loadingIndicatorHtml = '';
-        if (state.isLoadingHistory && state.isLoadingHistory[state.activeChatId]) {
+        if (state.isLoadingHistory?.[state.activeChatId]) {
             loadingIndicatorHtml = `
                 <div class="history-loading">
                     Loading<span class="loading-dots"></span>
@@ -213,7 +213,7 @@ export function createChatWindow(container) {
                     scrollThrottleTimer = null;
                     const activeChatId = store.state.activeChatId;
                     if (newMessagesContainer.scrollTop <= 100 && activeChatId) {
-                        const isLoading = store.state.isLoadingHistory && store.state.isLoadingHistory[activeChatId];
+                        const isLoading = store.state.isLoadingHistory?.[activeChatId];
                         const activeMessages = store.state.messages[activeChatId] || [];
                         const minSeq = activeMessages.length > 0 ? activeMessages[0].seq : 0;
                         if (!isLoading && activeMessages.length > 0 && minSeq > 1) {

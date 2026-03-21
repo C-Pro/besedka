@@ -38,7 +38,13 @@ func run(ctx context.Context, addUser string) error {
 		TokenExpiry: cfg.TokenExpiry,
 	}
 
-	bbStorage, err := storage.NewBboltStorage(cfg.DBFile)
+	// Initialize FileStore
+	fs, err := filestore.NewLocalFileStore(cfg.UploadsPath)
+	if err != nil {
+		return fmt.Errorf("failed to initialize filestore: %w", err)
+	}
+
+	bbStorage, err := storage.NewBboltStorage(cfg.DBFile, []byte(cfg.AuthSecret), fs)
 	if err != nil {
 		return err
 	}
@@ -51,14 +57,8 @@ func run(ctx context.Context, addUser string) error {
 
 	hub := ws.NewHub(authService, bbStorage)
 
-	// Initialize FileStore
-	fs, err := filestore.NewLocalFileStore(cfg.UploadsPath)
-	if err != nil {
-		return fmt.Errorf("failed to initialize filestore: %w", err)
-	}
-
 	adminServer := http.NewAdminServer(cfg, authService, hub)
-	apiServer := http.NewAPIServer(authService, hub, fs, bbStorage, cfg.APIAddr)
+	apiServer := http.NewAPIServer(authService, hub, bbStorage, cfg.APIAddr)
 
 	g, gCtx := errgroup.WithContext(ctx)
 

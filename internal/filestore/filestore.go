@@ -12,4 +12,7 @@ type FileStore interface {
 
 	// Get retrieves the file content for the given hash.
 	Get(hash string) (io.ReadCloser, error)
+
+	// Replace forcefully saves the file content with the given hash, ignoring idempotency checks.
+	Replace(r io.Reader, hash string) error
 }

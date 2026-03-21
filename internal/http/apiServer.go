@@ -3,7 +3,6 @@ package http
 import (
 	"besedka/internal/api"
 	"besedka/internal/auth"
-	"besedka/internal/filestore"
 	"besedka/internal/storage"
 	"besedka/internal/ws"
 	"besedka/static"
@@ -18,12 +17,12 @@ type APIServer struct {
 	wg     sync.WaitGroup
 }
 
-func NewAPIServer(authService *auth.AuthService, hub *ws.Hub, filestore filestore.FileStore, storage *storage.BboltStorage, addr string) *APIServer {
+func NewAPIServer(authService *auth.AuthService, hub *ws.Hub, storage *storage.BboltStorage, addr string) *APIServer {
 	// Initialize Hub
 	// hub := ws.NewHub(authService, bbStorage)
 
 	server := ws.NewServer(authService, hub)
-	apiHandlers := api.New(authService, hub, filestore, storage)
+	apiHandlers := api.New(authService, hub, storage)
 
 	mux := http.NewServeMux()
 
