@@ -269,10 +269,11 @@ func (s *BboltStorage) UpsertChat(chat models.Chat) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketChats)
 		dbChat := DBChat{
-			ID:      chat.ID,
-			Name:    chat.Name,
-			LastSeq: chat.LastSeq,
-			IsDM:    chat.IsDM,
+			ID:        chat.ID,
+			Name:      chat.Name,
+			AvatarURL: chat.AvatarURL,
+			LastSeq:   chat.LastSeq,
+			IsDM:      chat.IsDM,
 		}
 		data, err := dbChat.MarshalBinary()
 		if err != nil {
@@ -298,10 +299,11 @@ func (s *BboltStorage) ListChats() ([]models.Chat, error) {
 				return err
 			}
 			chats = append(chats, models.Chat{
-				ID:      dbChat.ID,
-				Name:    dbChat.Name,
-				LastSeq: dbChat.LastSeq,
-				IsDM:    dbChat.IsDM,
+				ID:        dbChat.ID,
+				Name:      dbChat.Name,
+				AvatarURL: dbChat.AvatarURL,
+				LastSeq:   dbChat.LastSeq,
+				IsDM:      dbChat.IsDM,
 			})
 			return nil
 		})

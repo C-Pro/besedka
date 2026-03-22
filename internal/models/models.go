@@ -49,11 +49,12 @@ type Presence struct {
 
 // Chat represents a chat conversation.
 type Chat struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	LastSeq int    `json:"lastSeq"` // Last message sequence number (used to backfill messages and show unread count)
-	IsDM    bool   `json:"isDm"`
-	Online  bool   `json:"online,omitempty"` // Optional, for DMs
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	AvatarURL string `json:"avatarUrl,omitempty"`
+	LastSeq   int    `json:"lastSeq"` // Last message sequence number (used to backfill messages and show unread count)
+	IsDM      bool   `json:"isDm"`
+	Online    bool   `json:"online,omitempty"` // Optional, for DMs
 }
 
 // Message represents a chat message.

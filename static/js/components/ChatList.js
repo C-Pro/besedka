@@ -10,7 +10,9 @@ export function createChatList(container) {
             <div class="chat-list-items">
                 ${state.chats.map(chat => {
             let avatarHtml = `<div class="avatar">${chat.name.charAt(0)}</div>`;
-            if (chat.isDm) {
+            if (chat.avatarUrl) {
+                avatarHtml = `<div class="avatar" style="padding:0;"><img src="${chat.avatarUrl}" alt="Avatar" style="width:100%; height:100%; border-radius:50%; object-fit:cover;"></div>`;
+            } else if (chat.isDm) {
                 const otherUserId = chat.id.replace('dm_', '').split('_').find(id => id !== state.currentUser?.id);
                 const fullUser = state.users.find(u => u.id === otherUserId);
                 if (fullUser?.avatarUrl) {

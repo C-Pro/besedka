@@ -171,10 +171,26 @@ export function createChatWindow(container) {
             `;
         }
 
+        let avatarHtml = `<div class="avatar">${activeChat.name.charAt(0)}</div>`;
+        if (activeChat.avatarUrl) {
+            avatarHtml = `<div class="avatar" style="padding:0; width:32px; height:32px; font-size: 14px;"><img src="${activeChat.avatarUrl}" alt="Avatar" style="width:100%; height:100%; border-radius:50%; object-fit:cover;"></div>`;
+        } else if (activeChat.isDm) {
+            const otherUserId = activeChat.id.replace('dm_', '').split('_').find(id => id !== state.currentUser?.id);
+            const fullUser = state.users.find(u => u.id === otherUserId);
+            if (fullUser?.avatarUrl) {
+                avatarHtml = `<div class="avatar" style="padding:0; width:32px; height:32px; font-size: 14px;"><img src="${fullUser.avatarUrl}" alt="Avatar" style="width:100%; height:100%; border-radius:50%; object-fit:cover;"></div>`;
+            } else {
+                avatarHtml = `<div class="avatar" style="width:32px; height:32px; font-size: 14px;">${activeChat.name.charAt(0)}</div>`;
+            }
+        } else {
+            avatarHtml = `<div class="avatar" style="width:32px; height:32px; font-size: 14px;">${activeChat.name.charAt(0)}</div>`;
+        }
+
         // nosemgrep
         container.innerHTML = `
             <div class="chat-header">
-                <h3>${activeChat.name}</h3>
+                ${avatarHtml}
+                <h3 style="margin-left: 10px;">${activeChat.name}</h3>
                 <div class="actions"></div>
             </div>
             <div class="messages-container" id="messages-container">
