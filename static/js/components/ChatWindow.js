@@ -189,8 +189,10 @@ export function createChatWindow(container) {
         // nosemgrep
         container.innerHTML = `
             <div class="chat-header">
-                ${avatarHtml}
-                <h3 style="margin-left: 10px;">${activeChat.name}</h3>
+                <div class="chat-header-left" style="display: flex; align-items: center;">
+                    ${avatarHtml}
+                    <h3 style="margin-left: 10px;">${activeChat.name}</h3>
+                </div>
                 <div class="actions"></div>
             </div>
             <div class="messages-container" id="messages-container">
