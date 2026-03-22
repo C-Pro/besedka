@@ -449,6 +449,45 @@ func TestHub_RemoveDeletedUser(t *testing.T) {
 	}
 }
 
+func TestHub_GetChats_TownHallAvatarURL(t *testing.T) {
+	user1 := models.User{ID: "u1", DisplayName: "User 1"}
+	user2 := models.User{ID: "u2", DisplayName: "User 2"}
+
+	provider := &MockUserProvider{
+		users: []models.User{user1, user2},
+	}
+	store := NewMockStorage()
+	h := NewHub(provider, store)
+
+	chats := h.GetChats(user1.ID)
+
+	var townhall *models.Chat
+	var dms []models.Chat
+	for i := range chats {
+		if chats[i].ID == "townhall" {
+			townhall = &chats[i]
+		} else if chats[i].IsDM {
+			dms = append(dms, chats[i])
+		}
+	}
+
+	if townhall == nil {
+		t.Fatal("Town Hall chat not found in GetChats result")
+	}
+	if townhall.AvatarURL != "/besedka.png" {
+		t.Errorf("Town Hall AvatarURL: expected %q, got %q", "/besedka.png", townhall.AvatarURL)
+	}
+	if townhall.Name != "Town Hall" {
+		t.Errorf("Town Hall Name: expected %q, got %q", "Town Hall", townhall.Name)
+	}
+
+	for _, dm := range dms {
+		if dm.AvatarURL != "" {
+			t.Errorf("DM chat %q should not have AvatarURL, got %q", dm.ID, dm.AvatarURL)
+		}
+	}
+}
+
 func TestHub_FetchMessages_ReturnsRange(t *testing.T) {
 	user1 := models.User{ID: "u1", DisplayName: "User 1"}
 
