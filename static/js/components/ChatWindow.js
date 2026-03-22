@@ -171,20 +171,15 @@ export function createChatWindow(container) {
             `;
         }
 
-        let avatarHtml = `<div class="avatar">${activeChat.name.charAt(0)}</div>`;
-        if (activeChat.avatarUrl) {
-            avatarHtml = `<div class="avatar" style="padding:0; width:32px; height:32px; font-size: 14px;"><img src="${activeChat.avatarUrl}" alt="Avatar" style="width:100%; height:100%; border-radius:50%; object-fit:cover;"></div>`;
-        } else if (activeChat.isDm) {
+        let headerAvatarUrl = activeChat.avatarUrl || null;
+        if (!headerAvatarUrl && activeChat.isDm) {
             const otherUserId = activeChat.id.replace('dm_', '').split('_').find(id => id !== state.currentUser?.id);
             const fullUser = state.users.find(u => u.id === otherUserId);
-            if (fullUser?.avatarUrl) {
-                avatarHtml = `<div class="avatar" style="padding:0; width:32px; height:32px; font-size: 14px;"><img src="${fullUser.avatarUrl}" alt="Avatar" style="width:100%; height:100%; border-radius:50%; object-fit:cover;"></div>`;
-            } else {
-                avatarHtml = `<div class="avatar" style="width:32px; height:32px; font-size: 14px;">${activeChat.name.charAt(0)}</div>`;
-            }
-        } else {
-            avatarHtml = `<div class="avatar" style="width:32px; height:32px; font-size: 14px;">${activeChat.name.charAt(0)}</div>`;
+            headerAvatarUrl = fullUser?.avatarUrl || null;
         }
+        const avatarHtml = headerAvatarUrl
+            ? `<div class="avatar" style="padding:0; width:32px; height:32px; font-size: 14px;"></div>`
+            : `<div class="avatar" style="width:32px; height:32px; font-size: 14px;">${activeChat.name.charAt(0)}</div>`;
 
         // nosemgrep
         container.innerHTML = `
@@ -212,6 +207,17 @@ export function createChatWindow(container) {
                 </button>
             </div>
         `;
+
+        if (headerAvatarUrl) {
+            const avatarEl = container.querySelector('.chat-header .avatar');
+            if (avatarEl) {
+                const img = document.createElement('img');
+                img.src = headerAvatarUrl;
+                img.alt = 'Avatar';
+                img.style.cssText = 'width:100%; height:100%; border-radius:50%; object-fit:cover;';
+                avatarEl.appendChild(img);
+            }
+        }
 
         const newMessagesContainer = container.querySelector('#messages-container');
         if (newMessagesContainer) {
