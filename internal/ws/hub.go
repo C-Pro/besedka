@@ -385,9 +385,10 @@ func (h *Hub) GetChats(userID string) []models.Chat {
 	for id, c := range h.chats {
 		if id == "townhall" {
 			result = append(result, models.Chat{
-				ID:      c.ID,
-				Name:    "Town Hall",
-				LastSeq: int(c.LastSeq),
+				ID:        c.ID,
+				Name:      "Town Hall",
+				AvatarURL: "/besedka.png",
+				LastSeq:   int(c.LastSeq),
 			})
 			continue
 		}

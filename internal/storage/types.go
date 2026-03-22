@@ -59,10 +59,11 @@ func (u *DBUser) UnmarshalBinary(data []byte) error {
 }
 
 type DBChat struct {
-	ID      string `msgpack:"id"`
-	Name    string `msgpack:"name"`
-	LastSeq int    `msgpack:"lastSeq"`
-	IsDM    bool   `msgpack:"isDm"`
+	ID        string `msgpack:"id"`
+	Name      string `msgpack:"name"`
+	AvatarURL string `msgpack:"avatarUrl"`
+	LastSeq   int    `msgpack:"lastSeq"`
+	IsDM      bool   `msgpack:"isDm"`
 }
 
 func (c *DBChat) Key() []byte {

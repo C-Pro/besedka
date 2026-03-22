@@ -171,10 +171,23 @@ export function createChatWindow(container) {
             `;
         }
 
+        let headerAvatarUrl = activeChat.avatarUrl || null;
+        if (!headerAvatarUrl && activeChat.isDm) {
+            const otherUserId = activeChat.id.replace('dm_', '').split('_').find(id => id !== state.currentUser?.id);
+            const fullUser = state.users.find(u => u.id === otherUserId);
+            headerAvatarUrl = fullUser?.avatarUrl || null;
+        }
+        const avatarHtml = headerAvatarUrl
+            ? `<div class="avatar" style="padding:0; width:32px; height:32px; font-size: 14px;"></div>`
+            : `<div class="avatar" style="width:32px; height:32px; font-size: 14px;">${activeChat.name.charAt(0)}</div>`;
+
         // nosemgrep
         container.innerHTML = `
             <div class="chat-header">
-                <h3>${activeChat.name}</h3>
+                <div class="chat-header-left" style="display: flex; align-items: center;">
+                    ${avatarHtml}
+                    <h3 style="margin-left: 10px;">${activeChat.name}</h3>
+                </div>
                 <div class="actions"></div>
             </div>
             <div class="messages-container" id="messages-container">
@@ -196,6 +209,17 @@ export function createChatWindow(container) {
                 </button>
             </div>
         `;
+
+        if (headerAvatarUrl) {
+            const avatarEl = container.querySelector('.chat-header .avatar');
+            if (avatarEl) {
+                const img = document.createElement('img');
+                img.src = headerAvatarUrl;
+                img.alt = 'Avatar';
+                img.style.cssText = 'width:100%; height:100%; border-radius:50%; object-fit:cover;';
+                avatarEl.appendChild(img);
+            }
+        }
 
         const newMessagesContainer = container.querySelector('#messages-container');
         if (newMessagesContainer) {
