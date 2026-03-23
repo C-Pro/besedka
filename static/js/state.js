@@ -40,12 +40,6 @@ class Store {
             if (response.ok) {
                 const user = await response.json();
                 this.setState({ currentUser: user });
-                
-                // Request notification permission if not yet granted/denied
-                if (Notification.permission === 'default') {
-                    Notification.requestPermission();
-                }
-                
                 return true;
             }
             return false;
@@ -402,6 +396,7 @@ class Store {
     handleNewMessages(msg) {
         const chatId = msg.chatId;
         const currentMessages = this.state.messages[chatId] || [];
+        const wasLoadingHistory = this.state.isLoadingHistory[chatId];
 
         const newMessages = [];
         for (const m of (msg.messages || [])) {
@@ -455,9 +450,9 @@ class Store {
         });
 
         // Handle Notifications
-        if (document.hidden && Notification.permission === "granted") {
+        if ('Notification' in window && document.hidden && Notification.permission === "granted") {
             const isHistoryFetch = currentMessages.length === 0 && newMessages.length > 1; // Basic heuristic
-            if (!this.state.isLoadingHistory[chatId] && !isHistoryFetch) {
+            if (!wasLoadingHistory && !isHistoryFetch) {
                 for (const m of newMessages) {
                     if (m.userId !== this.state.currentUser?.id) {
                         const senderUser = this.state.users.find(u => u.id === m.userId);
@@ -471,16 +466,20 @@ class Store {
 
                         const iconUrl = senderUser?.avatarUrl || '/besedka.png';
 
-                        const notification = new Notification(title, {
-                            body: m.text,
-                            icon: iconUrl
-                        });
+                        try {
+                            const notification = new Notification(title, {
+                                body: m.text,
+                                icon: iconUrl
+                            });
 
-                        notification.onclick = () => {
-                            window.focus();
-                            notification.close();
-                            this.setActiveChat(chatId);
-                        };
+                            notification.onclick = () => {
+                                window.focus();
+                                notification.close();
+                                this.setActiveChat(chatId);
+                            };
+                        } catch (e) {
+                            console.error('Failed to create notification:', e);
+                        }
                     }
                 }
             }
@@ -518,6 +517,10 @@ class Store {
     }
 
     sendMessage(chatId, text, attachments = []) {
+        if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission().catch(console.error);
+        }
+
         this.sendWebSocketMessage({
             type: 'send',
             chatId,
