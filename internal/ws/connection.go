@@ -9,6 +9,11 @@ import (
 	"time"
 )
 
+const (
+	pingInterval = 30 * time.Second
+	readDeadline = 60 * time.Second
+)
+
 type wsConnection interface {
 	Close() error
 	WriteJSON(v any) error
@@ -81,7 +86,7 @@ func (c *Connection) Handle(ctx context.Context) error {
 }
 
 func (c *Connection) pumpMessages(ctx context.Context) error {
-	if err := c.ws.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
+	if err := c.ws.SetReadDeadline(time.Now().Add(readDeadline)); err != nil {
 		return err
 	}
 	for {
@@ -89,7 +94,7 @@ func (c *Connection) pumpMessages(ctx context.Context) error {
 		if err := c.ws.ReadJSON(&msg); err != nil {
 			return err
 		}
-		if err := c.ws.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
+		if err := c.ws.SetReadDeadline(time.Now().Add(readDeadline)); err != nil {
 			return err
 		}
 		select {
@@ -101,7 +106,7 @@ func (c *Connection) pumpMessages(ctx context.Context) error {
 }
 
 func (c *Connection) mainLoop(ctx context.Context) error {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(pingInterval)
 	defer ticker.Stop()
 
 	for {
