@@ -109,6 +109,7 @@ const (
 	ClientMessageTypeLeave ClientMessageType = "leave"
 	ClientMessageTypeSend  ClientMessageType = "send"
 	ClientMessageTypeFetch ClientMessageType = "fetch"
+	ClientMessageTypePong  ClientMessageType = "pong"
 )
 
 type ServerMessageType string
@@ -121,4 +122,5 @@ const (
 	ServerMessageTypeNew ServerMessageType = "new"
 	// Sent when user is deleted
 	ServerMessageTypeDeleted ServerMessageType = "deleted"
+	ServerMessageTypePing    ServerMessageType = "ping"
 )

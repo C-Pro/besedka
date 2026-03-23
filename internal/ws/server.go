@@ -2,7 +2,9 @@ package ws
 
 import (
 	"besedka/internal/auth"
+	"errors"
 	"log"
+	"net"
 	"net/http"
 
 	"github.com/gorilla/websocket"
@@ -44,17 +46,21 @@ func (s *Server) HandleConnections(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	defer func() {
-		if err := ws.Close(); err != nil {
-			log.Printf("error closing websocket: %v", err)
-		}
-	}()
-
 	// Create Connection
 	conn := NewConnection(s.hub, ws, userID)
 
 	// Handle connection (blocks until closed)
 	if err := conn.Handle(r.Context()); err != nil {
+		if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+			return
+		}
+		if errors.Is(err, net.ErrClosed) {
+			return
+		}
+		var netErr net.Error
+		if errors.As(err, &netErr) && netErr.Timeout() {
+			return
+		}
 		log.Printf("connection handler error: %v", err)
 	}
 }

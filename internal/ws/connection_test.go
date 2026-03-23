@@ -60,6 +60,10 @@ func (m *mockWS) ReadJSON(v any) error {
 	}
 }
 
+func (m *mockWS) SetReadDeadline(t time.Time) error {
+	return nil
+}
+
 type mockHub struct {
 	joinCh     chan string
 	leaveCh    chan string
