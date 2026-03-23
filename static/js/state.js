@@ -40,6 +40,12 @@ class Store {
             if (response.ok) {
                 const user = await response.json();
                 this.setState({ currentUser: user });
+                
+                // Request notification permission if not yet granted/denied
+                if (Notification.permission === 'default') {
+                    Notification.requestPermission();
+                }
+                
                 return true;
             }
             return false;
@@ -447,6 +453,38 @@ class Store {
                 [chatId]: false
             }
         });
+
+        // Handle Notifications
+        if (document.hidden && Notification.permission === "granted") {
+            const isHistoryFetch = currentMessages.length === 0 && newMessages.length > 1; // Basic heuristic
+            if (!this.state.isLoadingHistory[chatId] && !isHistoryFetch) {
+                for (const m of newMessages) {
+                    if (m.userId !== this.state.currentUser?.id) {
+                        const senderUser = this.state.users.find(u => u.id === m.userId);
+                        const senderName = senderUser ? (senderUser.displayName || senderUser.userName) : m.userId;
+                        
+                        const chat = this.state.chats.find(c => c.id === chatId);
+                        let title = senderName;
+                        if (chat && !chat.isDm) {
+                            title = `${senderName} in ${chat.name}`;
+                        }
+
+                        const iconUrl = senderUser?.avatarUrl || '/besedka.png';
+
+                        const notification = new Notification(title, {
+                            body: m.text,
+                            icon: iconUrl
+                        });
+
+                        notification.onclick = () => {
+                            window.focus();
+                            notification.close();
+                            this.setActiveChat(chatId);
+                        };
+                    }
+                }
+            }
+        }
     }
 
     // UI Actions
