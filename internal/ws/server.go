@@ -6,7 +6,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"strings"
 
 	"github.com/gorilla/websocket"
 )
@@ -47,14 +46,6 @@ func (s *Server) HandleConnections(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	defer func() {
-		if err := ws.Close(); err != nil {
-			if !errors.Is(err, net.ErrClosed) && !strings.Contains(err.Error(), "use of closed network connection") {
-				log.Printf("error closing websocket: %v", err)
-			}
-		}
-	}()
-
 	// Create Connection
 	conn := NewConnection(s.hub, ws, userID)
 
@@ -63,7 +54,7 @@ func (s *Server) HandleConnections(w http.ResponseWriter, r *http.Request) {
 		if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 			return
 		}
-		if errors.Is(err, net.ErrClosed) || strings.Contains(err.Error(), "use of closed network connection") {
+		if errors.Is(err, net.ErrClosed) {
 			return
 		}
 		log.Printf("connection handler error: %v", err)
