@@ -15,6 +15,8 @@ class Store {
         this.socket = null;
         this.reconnectAttempts = 0;
         this.isReconnecting = false;
+        this.lastMessageTime = Date.now();
+        this.heartbeatInterval = null;
     }
 
     subscribe(listener) {
@@ -116,6 +118,10 @@ class Store {
                 if (this.socket) {
                     this.socket.close();
                     this.socket = null;
+                }
+                if (this.heartbeatInterval) {
+                    clearInterval(this.heartbeatInterval);
+                    this.heartbeatInterval = null;
                 }
 
                 window.location.href = '/login.html';
@@ -283,6 +289,19 @@ class Store {
         this.socket.onopen = () => {
             console.log('WebSocket connected');
             this.reconnectAttempts = 0;
+            this.lastMessageTime = Date.now();
+
+            if (this.heartbeatInterval) {
+                clearInterval(this.heartbeatInterval);
+            }
+            this.heartbeatInterval = setInterval(() => {
+                if (Date.now() - this.lastMessageTime > 65000) {
+                    console.log('Heartbeat timeout, forcing disconnect');
+                    if (this.socket) {
+                        this.socket.close();
+                    }
+                }
+            }, 10000);
 
             // If this was a reconnection, refresh data
             if (this.isReconnecting) {
@@ -305,6 +324,10 @@ class Store {
         this.socket.onclose = () => {
             console.log('WebSocket disconnected');
             this.socket = null;
+            if (this.heartbeatInterval) {
+                clearInterval(this.heartbeatInterval);
+                this.heartbeatInterval = null;
+            }
 
             if (!this.state.currentUser) return;
 
@@ -319,7 +342,11 @@ class Store {
     }
 
     handleServerMessage(msg) {
+        this.lastMessageTime = Date.now();
         switch (msg.type) {
+            case 'ping':
+                this.sendWebSocketMessage({ type: 'pong' });
+                break;
             case 'presence':
             case 'online':
             case 'offline':

@@ -6,12 +6,14 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 )
 
 type wsConnection interface {
 	Close() error
 	WriteJSON(v any) error
 	ReadJSON(v any) error
+	SetReadDeadline(t time.Time) error
 }
 
 type messageHub interface {
@@ -79,9 +81,15 @@ func (c *Connection) Handle(ctx context.Context) error {
 }
 
 func (c *Connection) pumpMessages(ctx context.Context) error {
+	if err := c.ws.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
+		return err
+	}
 	for {
 		var msg models.ClientMessage
 		if err := c.ws.ReadJSON(&msg); err != nil {
+			return err
+		}
+		if err := c.ws.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
 			return err
 		}
 		select {
@@ -93,6 +101,9 @@ func (c *Connection) pumpMessages(ctx context.Context) error {
 }
 
 func (c *Connection) mainLoop(ctx context.Context) error {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case msg := <-c.fromClient:
@@ -101,6 +112,10 @@ func (c *Connection) mainLoop(ctx context.Context) error {
 			}
 		case msg := <-c.fromServer:
 			if err := c.ws.WriteJSON(msg); err != nil {
+				return err
+			}
+		case <-ticker.C:
+			if err := c.ws.WriteJSON(models.ServerMessage{Type: models.ServerMessageTypePing}); err != nil {
 				return err
 			}
 		case <-ctx.Done():
