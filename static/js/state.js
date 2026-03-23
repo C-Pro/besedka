@@ -51,6 +51,10 @@ class Store {
     // API Actions
     // API Actions
     async login(username, password, otp = 0) {
+        if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission().catch(console.error);
+        }
+
         try {
             const body = `username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}&totp=${otp}`;
             const response = await fetch('/api/login', {
@@ -488,6 +492,10 @@ class Store {
 
     // UI Actions
     setActiveChat(chatId) {
+        if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission().catch(console.error);
+        }
+
         if (this.state.activeChatId === chatId) return;
 
         // Leave previous chat
