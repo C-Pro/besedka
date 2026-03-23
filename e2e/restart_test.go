@@ -69,6 +69,10 @@ func TestE2ERestartRecovery(t *testing.T) {
 	require.NoError(t, err)
 	err = alicePage.Locator("#send-btn").Click()
 	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		content, _ := alicePage.Locator(".messages-container").InnerHTML()
+		return strings.Contains(content, "Hello before restart")
+	}, 5*time.Second, 200*time.Millisecond, "Alice should see her sent Town Hall message before restart")
 
 	// Alice sends DM to Bob
 	t.Log("Alice sends DM to Bob...")
@@ -83,6 +87,10 @@ func TestE2ERestartRecovery(t *testing.T) {
 	require.NoError(t, err)
 	err = alicePage.Locator("#send-btn").Click()
 	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		content, _ := alicePage.Locator(".messages-container").InnerHTML()
+		return strings.Contains(content, "DM before restart")
+	}, 5*time.Second, 200*time.Millisecond, "Alice should see her sent DM before restart")
 
 	// 4. Restart Server
 	t.Log("Restarting server...")

@@ -87,5 +87,5 @@ Once migrated, you can start the server normally.
 - [x] Infinite scrolling
 - [ ] Rich text editing
 - [ ] Emojis and reactions
-- [ ] Notifications
+- [x] Notifications
 - [ ] Messages backup

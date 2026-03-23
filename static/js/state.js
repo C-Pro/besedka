@@ -396,6 +396,7 @@ class Store {
     handleNewMessages(msg) {
         const chatId = msg.chatId;
         const currentMessages = this.state.messages[chatId] || [];
+        const wasLoadingHistory = this.state.isLoadingHistory[chatId];
 
         const newMessages = [];
         for (const m of (msg.messages || [])) {
@@ -447,6 +448,42 @@ class Store {
                 [chatId]: false
             }
         });
+
+        // Handle Notifications
+        if ('Notification' in window && document.hidden && Notification.permission === "granted") {
+            const isHistoryFetch = currentMessages.length === 0 && newMessages.length > 1; // Basic heuristic
+            if (!wasLoadingHistory && !isHistoryFetch) {
+                for (const m of newMessages) {
+                    if (m.userId !== this.state.currentUser?.id) {
+                        const senderUser = this.state.users.find(u => u.id === m.userId);
+                        const senderName = senderUser ? (senderUser.displayName || senderUser.userName) : m.userId;
+                        
+                        const chat = this.state.chats.find(c => c.id === chatId);
+                        let title = senderName;
+                        if (chat && !chat.isDm) {
+                            title = `${senderName} in ${chat.name}`;
+                        }
+
+                        const iconUrl = senderUser?.avatarUrl || '/besedka.png';
+
+                        try {
+                            const notification = new Notification(title, {
+                                body: m.text,
+                                icon: iconUrl
+                            });
+
+                            notification.onclick = () => {
+                                window.focus();
+                                notification.close();
+                                this.setActiveChat(chatId);
+                            };
+                        } catch (e) {
+                            console.error('Failed to create notification:', e);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // UI Actions
@@ -480,6 +517,10 @@ class Store {
     }
 
     sendMessage(chatId, text, attachments = []) {
+        if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission().catch(console.error);
+        }
+
         this.sendWebSocketMessage({
             type: 'send',
             chatId,
