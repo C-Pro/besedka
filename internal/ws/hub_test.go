@@ -547,3 +547,48 @@ func TestHub_FetchMessages_ReturnsRange(t *testing.T) {
 		}
 	}
 }
+
+func TestHub_EnsureDMsFor_JoinsConnectedUsers(t *testing.T) {
+	user1 := models.User{ID: "u1", DisplayName: "User 1"}
+	user2 := models.User{ID: "u2", DisplayName: "User 2"}
+	userNew := models.User{ID: "unew", DisplayName: "New User"}
+
+	provider := &MockUserProvider{
+		users: []models.User{user1, user2},
+	}
+	store := NewMockStorage()
+	h := NewHub(provider, store)
+
+	// Connect user1
+	ch1 := h.Join(user1.ID)
+
+	// User1 might receive online notifications
+	drainMessages(ch1, 1)
+
+	// Now a new user registers.
+	h.EnsureDMsFor(userNew, []models.User{user1, user2, userNew})
+
+	// Dispatch a message from the new user to user1
+	dmID := getDMID(userNew.ID, user1.ID)
+	h.Dispatch(userNew.ID, models.ClientMessage{
+		Type:    models.ClientMessageTypeSend,
+		ChatID:  dmID,
+		Content: "hello from new user",
+	})
+
+	// User 1 should receive it because EnsureDMsFor added them to the chat
+	timeout := time.After(testTimeout)
+	var found bool
+	for !found {
+		select {
+		case msg := <-ch1:
+			if msg.Type == models.ServerMessageTypeMessages {
+				if len(msg.Messages) > 0 && msg.Messages[0].Content == "hello from new user" {
+					found = true
+				}
+			}
+		case <-timeout:
+			t.Fatal("Timeout waiting for message on new DM chat, user1 was likely not joined")
+		}
+	}
+}

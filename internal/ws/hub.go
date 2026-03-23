@@ -145,7 +145,13 @@ func (h *Hub) EnsureDMsFor(user models.User, allUsers []models.User) {
 		// Create deterministic ID for DM
 		dmID := getDMID(user.ID, other.ID)
 		if _, exists := h.chats[dmID]; !exists {
-			h.createChat(dmID, chatMaxRecords, true)
+			c := h.createChat(dmID, chatMaxRecords, true)
+			if _, ok := h.connectedUsers[user.ID]; ok {
+				c.Join(user.ID)
+			}
+			if _, ok := h.connectedUsers[other.ID]; ok {
+				c.Join(other.ID)
+			}
 		}
 	}
 }
