@@ -441,6 +441,7 @@ class Store {
                     const pad = (n) => n.toString().padStart(2, '0');
                     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
                 })(),
+                rawTimestamp: m.timestamp * 1000,
                 userId: m.userId,
                 attachments: m.attachments || []
             });
@@ -484,8 +485,13 @@ class Store {
         if ('Notification' in window && document.hidden && Notification.permission === "granted") {
             const isHistoryFetch = currentMessages.length === 0 && newMessages.length > 1; // Basic heuristic
             if (!wasLoadingHistory && !isHistoryFetch) {
+                const now = Date.now();
+                const lastSeq = currentMessages.length > 0 ? currentMessages[currentMessages.length - 1].seq : 0;
                 for (const m of newMessages) {
-                    if (m.userId !== this.state.currentUser?.id) {
+                    const alreadyExists = m.seq <= lastSeq;
+                    const isOld = (now - m.rawTimestamp) > 5 * 60 * 1000; // 5 minutes
+
+                    if (m.userId !== this.state.currentUser?.id && !alreadyExists && !isOld) {
                         const senderUser = this.state.users.find(u => u.id === m.userId);
                         const senderName = senderUser ? (senderUser.displayName || senderUser.userName) : m.userId;
                         
