@@ -66,6 +66,10 @@ func (s *Server) HandleConnections(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, net.ErrClosed) || strings.Contains(err.Error(), "use of closed network connection") {
 			return
 		}
+		var netErr net.Error
+		if errors.As(err, &netErr) && netErr.Timeout() {
+			return
+		}
 		log.Printf("connection handler error: %v", err)
 	}
 }
