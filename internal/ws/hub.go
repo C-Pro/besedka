@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -11,17 +12,20 @@ import (
 	"besedka/internal/chat"
 	"besedka/internal/content"
 	"besedka/internal/models"
+
+	"github.com/c-pro/geche"
 )
 
-// Number of records chats will keep in memory.
-const chatMaxRecords = 500
+const (
+	chatMaxRecords  = 500
+	locationTTL     = 10 * time.Minute
+	locationCleanup = time.Minute
+)
 
 type Hub struct {
-	// Map of chatID -> Chat object
-	chats map[string]*chat.Chat
-
-	// Map of userID -> Connection channel
+	chats          map[string]*chat.Chat
 	connectedUsers map[string]chan models.ServerMessage
+	userLocations  *geche.MapTTLCache[string, models.Location]
 
 	userProvider userProvider
 	storage      storage
@@ -41,10 +45,11 @@ type userProvider interface {
 	GetUsers() ([]models.User, error)
 }
 
-func NewHub(userProvider userProvider, storage storage) *Hub {
+func NewHub(ctx context.Context, userProvider userProvider, storage storage) *Hub {
 	h := &Hub{
 		chats:          make(map[string]*chat.Chat),
 		connectedUsers: make(map[string]chan models.ServerMessage),
+		userLocations:  geche.NewMapTTLCache[string, models.Location](ctx, locationTTL, locationCleanup),
 		userProvider:   userProvider,
 		storage:        storage,
 	}
@@ -174,6 +179,22 @@ func (h *Hub) Join(userID string) chan models.ServerMessage {
 	// Notify others that user is online
 	h.broadcastStatusChange(userID, true)
 
+	// Send active user locations to the newly connected user
+	go func() {
+		snap := h.userLocations.Snapshot()
+		if len(snap) == 0 {
+			return
+		}
+		locs := make([]models.UserLocation, 0, len(snap))
+		for uid, loc := range snap {
+			locs = append(locs, models.UserLocation{UserID: uid, Location: loc})
+		}
+		h.sendToUser(userID, models.ServerMessage{
+			Type:          models.ServerMessageTypeLocation,
+			UserLocations: locs,
+		})
+	}()
+
 	return ch
 }
 
@@ -292,21 +313,24 @@ func (h *Hub) sendToChannel(ch chan models.ServerMessage, msg models.ServerMessa
 }
 
 func (h *Hub) Dispatch(userID string, msg models.ClientMessage) {
+	// Location messages do not belong to any chatID, so handle them separately.
+	if msg.Type == models.ClientMessageTypeLocation {
+		h.handleLocation(userID, msg)
+		return
+	}
+
 	h.mu.RLock()
 	c, ok := h.chats[msg.ChatID]
 	h.mu.RUnlock()
 
 	if !ok {
-		// Chat doesn't exist
 		return
 	}
 
-	// Validate if it is a DM, is the user part of it?
 	if c.ID != "townhall" && !isUserInDM(userID, c.ID) {
 		return
 	}
 
-	// Handle message based on type
 	switch msg.Type {
 	case models.ClientMessageTypeSend:
 		if err := c.AddRecord(chat.ChatRecord{
@@ -318,28 +342,24 @@ func (h *Hub) Dispatch(userID string, msg models.ClientMessage) {
 			slog.Error("failed to add record", "chatID", c.ID, "userID", userID, "error", err)
 		}
 	case models.ClientMessageTypeJoin:
-		// Send last 100 messages
 		records, err := c.GetLastRecords(100)
 		if err != nil {
 			slog.Error("failed to get last records", "error", err)
 			return
 		}
 
-		messages := mapRecordsToMessages(records)
-		serverMsg := models.ServerMessage{
+		h.sendToUser(userID, models.ServerMessage{
 			Type:     models.ServerMessageTypeMessages,
 			ChatID:   c.ID,
-			Messages: messages,
-		}
-
-		h.sendToUser(userID, serverMsg)
+			Messages: mapRecordsToMessages(records),
+		})
 
 	case models.ClientMessageTypeFetch:
 		if msg.FromSeq < 1 {
 			msg.FromSeq = 1
 		}
 		if msg.FromSeq > msg.ToSeq {
-			return // invalid range
+			return
 		}
 
 		records, err := c.GetRecords(chat.Seq(msg.FromSeq), chat.Seq(msg.ToSeq))
@@ -348,15 +368,27 @@ func (h *Hub) Dispatch(userID string, msg models.ClientMessage) {
 			return
 		}
 
-		messages := mapRecordsToMessages(records)
-		serverMsg := models.ServerMessage{
+		h.sendToUser(userID, models.ServerMessage{
 			Type:     models.ServerMessageTypeMessages,
 			ChatID:   c.ID,
-			Messages: messages,
-		}
-
-		h.sendToUser(userID, serverMsg)
+			Messages: mapRecordsToMessages(records),
+		})
 	}
+}
+
+func (h *Hub) handleLocation(userID string, msg models.ClientMessage) {
+	if msg.Location == nil {
+		return
+	}
+
+	h.userLocations.Set(userID, *msg.Location)
+
+	go h.BroadcastToAll(models.ServerMessage{
+		Type: models.ServerMessageTypeLocation,
+		UserLocations: []models.UserLocation{
+			{UserID: userID, Location: *msg.Location},
+		},
+	}, "")
 }
 
 func (h *Hub) sendToUser(userID string, msg models.ServerMessage) {

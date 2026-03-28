@@ -55,7 +55,7 @@ func run(ctx context.Context, addUser string) error {
 		return err
 	}
 
-	hub := ws.NewHub(authService, bbStorage)
+	hub := ws.NewHub(ctx, authService, bbStorage)
 
 	adminServer := http.NewAdminServer(cfg, authService, hub)
 	apiServer := http.NewAPIServer(authService, hub, bbStorage, cfg.APIAddr)

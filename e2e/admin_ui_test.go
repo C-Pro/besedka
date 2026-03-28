@@ -81,7 +81,7 @@ func TestAdminUI(t *testing.T) {
 		t.Fatalf("Failed to create auth service: %v", err)
 	}
 
-	hub := ws.NewHub(authService, store) // Pass store to prevent panic
+	hub := ws.NewHub(context.Background(), authService, store)
 
 	adminServer := http.NewAdminServer(cfg, authService, hub)
 

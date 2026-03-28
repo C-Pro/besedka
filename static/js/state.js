@@ -9,7 +9,8 @@ class Store {
             chats: [],
             users: [],
             messages: {}, // chatId -> [messages]
-            isLoadingHistory: {} // chatId -> boolean
+            isLoadingHistory: {}, // chatId -> boolean
+            userLocations: new Map() // userId -> { lat, lng, timestamp }
         };
         this.listeners = [];
         this.socket = null;
@@ -17,6 +18,8 @@ class Store {
         this.isReconnecting = false;
         this.lastMessageTime = Date.now();
         this.heartbeatInterval = null;
+        this.locationInterval = null;
+        this.locationSharingEnabled = localStorage.getItem('locationSharing') === 'true';
     }
 
     subscribe(listener) {
@@ -123,6 +126,7 @@ class Store {
                     clearInterval(this.heartbeatInterval);
                     this.heartbeatInterval = null;
                 }
+                this.stopLocationSharing();
 
                 window.location.href = '/login.html';
             } else {
@@ -314,6 +318,10 @@ class Store {
             if (this.state.activeChatId) {
                 this.sendWebSocketMessage({ type: 'join', chatId: this.state.activeChatId });
             }
+
+            if (this.locationSharingEnabled) {
+                this.startLocationSharing();
+            }
         };
 
         this.socket.onmessage = (event) => {
@@ -360,6 +368,9 @@ class Store {
                 break;
             case 'deleted':
                 this.handleUserDeleted(msg);
+                break;
+            case 'location':
+                this.handleLocationUpdate(msg);
                 break;
         }
     }
@@ -585,6 +596,68 @@ class Store {
             fromSeq,
             toSeq
         });
+    }
+
+    handleLocationUpdate(msg) {
+        if (!msg.userLocations) return;
+        
+        const newLocations = new Map(this.state.userLocations);
+        const now = Date.now();
+        
+        for (const ul of msg.userLocations) {
+            newLocations.set(ul.userId, {
+                ...ul.location,
+                timestamp: now
+            });
+        }
+        
+        this.setState({ userLocations: newLocations });
+    }
+
+    toggleLocationSharing(enabled) {
+        this.locationSharingEnabled = enabled;
+        localStorage.setItem('locationSharing', enabled);
+        if (enabled) {
+            this.startLocationSharing();
+        } else {
+            this.stopLocationSharing();
+        }
+        this.notify();
+    }
+
+    startLocationSharing() {
+        if (this.locationInterval) clearInterval(this.locationInterval);
+        this.sendLocation();
+        this.locationInterval = setInterval(() => this.sendLocation(), 5 * 60 * 1000); // 5 minutes
+    }
+
+    stopLocationSharing() {
+        if (this.locationInterval) {
+            clearInterval(this.locationInterval);
+            this.locationInterval = null;
+        }
+    }
+
+    sendLocation() {
+        if (!navigator.geolocation) return;
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                this.sendWebSocketMessage({
+                    type: 'location',
+                    location: {
+                        lat: position.coords.latitude,
+                        lng: position.coords.longitude
+                    }
+                });
+            },
+            (error) => {
+                console.error("Error getting location:", error);
+                // If permission denied, toggle off
+                if (error.code === error.PERMISSION_DENIED) {
+                    this.toggleLocationSharing(false);
+                }
+            }
+        );
     }
 }
 

@@ -2,6 +2,7 @@ package ws
 
 import (
 	"besedka/internal/models"
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -89,7 +90,7 @@ func TestHub_Lifecycle(t *testing.T) {
 		users: []models.User{user1, user2},
 	}
 	store := NewMockStorage()
-	h := NewHub(provider, store)
+	h := NewHub(context.Background(), provider, store)
 
 	// 1. Add Users - Automatically handled by NewHub via provider
 
@@ -215,7 +216,7 @@ func TestHub_Broadcasting(t *testing.T) {
 		users: []models.User{user1, user2, user3},
 	}
 	store := NewMockStorage()
-	h := NewHub(provider, store)
+	h := NewHub(context.Background(), provider, store)
 
 	ch1 := h.Join(user1.ID)
 	ch2 := h.Join(user2.ID)
@@ -286,7 +287,7 @@ func TestHub_JoinChat_ReturnsHistory(t *testing.T) {
 		users: []models.User{user1, user2},
 	}
 	store := NewMockStorage()
-	h := NewHub(provider, store)
+	h := NewHub(context.Background(), provider, store)
 
 	// User 1 connects
 	ch1 := h.Join(user1.ID)
@@ -352,7 +353,7 @@ func TestHub_RemoveDeletedUser(t *testing.T) {
 		users: []models.User{user1, user2, user3},
 	}
 	store := NewMockStorage()
-	h := NewHub(provider, store)
+	h := NewHub(context.Background(), provider, store)
 
 	// Connect all users
 	ch1 := h.Join(user1.ID)
@@ -457,7 +458,7 @@ func TestHub_GetChats_TownHallAvatarURL(t *testing.T) {
 		users: []models.User{user1, user2},
 	}
 	store := NewMockStorage()
-	h := NewHub(provider, store)
+	h := NewHub(context.Background(), provider, store)
 
 	chats := h.GetChats(user1.ID)
 
@@ -495,7 +496,7 @@ func TestHub_FetchMessages_ReturnsRange(t *testing.T) {
 		users: []models.User{user1},
 	}
 	store := NewMockStorage()
-	h := NewHub(provider, store)
+	h := NewHub(context.Background(), provider, store)
 
 	ch1 := h.Join(user1.ID)
 	if ch1 == nil {
@@ -557,7 +558,7 @@ func TestHub_EnsureDMsFor_JoinsConnectedUsers(t *testing.T) {
 		users: []models.User{user1, user2},
 	}
 	store := NewMockStorage()
-	h := NewHub(provider, store)
+	h := NewHub(context.Background(), provider, store)
 
 	// Connect user1
 	ch1 := h.Join(user1.ID)
@@ -589,6 +590,85 @@ func TestHub_EnsureDMsFor_JoinsConnectedUsers(t *testing.T) {
 			}
 		case <-timeout:
 			t.Fatal("Timeout waiting for message on new DM chat, user1 was likely not joined")
+		}
+	}
+}
+
+func TestHub_LocationBroadcast(t *testing.T) {
+	user1 := models.User{ID: "u1", DisplayName: "User 1"}
+	user2 := models.User{ID: "u2", DisplayName: "User 2"}
+
+	provider := &MockUserProvider{
+		users: []models.User{user1, user2},
+	}
+	store := NewMockStorage()
+	h := NewHub(context.Background(), provider, store)
+
+	ch1 := h.Join(user1.ID)
+	ch2 := h.Join(user2.ID)
+
+	drainMessages(ch1, 1) // u2 online
+	drainMessages(ch2, 1) // u1 online (from ch2's perspective, u1 was already online)
+
+	// User 1 sends location
+	loc := models.Location{Lat: 37.7749, Lng: -122.4194}
+	h.Dispatch(user1.ID, models.ClientMessage{
+		Type:     models.ClientMessageTypeLocation,
+		Location: &loc,
+	})
+
+	// User 2 should receive location broadcast
+	timeout := time.After(time.Second)
+	var found bool
+	for !found {
+		select {
+		case msg := <-ch2:
+			if msg.Type == models.ServerMessageTypeLocation {
+				if len(msg.UserLocations) != 1 {
+					t.Fatalf("Expected 1 user location, got %d", len(msg.UserLocations))
+				}
+				ul := msg.UserLocations[0]
+				if ul.UserID != user1.ID {
+					t.Errorf("Expected user ID %s, got %s", user1.ID, ul.UserID)
+				}
+				if ul.Location.Lat != loc.Lat || ul.Location.Lng != loc.Lng {
+					t.Errorf("Location mismatch: got %+v", ul.Location)
+				}
+				found = true
+			}
+		case <-timeout:
+			t.Fatal("Timeout waiting for location broadcast")
+		}
+	}
+
+	// Verify location is cached
+	cachedLoc, err := h.userLocations.Get(user1.ID)
+	if err != nil {
+		t.Fatalf("Location not cached: %v", err)
+	}
+	if cachedLoc.Lat != loc.Lat || cachedLoc.Lng != loc.Lng {
+		t.Errorf("Cached location mismatch: got %+v", cachedLoc)
+	}
+
+	// New user joins and should receive bulk locations
+	user3 := models.User{ID: "u3", DisplayName: "User 3"}
+	provider.users = append(provider.users, user3)
+	h.EnsureDMsFor(user3, provider.users)
+	ch3 := h.Join(user3.ID)
+
+	timeout = time.After(time.Second)
+	var gotLocations bool
+	for !gotLocations {
+		select {
+		case msg := <-ch3:
+			if msg.Type == models.ServerMessageTypeLocation {
+				if len(msg.UserLocations) < 1 {
+					t.Fatalf("Expected at least 1 user location in bulk, got %d", len(msg.UserLocations))
+				}
+				gotLocations = true
+			}
+		case <-timeout:
+			t.Fatal("Timeout waiting for bulk location on new user join")
 		}
 	}
 }
