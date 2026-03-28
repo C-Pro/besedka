@@ -730,3 +730,90 @@
         content: "";
     }
 }
+
+/* Location Map Styles */
+.location-map-container {
+    box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+    border: 1px solid var(--border-subtle);
+}
+
+.icon-button {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px;
+    border-radius: 50%;
+    transition: all 0.2s ease;
+}
+
+.icon-button:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.icon-button.active {
+    color: #10b981; /* active green */
+    background: rgba(16, 185, 129, 0.1);
+}
+
+.icon-button.active:hover {
+    background: rgba(16, 185, 129, 0.2);
+}
+
+.marker-layer .marker-container {
+    transition: transform 0.5s ease-in-out;
+}
+
+/* iOS Toggle Switch */
+.ios-toggle {
+    position: relative;
+    display: inline-block;
+    width: 40px;
+    height: 22px;
+}
+
+.ios-toggle input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.ios-toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: var(--border-color, rgba(120, 120, 128, 0.32));
+    transition: 0.3s;
+    border-radius: 22px;
+    border: 1px solid var(--border-color);
+}
+
+.ios-toggle-slider:before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 1px;
+    bottom: 1px;
+    background-color: var(--text-primary, #fff);
+    transition: 0.3s;
+    border-radius: 50%;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.ios-toggle input:checked + .ios-toggle-slider {
+    background-color: #34C759;
+    border-color: #34C759;
+}
+
+.ios-toggle input:checked + .ios-toggle-slider:before {
+    transform: translateX(18px);
+    background-color: #fff;
+}

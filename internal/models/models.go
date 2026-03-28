@@ -67,25 +67,39 @@ type Message struct {
 	Attachments []Attachment `json:"attachments,omitempty"`
 }
 
+// Location represents geographic coordinates.
+type Location struct {
+	Lat float64 `json:"lat"`
+	Lng float64 `json:"lng"`
+}
+
+// UserLocation represents a user's location.
+type UserLocation struct {
+	UserID   string   `json:"userId"`
+	Location Location `json:"location"`
+}
+
 // ClientMessage represents a message sent from the client to the server.
 type ClientMessage struct {
 	Type        ClientMessageType `json:"type"`
-	ChatID      string            `json:"chatId"`
-	Content     string            `json:"content"`
+	ChatID      string            `json:"chatId,omitempty"`
+	Content     string            `json:"content,omitempty"`
 	Attachments []Attachment      `json:"attachments,omitempty"`
 	FromSeq     int64             `json:"fromSeq,omitempty"`
 	ToSeq       int64             `json:"toSeq,omitempty"`
+	Location    *Location         `json:"location,omitempty"`
 }
 
 // ServerMessage represents a message to the client.
 type ServerMessage struct {
-	Type     ServerMessageType `json:"type"`
-	UserID   string            `json:"userId,omitempty"`
-	Online   bool              `json:"online,omitempty"`
-	ChatID   string            `json:"chatId,omitempty"`
-	Messages []Message         `json:"messages,omitempty"`
-	User     User              `json:"user,omitempty"`
-	Chat     Chat              `json:"chat,omitempty"`
+	Type          ServerMessageType `json:"type"`
+	UserID        string            `json:"userId,omitempty"`
+	Online        bool              `json:"online,omitempty"`
+	ChatID        string            `json:"chatId,omitempty"`
+	Messages      []Message         `json:"messages,omitempty"`
+	User          User              `json:"user,omitempty"`
+	Chat          Chat              `json:"chat,omitempty"`
+	UserLocations []UserLocation    `json:"userLocations,omitempty"`
 }
 
 type AttachmentType string
@@ -105,11 +119,12 @@ type Attachment struct {
 type ClientMessageType string
 
 const (
-	ClientMessageTypeJoin  ClientMessageType = "join"
-	ClientMessageTypeLeave ClientMessageType = "leave"
-	ClientMessageTypeSend  ClientMessageType = "send"
-	ClientMessageTypeFetch ClientMessageType = "fetch"
-	ClientMessageTypePong  ClientMessageType = "pong"
+	ClientMessageTypeJoin     ClientMessageType = "join"
+	ClientMessageTypeLeave    ClientMessageType = "leave"
+	ClientMessageTypeSend     ClientMessageType = "send"
+	ClientMessageTypeFetch    ClientMessageType = "fetch"
+	ClientMessageTypePong     ClientMessageType = "pong"
+	ClientMessageTypeLocation ClientMessageType = "location"
 )
 
 type ServerMessageType string
@@ -121,6 +136,7 @@ const (
 	// Sent when a new user is created
 	ServerMessageTypeNew ServerMessageType = "new"
 	// Sent when user is deleted
-	ServerMessageTypeDeleted ServerMessageType = "deleted"
-	ServerMessageTypePing    ServerMessageType = "ping"
+	ServerMessageTypeDeleted  ServerMessageType = "deleted"
+	ServerMessageTypePing     ServerMessageType = "ping"
+	ServerMessageTypeLocation ServerMessageType = "location"
 )

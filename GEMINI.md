@@ -40,7 +40,9 @@ When implementing new feature, always make sure to cover it with tests.
 Always test the new features manually in the browser.
 Make sure the server is running and the app is accessible at `http://localhost:8080`.
 To run the server use `AUTH_SECRET=very-secure-secret-key-for-development-mode go run .`
+Once started, server will serve admin api on port 8081. Use it to register new users.
 To generate a TOTP key use `go run ./cmd/totp/main.go <base32 secret>`.
+Totp is needed both for the registration and login.
 
 # Temporary files
 

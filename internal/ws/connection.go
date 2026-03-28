@@ -135,6 +135,8 @@ func (c *Connection) processClientMessage(msg models.ClientMessage) error {
 	case models.ClientMessageTypeJoin, models.ClientMessageTypeSend, models.ClientMessageTypeFetch:
 		msg.Content = content.Sanitize(msg.Content)
 		c.hub.Dispatch(c.userID, msg)
+	case models.ClientMessageTypeLocation:
+		c.hub.Dispatch(c.userID, msg)
 	}
 
 	return nil

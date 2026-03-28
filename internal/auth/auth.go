@@ -62,9 +62,11 @@ type RegistrationRequest struct {
 }
 
 type RegistrationResponse struct {
-	Success bool   `json:"success"`
-	Token   string `json:"token,omitempty"`
-	Message string `json:"message,omitempty"`
+	Success    bool   `json:"success"`
+	Token      string `json:"token,omitempty"`
+	Message    string `json:"message,omitempty"`
+	UserID     string `json:"userId,omitempty"`
+	TOTPSecret string `json:"totpSecret,omitempty"`
 }
 
 type RegistrationInfoResponse struct {
@@ -78,6 +80,7 @@ type LoginResponse struct {
 	Message     string `json:"message,omitempty"`
 	Token       string `json:"token,omitempty"`
 	TokenExpiry int64  `json:"tokenExpiry,omitempty"`
+	UserID      string `json:"userId,omitempty"`
 }
 
 type UserCredentials struct {
@@ -596,6 +599,7 @@ func (as *AuthService) Login(req LoginRequest) (LoginResponse, string) {
 		Success:     true,
 		Token:       token,
 		TokenExpiry: now.Unix() + int64(as.TokenExpiry.Seconds()),
+		UserID:      user.ID,
 	}, user.ID
 }
 
@@ -785,8 +789,10 @@ func (as *AuthService) CompleteRegistration(req RegistrationRequest) (Registrati
 	}
 
 	return RegistrationResponse{
-		Success: true,
-		Token:   token,
+		Success:    true,
+		Token:      token,
+		UserID:     user.ID,
+		TOTPSecret: user.TOTPSecret,
 	}, token
 }
 

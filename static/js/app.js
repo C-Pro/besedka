@@ -45,7 +45,7 @@ function renderApp() {
     // Initialize components
     createChatList(document.getElementById('sidebar'));
     createChatWindow(document.getElementById('chat-area'));
-    createInfoPanel(document.getElementById('info-panel'));
+    createInfoPanel(document.getElementById('info-panel'), store);
 
     // Handle responsive visibility
     const handleVisibility = (state) => {

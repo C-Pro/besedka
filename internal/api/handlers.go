@@ -178,7 +178,7 @@ func (a *API) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 	// Sanitize inputs
 	req.DisplayName = content.Sanitize(req.DisplayName)
 
-	resp, token := a.auth.CompleteRegistration(req)
+	resp, _ := a.auth.CompleteRegistration(req)
 	if !resp.Success {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -189,18 +189,16 @@ func (a *API) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update Hub with new user DMs and broadcast
-	if userID, err := a.auth.GetUserID(token); err == nil {
-		if user, err := a.auth.GetUser(userID); err == nil {
-			if users, err := a.auth.GetUsers(); err == nil {
-				a.hub.EnsureDMsFor(user, users)
-			}
-			go a.hub.BroadcastNewUser(user)
+	if user, err := a.auth.GetUser(resp.UserID); err == nil {
+		if users, err := a.auth.GetUsers(); err == nil {
+			a.hub.EnsureDMsFor(user, users)
 		}
+		go a.hub.BroadcastNewUser(user)
 	}
 
 	http.SetCookie(w, &http.Cookie{
 		Name:     "token",
-		Value:    token,
+		Value:    resp.Token,
 		HttpOnly: true,
 		Secure:   true,
 		Path:     "/",

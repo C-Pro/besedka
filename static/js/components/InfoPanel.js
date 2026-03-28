@@ -1,4 +1,6 @@
-export function createInfoPanel(container) {
+import { LocationMap } from './LocationMap.js';
+
+export function createInfoPanel(container, store) {
     container.innerHTML = `
         <div class="info-header">
             <span class="info-title">Info</span>
@@ -19,11 +21,26 @@ export function createInfoPanel(container) {
                 </div>
             </div>
             <div class="info-section">
-                <div class="section-title">Location</div>
-                <div class="placeholder-box">
-                    Map View
+                <div class="section-title" style="display: flex; justify-content: space-between; align-items: center;">
+                    Location
+                    <label class="ios-toggle" title="Share Location">
+                        <input type="checkbox" id="location-toggle" aria-label="Share location" ${store.locationSharingEnabled ? 'checked' : ''}>
+                        <span class="ios-toggle-slider"></span>
+                    </label>
+                </div>
+                <div id="location-map" class="location-map-container" style="width: 100%; height: 200px; background: var(--bg-secondary); border-radius: 8px; overflow: hidden; position: relative;">
                 </div>
             </div>
         </div>
     `;
+
+    const locationToggle = container.querySelector('#location-toggle');
+    locationToggle.addEventListener('change', (e) => {
+        store.toggleLocationSharing(e.target.checked);
+    });
+
+    const mapContainer = container.querySelector('#location-map');
+    new LocationMap(mapContainer, store);
+    
+    // Listen for state changes to update markers if needed, or LocationMap can listen inside.
 }
