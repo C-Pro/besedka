@@ -264,12 +264,22 @@ export class LocationMap {
                     .attr('clip-path', 'circle(12px)');
                 
                 // create clip path if needed or just use foreignObject which handles css border-radius better
-                el.append("foreignObject")
+                const fo = el.append("foreignObject")
                     .attr("x", -12)
                     .attr("y", -12)
                     .attr("width", 24)
-                    .attr("height", 24)
-                    .html(`<img src="${user.avatarUrl}" style="width:100%; height:100%; border-radius:50%; object-fit:cover; pointer-events:none; border:2px solid white; box-sizing:border-box;" title="${name}"/>`);
+                    .attr("height", 24);
+                
+                fo.append("xhtml:img")
+                    .attr("src", user.avatarUrl)
+                    .attr("title", name)
+                    .style("width", "100%")
+                    .style("height", "100%")
+                    .style("border-radius", "50%")
+                    .style("object-fit", "cover")
+                    .style("pointer-events", "none")
+                    .style("border", "2px solid white")
+                    .style("box-sizing", "border-box");
                     
                 // Optional: remove standard circle, we just use foreign object
                 el.select('circle').remove();

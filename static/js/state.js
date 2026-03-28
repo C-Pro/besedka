@@ -336,6 +336,7 @@ class Store {
                 clearInterval(this.heartbeatInterval);
                 this.heartbeatInterval = null;
             }
+            this.stopLocationSharing();
 
             if (!this.state.currentUser) return;
 

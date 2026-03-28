@@ -24,7 +24,7 @@ export function createInfoPanel(container, store) {
                 <div class="section-title" style="display: flex; justify-content: space-between; align-items: center;">
                     Location
                     <label class="ios-toggle" title="Share Location">
-                        <input type="checkbox" id="location-toggle" ${store.locationSharingEnabled ? 'checked' : ''}>
+                        <input type="checkbox" id="location-toggle" aria-label="Share location" ${store.locationSharingEnabled ? 'checked' : ''}>
                         <span class="ios-toggle-slider"></span>
                     </label>
                 </div>

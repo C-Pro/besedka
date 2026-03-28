@@ -793,7 +793,7 @@ func (as *AuthService) CompleteRegistration(req RegistrationRequest) (Registrati
 		Token:      token,
 		UserID:     user.ID,
 		TOTPSecret: user.TOTPSecret,
-	}, user.ID
+	}, token
 }
 
 func GenerateTOTP(secret string, t time.Time) (int, error) {
