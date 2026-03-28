@@ -764,7 +764,7 @@
     background: rgba(16, 185, 129, 0.2);
 }
 
-.marker-layer .marker-container transition {
+.marker-layer .marker-container {
     transition: transform 0.5s ease-in-out;
 }
 

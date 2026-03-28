@@ -617,19 +617,40 @@ func TestHub_LocationBroadcast(t *testing.T) {
 		Location: &loc,
 	})
 
-	// User 2 should receive location broadcast
+	// User 1 should also receive its own location broadcast
 	timeout := time.After(time.Second)
-	var found bool
+	found := false
+	for !found {
+		select {
+		case msg := <-ch1:
+			if msg.Type == models.ServerMessageTypeLocation {
+				if len(msg.UserLocations) != 1 {
+					t.Fatalf("Expected 1 user location for sender, got %d", len(msg.UserLocations))
+				}
+				ul := msg.UserLocations[0]
+				if ul.UserID != user1.ID {
+					t.Errorf("Expected user ID %s, got %s", user1.ID, ul.UserID)
+				}
+				found = true
+			}
+		case <-timeout:
+			t.Fatal("Timeout waiting for own location broadcast")
+		}
+	}
+
+	// User 2 should receive location broadcast
+	timeout = time.After(time.Second)
+	found = false
 	for !found {
 		select {
 		case msg := <-ch2:
 			if msg.Type == models.ServerMessageTypeLocation {
 				if len(msg.UserLocations) != 1 {
-					t.Fatalf("Expected 1 user location, got %d", len(msg.UserLocations))
+					t.Fatalf("Expected 1 user location for other, got %d", len(msg.UserLocations))
 				}
 				ul := msg.UserLocations[0]
 				if ul.UserID != user1.ID {
-					t.Errorf("Expected user ID %s, got %s", user1.ID, ul.UserID)
+					t.Errorf("Expected user ID %s for other, got %s", user1.ID, ul.UserID)
 				}
 				if ul.Location.Lat != loc.Lat || ul.Location.Lng != loc.Lng {
 					t.Errorf("Location mismatch: got %+v", ul.Location)
@@ -637,7 +658,7 @@ func TestHub_LocationBroadcast(t *testing.T) {
 				found = true
 			}
 		case <-timeout:
-			t.Fatal("Timeout waiting for location broadcast")
+			t.Fatal("Timeout waiting for location broadcast on ch2")
 		}
 	}
 

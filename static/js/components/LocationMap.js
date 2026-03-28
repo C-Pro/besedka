@@ -161,12 +161,12 @@ export class LocationMap {
         
         // Update markers position
         this.markerLayer.selectAll('.marker-container')
-            .style('transform', d => {
+            .attr('transform', d => {
                 const projected = this.projection([d.location.lng, d.location.lat]);
                 if (projected) {
-                    return `translate(${projected[0]}px, ${projected[1]}px)`;
+                    return `translate(${projected[0]}, ${projected[1]})`;
                 }
-                return 'translate(-9999px, -9999px)';
+                return 'translate(-9999, -9999)';
             });
             
         // Hide markers that are on the back side of the orthographic globe
@@ -175,7 +175,7 @@ export class LocationMap {
                 // To check if a point is visible on an orthographic projection:
                 // We use geoPath which returns undefined or empty for points on back of globe with clipping
                 const dpath = this.path({type: "Point", coordinates: [d.location.lng, d.location.lat]});
-                return dpath ? 'flex' : 'none';
+                return dpath ? null : 'none';
             });
     }
 
@@ -251,7 +251,7 @@ export class LocationMap {
         enter.each(function(d) {
             const el = d3.select(this);
             const user = d.user;
-            const name = user.displayName || user.userName || user.id;
+            const name = user.displayName || user.userName || user.name || user.id;
             
             if (user.avatarUrl) {
                 // For images we need the standard svg image or foreignObject
@@ -289,7 +289,7 @@ export class LocationMap {
         });
         
         // Add title for native tooltips on hover for all
-        enter.append('title').text(d => d.user.displayName || d.user.userName || d.userId);
+        enter.append('title').text(d => d.user.displayName || d.user.userName || d.user.name || d.userId);
 
         this.drawPaths();
     }
