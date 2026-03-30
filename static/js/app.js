@@ -28,7 +28,7 @@ function renderApp() {
                     </div>
                 </div>
             </div>
-            
+
             <div class="mobile-menu-overlay" id="mobile-menu-overlay"></div>
             <div class="mobile-menu" id="mobile-menu">
                 <div class="mobile-menu-item" data-tab="chat-list">Chats</div>
@@ -113,6 +113,48 @@ function renderApp() {
     hamburgerBtn.addEventListener('click', toggleMenu);
     overlay.addEventListener('click', toggleMenu);
 
+    // History Management
+    let isHandlingPopState = false;
+
+    const pushState = (tab, chatId) => {
+        const state = { mobileActiveTab: tab, activeChatId: chatId };
+        // Don't push if the state is the same as current history state
+        if (history.state &&
+            history.state.mobileActiveTab === tab &&
+            history.state.activeChatId === chatId) return;
+
+        history.pushState(state, '', '');
+    };
+
+    window.addEventListener('popstate', (event) => {
+        isHandlingPopState = true;
+        if (event.state) {
+            const { mobileActiveTab, activeChatId } = event.state;
+
+            // If chatId is different, use setActiveChat to trigger join/leave logic
+            if (activeChatId !== store.state.activeChatId) {
+                store.setActiveChat(activeChatId);
+            }
+            
+            // Ensure mobileActiveTab is correctly synced from history
+            if (mobileActiveTab !== store.state.mobileActiveTab) {
+                store.setMobileTab(mobileActiveTab);
+            }
+        } else {
+            // Default state
+            store.setMobileTab('chat-list');
+        }
+        isHandlingPopState = false;
+    });
+
+    // Initialize initial history state if not present
+    if (!history.state) {
+        history.replaceState({
+            mobileActiveTab: store.state.mobileActiveTab,
+            activeChatId: store.state.activeChatId
+        }, '', '');
+    }
+
     document.querySelectorAll('.mobile-menu-item').forEach(item => {
         item.addEventListener('click', () => {
             store.setMobileTab(item.dataset.tab);
@@ -141,13 +183,18 @@ function renderApp() {
         if (Math.abs(distance) < minSwipeDistance) return;
 
         const currentTab = store.state.mobileActiveTab;
+        let newTab = currentTab;
 
         if (distance > 0) { // Swipe Right
-            if (currentTab === 'chat-window') store.setMobileTab('chat-list');
-            else if (currentTab === 'info-panel') store.setMobileTab('chat-window');
+            if (currentTab === 'chat-window') newTab = 'chat-list';
+            else if (currentTab === 'info-panel') newTab = 'chat-window';
         } else { // Swipe Left
-            if (currentTab === 'chat-list') store.setMobileTab('chat-window');
-            else if (currentTab === 'chat-window') store.setMobileTab('info-panel');
+            if (currentTab === 'chat-list') newTab = 'chat-window';
+            else if (currentTab === 'chat-window') newTab = 'info-panel';
+        }
+
+        if (newTab !== currentTab) {
+            store.setMobileTab(newTab);
         }
     };
 
@@ -246,6 +293,11 @@ function renderApp() {
     store.subscribe(state => {
         handleVisibility(state);
         updateProfileIcons(state);
+
+        // Sync history if not currently handling a popstate event
+        if (!isHandlingPopState) {
+            pushState(state.mobileActiveTab, state.activeChatId);
+        }
     });
 
     // Resize listener
