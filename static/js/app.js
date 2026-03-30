@@ -132,11 +132,13 @@ function renderApp() {
             const { mobileActiveTab, activeChatId } = event.state;
 
             // If chatId is different, use setActiveChat to trigger join/leave logic
-            if (activeChatId && activeChatId !== store.state.activeChatId) {
+            if (activeChatId !== store.state.activeChatId) {
                 store.setActiveChat(activeChatId);
-            } else {
-                // Otherwise just sync the state (especially mobileActiveTab)
-                store.setState({ mobileActiveTab, activeChatId });
+            }
+            
+            // Ensure mobileActiveTab is correctly synced from history
+            if (mobileActiveTab !== store.state.mobileActiveTab) {
+                store.setMobileTab(mobileActiveTab);
             }
         } else {
             // Default state

@@ -36,7 +36,7 @@ const handleLogin = async (e) => {
             window.location.replace('/');
         } else if (result.needRegister) {
             // Redirect to registration page with username pre-filled
-            window.location.href = `register.html?username=${encodeURIComponent(currentUsername)}`;
+            window.location.replace(`register.html?username=${encodeURIComponent(currentUsername)}`);
         } else {
             showError(result.message || 'Login failed');
         }

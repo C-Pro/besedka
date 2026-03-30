@@ -230,7 +230,16 @@ func TestE2ELogoff(t *testing.T) {
 }
 
 func registerUser(t *testing.T, page playwright.Page, setupLink string, displayName string, password string) string {
-	_, err := page.Goto(setupLink)
+	return registerUserWithReplace(t, page, setupLink, displayName, password, false)
+}
+
+func registerUserWithReplace(t *testing.T, page playwright.Page, setupLink string, displayName string, password string, replace bool) string {
+	var err error
+	if replace {
+		_, err = page.Evaluate("window.location.replace('" + setupLink + "')")
+	} else {
+		_, err = page.Goto(setupLink)
+	}
 	require.NoError(t, err)
 
 	// Wait for form to appear

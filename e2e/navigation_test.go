@@ -31,9 +31,10 @@ func TestE2ENavigationBack(t *testing.T) {
 		require.NoError(t, err)
 
 		// 2. Register (which also logs in)
-		registerUser(t, page, aliceSetupLink, "Alice Nav", "password123")
-		
+		registerUserWithReplace(t, page, aliceSetupLink, "Alice Nav", "password123", true)
+
 		// We should be on the main page
+
 		require.Contains(t, page.URL(), server.BaseURL+"/")
 
 		// 3. Press Back
@@ -67,9 +68,13 @@ func TestE2ENavigationBack(t *testing.T) {
 		page, err := context.NewPage()
 		require.NoError(t, err)
 
-		// 1. Register/Login
+		// 1. Go to login page first (to have it in history)
+		_, err = page.Goto(server.BaseURL + "/login.html")
+		require.NoError(t, err)
+
+		// 2. Register/Login
 		t.Log("Registering Bob on mobile...")
-		registerUser(t, page, bobSetupLink, "Bob Nav", "password456")
+		registerUserWithReplace(t, page, bobSetupLink, "Bob Nav", "password456", true)
 		t.Log("Registered Bob on mobile.")
 
 		// On mobile, the app might auto-select Town Hall and switch to chat-window tab
@@ -91,7 +96,7 @@ func TestE2ENavigationBack(t *testing.T) {
 			t.Log("Already on chat-window (auto-selected).")
 		}
 
-		// Verify we are on chat-window
+		// 3. Verify we are on chat-window
 		t.Log("Verifying chat-window is visible...")
 		require.Eventually(t, func() bool {
 			visible, _ := page.Locator("#chat-area").IsVisible()
