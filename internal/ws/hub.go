@@ -530,7 +530,7 @@ func mapRecordsToMessages(records []chat.ChatRecord) []models.Message {
 		messages[i] = models.Message{
 			Seq:         int64(r.Seq),
 			UserID:      r.UserID,
-			Content:     content.Escape(r.Content),
+			Content:     content.FormatMessage(r.Content),
 			Timestamp:   r.Timestamp,
 			Attachments: r.Attachments,
 		}

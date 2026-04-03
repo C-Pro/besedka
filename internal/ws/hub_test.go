@@ -137,8 +137,9 @@ func TestHub_Lifecycle(t *testing.T) {
 		if len(msg.Messages) == 0 {
 			t.Fatal("Received empty message list")
 		}
-		if msg.Messages[0].Content != msgContent {
-			t.Errorf("Expected content %s, got %s", msgContent, msg.Messages[0].Content)
+		expectedHTML := fmt.Sprintf("<p>%s</p>\n", msgContent)
+		if msg.Messages[0].Content != expectedHTML {
+			t.Errorf("Expected content %s, got %s", expectedHTML, msg.Messages[0].Content)
 		}
 		if msg.ChatID != "townhall" {
 			t.Errorf("Expected ChatID townhall, got %s", msg.ChatID)
@@ -158,7 +159,8 @@ func TestHub_Lifecycle(t *testing.T) {
 				continue
 			}
 			if msg.Type == models.ServerMessageTypeMessages {
-				if len(msg.Messages) > 0 && msg.Messages[0].Content == msgContent {
+				expectedHTML := fmt.Sprintf("<p>%s</p>\n", msgContent)
+				if len(msg.Messages) > 0 && msg.Messages[0].Content == expectedHTML {
 					foundMessage = true
 				}
 			}
@@ -178,7 +180,8 @@ func TestHub_Lifecycle(t *testing.T) {
 
 	select {
 	case msg := <-ch1:
-		if msg.Messages[0].Content != dmContent {
+		expectedHTML := fmt.Sprintf("<p>%s</p>\n", dmContent)
+		if msg.Messages[0].Content != expectedHTML {
 			t.Errorf("User1 didn't get DM")
 		}
 		if msg.ChatID != dmID {
@@ -329,7 +332,7 @@ func TestHub_JoinChat_ReturnsHistory(t *testing.T) {
 		}
 		// Verify order and sequence
 		for i, m := range msg.Messages {
-			expected := fmt.Sprintf("msg %d", i)
+			expected := fmt.Sprintf("<p>msg %d</p>\n", i)
 			if m.Content != expected {
 				t.Errorf("Message %d: expected content %q, got %q", i, expected, m.Content)
 			}
@@ -536,7 +539,7 @@ func TestHub_FetchMessages_ReturnsRange(t *testing.T) {
 					if m.Seq != expectedSeq {
 						t.Errorf("Message %d: expected seq %d, got %d", i, expectedSeq, m.Seq)
 					}
-					expectedContent := fmt.Sprintf("msg %d", expectedSeq-1)
+					expectedContent := fmt.Sprintf("<p>msg %d</p>\n", expectedSeq-1)
 					if m.Content != expectedContent {
 						t.Errorf("Message %d: expected content %q, got %q", i, expectedContent, m.Content)
 					}
@@ -584,7 +587,7 @@ func TestHub_EnsureDMsFor_JoinsConnectedUsers(t *testing.T) {
 		select {
 		case msg := <-ch1:
 			if msg.Type == models.ServerMessageTypeMessages {
-				if len(msg.Messages) > 0 && msg.Messages[0].Content == "hello from new user" {
+				if len(msg.Messages) > 0 && msg.Messages[0].Content == "<p>hello from new user</p>\n" {
 					found = true
 				}
 			}

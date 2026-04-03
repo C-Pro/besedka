@@ -72,3 +72,29 @@ func TestValidateUsername(t *testing.T) {
 		})
 	}
 }
+
+func TestFormatMessage(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"Plain text", "Hello", "<p>Hello</p>\n"},
+		{"Bold and Italic", "**Bold** and *Italic*", "<p><strong>Bold</strong> and <em>Italic</em></p>\n"},
+		{"Link", "[Open AI](https://openai.com)", "<p><a href=\"https://openai.com\">Open AI</a></p>\n"},
+		{"Image (stripped)", "![Cute cat](cat.jpg)", "<p>Cute cat</p>\n"},
+		{"Unsafe HTML", "Hello <script>alert(1)</script>", "<p>Hello alert(1)</p>\n"},
+		{"Javascript Link", "[Click](javascript:alert(1))", "<p>Click</p>\n"},
+		{"Multiple paragraphs", "One\n\nTwo", "<p>One</p>\n<p>Two</p>\n"},
+		{"Raw URL", "https://example.com/test", "<p><a href=\"https://example.com/test\">https://example.com/test</a></p>\n"},
+		{"Code with quotes", "`\"test\"`", "<p><code>&#34;test&#34;</code></p>\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := FormatMessage(tt.input); got != tt.expected {
+				t.Errorf("FormatMessage() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
