@@ -162,7 +162,7 @@
     height: 40px;
     max-height: 200px;
     line-height: 1.5;
-    overflow-y: hidden;
+    overflow-y: auto;
 }
 
 .message-input:focus {

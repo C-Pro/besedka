@@ -4,6 +4,7 @@ export function createChatWindow(container) {
     let lastChatId = null;
     let filesToAttach = [];
     let isUploading = false;
+    let uploadAbortController = null;
 
     // Overlay Elements (created once)
     let overlay = document.getElementById('image-overlay');
@@ -70,6 +71,10 @@ export function createChatWindow(container) {
 
     const handleEscape = (e) => {
         if (e.key === 'Escape' && isUploading) {
+            if (uploadAbortController) {
+                uploadAbortController.abort();
+                uploadAbortController = null;
+            }
             isUploading = false;
             render(store.state);
         }
@@ -338,19 +343,25 @@ export function createChatWindow(container) {
                 if (e.target.files.length > 0) {
                     const file = e.target.files[0];
                     isUploading = true;
+                    uploadAbortController = new AbortController();
                     render(store.state); // Show spinner
 
                     try {
-                        const result = await store.uploadImage(file);
-                        filesToAttach.push({
-                            type: 'image',
-                            name: file.name,
-                            mimeType: file.type || 'image/png', // fallback
-                            fileId: result.id
-                        });
+                        const result = await store.uploadImage(file, uploadAbortController.signal);
+                        if (!uploadAbortController.signal.aborted) {
+                            filesToAttach.push({
+                                type: 'image',
+                                name: file.name,
+                                mimeType: file.type || 'image/png', // fallback
+                                fileId: result.id
+                            });
+                        }
                     } catch (err) {
-                        alert(`Failed to upload image: ${err.message}`);
+                        if (!uploadAbortController?.signal.aborted) {
+                            alert(`Failed to upload image: ${err.message}`);
+                        }
                     } finally {
+                        uploadAbortController = null;
                         isUploading = false;
                         fileInput.value = ''; // Reset input
                         render(store.state); // Update UI

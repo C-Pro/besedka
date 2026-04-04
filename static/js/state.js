@@ -137,14 +137,12 @@ class Store {
         }
     }
 
-    async uploadImage(file) {
+    async uploadImage(file, signal) {
         try {
-            const formData = new FormData();
-            formData.append('file', file);
-
             const response = await fetch('/api/upload/image', {
                 method: 'POST',
-                body: file
+                body: file,
+                signal,
             });
 
             if (!response.ok) {
