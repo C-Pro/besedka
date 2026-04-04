@@ -68,6 +68,14 @@ export function createChatWindow(container) {
         overlay.addEventListener('click', resetFade);
     }
 
+    const handleEscape = (e) => {
+        if (e.key === 'Escape' && isUploading) {
+            isUploading = false;
+            render(store.state);
+        }
+    };
+    document.addEventListener('keydown', handleEscape);
+
     const render = (state) => {
         const oldInput = container.querySelector('#message-input');
         let currentText = '';
@@ -200,7 +208,7 @@ export function createChatWindow(container) {
                     ${attachIcon}
                 </button>
                 ${attachmentsIndicator}
-                <input type="text" class="message-input" placeholder="Type a message..." id="message-input">
+                <textarea class="message-input" placeholder="Type a message..." id="message-input" rows="1"></textarea>
                 <button class="send-btn" id="send-btn" ${isUploading ? 'disabled' : ''}>
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <line x1="22" y1="2" x2="11" y2="13"></line>
@@ -291,29 +299,32 @@ export function createChatWindow(container) {
             if (text || filesToAttach.length > 0) {
                 store.sendMessage(state.activeChatId, text, filesToAttach);
                 input.value = '';
+                input.style.height = '40px'; // Reset height
                 filesToAttach = []; // Clear attachments
                 render(store.state); // Re-render to remove indicator
                 input.focus();
             }
         };
 
-        const handleEscape = (e) => {
-            if (e.key === 'Escape' && isUploading) {
-                // Cancel upload
-                isUploading = false;
-                // Ideally we should abort the fetch request, but for now we just reset UI
-                console.log('Upload cancelled');
-                render(store.state);
-            }
-        };
-        document.addEventListener('keydown', handleEscape);
-
-
         if (sendBtn) sendBtn.addEventListener('click', handleSend);
         if (input) {
-            input.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') handleSend();
+            // Auto resize
+            const autoResize = () => {
+                input.style.height = 'auto';
+                input.style.height = `${input.scrollHeight}px`;
+            };
+            input.addEventListener('input', autoResize);
+
+            // Send on Enter, newline on Shift+Enter
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                }
             });
+
+            // Initial resize if needed (e.g. when switching chats)
+            autoResize();
         }
 
         if (attachBtn) {

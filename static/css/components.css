@@ -145,19 +145,24 @@
     background-color: var(--bg-app);
     display: flex;
     gap: var(--space-sm);
-    align-items: center;
+    align-items: flex-end;
 }
 
 .message-input {
     flex: 1;
     background-color: var(--bg-input);
     border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-full);
+    border-radius: var(--radius-md);
     padding: var(--space-sm) var(--space-md);
     color: var(--text-primary);
     font-family: inherit;
     outline: none;
     transition: border-color var(--transition-fast);
+    resize: none;
+    height: 40px;
+    max-height: 200px;
+    line-height: 1.5;
+    overflow-y: hidden;
 }
 
 .message-input:focus {
@@ -471,7 +476,7 @@
 /* Adjust input area for attachments */
 .input-area {
     display: flex;
-    align-items: center;
+    align-items: flex-end;
     padding: 10px;
     gap: 8px;
     border-top: 1px solid var(--border-color);

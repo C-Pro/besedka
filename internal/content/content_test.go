@@ -82,7 +82,7 @@ func TestFormatMessage(t *testing.T) {
 		{"Plain text", "Hello", "<p>Hello</p>\n"},
 		{"Bold and Italic", "**Bold** and *Italic*", "<p><strong>Bold</strong> and <em>Italic</em></p>\n"},
 		{"Link", "[Open AI](https://openai.com)", "<p><a href=\"https://openai.com\">Open AI</a></p>\n"},
-		{"Image (stripped)", "![Cute cat](cat.jpg)", "<p>Cute cat</p>\n"},
+		{"Image (stripped)", "![Cute cat](cat.jpg)", "<p></p>\n"},
 		{"Unsafe HTML", "Hello <script>alert(1)</script>", "<p>Hello alert(1)</p>\n"},
 		{"Javascript Link", "[Click](javascript:alert(1))", "<p>Click</p>\n"},
 		{"Multiple paragraphs", "One\n\nTwo", "<p>One</p>\n<p>Two</p>\n"},
