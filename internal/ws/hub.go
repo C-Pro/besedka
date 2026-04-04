@@ -99,11 +99,12 @@ func (h *Hub) restoreChat(modelChat models.Chat) {
 		} else {
 			for _, m := range msgs {
 				rec := chat.ChatRecord{
-					Seq:         chat.Seq(m.Seq),
-					Timestamp:   m.Timestamp,
-					UserID:      m.UserID,
-					Content:     m.Content,
-					Attachments: m.Attachments,
+					Seq:              chat.Seq(m.Seq),
+					Timestamp:        m.Timestamp,
+					UserID:           m.UserID,
+					Content:          m.Content,
+					FormattedContent: content.FormatMessage(m.Content),
+					Attachments:      m.Attachments,
 				}
 				c.Records = append(c.Records, rec)
 				if c.FirstSeq == 0 {
@@ -334,10 +335,11 @@ func (h *Hub) Dispatch(userID string, msg models.ClientMessage) {
 	switch msg.Type {
 	case models.ClientMessageTypeSend:
 		if err := c.AddRecord(chat.ChatRecord{
-			UserID:      userID,
-			Content:     msg.Content,
-			Attachments: msg.Attachments,
-			Timestamp:   time.Now().Unix(),
+			UserID:           userID,
+			Content:          msg.Content,
+			FormattedContent: content.FormatMessage(msg.Content),
+			Attachments:      msg.Attachments,
+			Timestamp:        time.Now().Unix(),
 		}); err != nil {
 			slog.Error("failed to add record", "chatID", c.ID, "userID", userID, "error", err)
 		}
@@ -527,10 +529,14 @@ func (h *Hub) handleRecordCallback(receiverID string, chatID string, record chat
 func mapRecordsToMessages(records []chat.ChatRecord) []models.Message {
 	messages := make([]models.Message, len(records))
 	for i, r := range records {
+		formatted := r.FormattedContent
+		if formatted == "" {
+			formatted = content.FormatMessage(r.Content)
+		}
 		messages[i] = models.Message{
 			Seq:         int64(r.Seq),
 			UserID:      r.UserID,
-			Content:     content.Escape(r.Content),
+			Content:     formatted,
 			Timestamp:   r.Timestamp,
 			Attachments: r.Attachments,
 		}

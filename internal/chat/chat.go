@@ -15,11 +15,12 @@ type storage interface {
 type Seq int64
 
 type ChatRecord struct {
-	Seq         Seq
-	Timestamp   int64
-	UserID      string
-	Content     string
-	Attachments []models.Attachment
+	Seq              Seq
+	Timestamp        int64
+	UserID           string
+	Content          string
+	FormattedContent string
+	Attachments      []models.Attachment
 }
 
 type Chat struct {

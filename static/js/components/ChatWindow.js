@@ -4,6 +4,7 @@ export function createChatWindow(container) {
     let lastChatId = null;
     let filesToAttach = [];
     let isUploading = false;
+    let uploadAbortController = null;
 
     // Overlay Elements (created once)
     let overlay = document.getElementById('image-overlay');
@@ -67,6 +68,18 @@ export function createChatWindow(container) {
         overlay.addEventListener('mousemove', resetFade);
         overlay.addEventListener('click', resetFade);
     }
+
+    const handleEscape = (e) => {
+        if (e.key === 'Escape' && isUploading) {
+            if (uploadAbortController) {
+                uploadAbortController.abort();
+                uploadAbortController = null;
+            }
+            isUploading = false;
+            render(store.state);
+        }
+    };
+    document.addEventListener('keydown', handleEscape);
 
     const render = (state) => {
         const oldInput = container.querySelector('#message-input');
@@ -200,7 +213,7 @@ export function createChatWindow(container) {
                     ${attachIcon}
                 </button>
                 ${attachmentsIndicator}
-                <input type="text" class="message-input" placeholder="Type a message..." id="message-input">
+                <textarea class="message-input" placeholder="Type a message..." id="message-input" rows="1"></textarea>
                 <button class="send-btn" id="send-btn" ${isUploading ? 'disabled' : ''}>
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <line x1="22" y1="2" x2="11" y2="13"></line>
@@ -291,29 +304,32 @@ export function createChatWindow(container) {
             if (text || filesToAttach.length > 0) {
                 store.sendMessage(state.activeChatId, text, filesToAttach);
                 input.value = '';
+                input.style.height = '40px'; // Reset height
                 filesToAttach = []; // Clear attachments
                 render(store.state); // Re-render to remove indicator
                 input.focus();
             }
         };
 
-        const handleEscape = (e) => {
-            if (e.key === 'Escape' && isUploading) {
-                // Cancel upload
-                isUploading = false;
-                // Ideally we should abort the fetch request, but for now we just reset UI
-                console.log('Upload cancelled');
-                render(store.state);
-            }
-        };
-        document.addEventListener('keydown', handleEscape);
-
-
         if (sendBtn) sendBtn.addEventListener('click', handleSend);
         if (input) {
-            input.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') handleSend();
+            // Auto resize
+            const autoResize = () => {
+                input.style.height = 'auto';
+                input.style.height = `${input.scrollHeight}px`;
+            };
+            input.addEventListener('input', autoResize);
+
+            // Send on Enter, newline on Shift+Enter
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                }
             });
+
+            // Initial resize if needed (e.g. when switching chats)
+            autoResize();
         }
 
         if (attachBtn) {
@@ -327,19 +343,25 @@ export function createChatWindow(container) {
                 if (e.target.files.length > 0) {
                     const file = e.target.files[0];
                     isUploading = true;
+                    uploadAbortController = new AbortController();
                     render(store.state); // Show spinner
 
                     try {
-                        const result = await store.uploadImage(file);
-                        filesToAttach.push({
-                            type: 'image',
-                            name: file.name,
-                            mimeType: file.type || 'image/png', // fallback
-                            fileId: result.id
-                        });
+                        const result = await store.uploadImage(file, uploadAbortController.signal);
+                        if (!uploadAbortController.signal.aborted) {
+                            filesToAttach.push({
+                                type: 'image',
+                                name: file.name,
+                                mimeType: file.type || 'image/png', // fallback
+                                fileId: result.id
+                            });
+                        }
                     } catch (err) {
-                        alert(`Failed to upload image: ${err.message}`);
+                        if (!uploadAbortController?.signal.aborted) {
+                            alert(`Failed to upload image: ${err.message}`);
+                        }
                     } finally {
+                        uploadAbortController = null;
                         isUploading = false;
                         fileInput.value = ''; // Reset input
                         render(store.state); // Update UI

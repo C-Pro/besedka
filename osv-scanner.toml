@@ -10,3 +10,7 @@ reason = "not applicable"
 [[IgnoredVulns]]
 id = "GO-2026-4603"
 reason = "not applicable"
+
+[[IgnoredVulns]]
+id = "GHSA-78h2-9frx-2jm8"
+reason = "transitive test dependency via go-cmp, not used at runtime"
