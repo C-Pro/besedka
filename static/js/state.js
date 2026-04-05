@@ -156,6 +156,25 @@ class Store {
         }
     }
 
+    async uploadFile(file, signal) {
+        try {
+            const response = await fetch('/api/upload/file', {
+                method: 'POST',
+                body: file,
+                signal,
+            });
+
+            if (!response.ok) {
+                throw new Error('Upload failed');
+            }
+
+            return await response.json();
+        } catch (error) {
+            console.error('Upload error:', error);
+            throw error;
+        }
+    }
+
     async uploadAvatar(file) {
         try {
             const response = await fetch('/api/users/me/avatar', {

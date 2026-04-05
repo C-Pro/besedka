@@ -522,3 +522,73 @@ func TestE2EInfiniteScroll(t *testing.T) {
 		return strings.Contains(content, "fetch_scroll_test_msg_1<")
 	}, 10*time.Second, 200*time.Millisecond)
 }
+
+func TestE2EFileUpload(t *testing.T) {
+	server := startServer(t)
+	defer server.Stop()
+
+	pw, browser := setupPlaywright(t)
+	defer func() { _ = pw.Stop() }()
+	defer func() { _ = browser.Close() }()
+
+	aliceSetupLink := server.CreateUser(t, "alice")
+	aliceContext := createBrowserContext(t, browser)
+	alicePage, err := aliceContext.NewPage()
+	require.NoError(t, err)
+
+	registerUser(t, alicePage, aliceSetupLink, "Alice Smith", "password123")
+
+	err = alicePage.Locator(".app-layout").WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	})
+	require.NoError(t, err)
+
+	// Create a dummy text file
+	filePath := filepath.Join(t.TempDir(), "test_document.txt")
+	err = os.WriteFile(filePath, []byte("Hello, this is a test document."), 0644)
+	require.NoError(t, err)
+
+	// Open Town Hall chat
+	err = alicePage.Locator(".chat-item:has-text(\"Town Hall\")").Click()
+	require.NoError(t, err)
+
+	// Attach file
+	err = alicePage.Locator("#file-input").SetInputFiles([]string{filePath})
+	require.NoError(t, err)
+
+	// Wait for attach indicator
+	err = alicePage.Locator(".attach-indicator").WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	})
+	require.NoError(t, err)
+
+	// Send message
+	err = alicePage.Locator("#message-input").Fill("Here is my file!")
+	require.NoError(t, err)
+	err = alicePage.Locator("#send-btn").Click()
+	require.NoError(t, err)
+
+	// Verify attachment appears in chat
+	err = alicePage.Locator(".message-attachment-file[data-name='test_document.txt']").WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	})
+	require.NoError(t, err)
+
+	// Click to open download menu
+	err = alicePage.Locator(".message-attachment-file[data-name='test_document.txt']").Click()
+	require.NoError(t, err)
+
+	// Wait for menu
+	err = alicePage.Locator("#file-download-menu a").WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	})
+	require.NoError(t, err)
+
+	// Download file
+	download, err := alicePage.ExpectDownload(func() error {
+		return alicePage.Locator("#file-download-menu a").Click()
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, "test_document.txt", download.SuggestedFilename())
+}

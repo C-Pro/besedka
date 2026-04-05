@@ -58,7 +58,7 @@ func run(ctx context.Context, addUser string) error {
 	hub := ws.NewHub(ctx, authService, bbStorage)
 
 	adminServer := http.NewAdminServer(cfg, authService, hub)
-	apiServer := http.NewAPIServer(authService, hub, bbStorage, cfg.APIAddr)
+	apiServer := http.NewAPIServer(cfg, authService, hub, bbStorage, cfg.APIAddr)
 
 	g, gCtx := errgroup.WithContext(ctx)
 

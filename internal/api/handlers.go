@@ -2,6 +2,7 @@ package api
 
 import (
 	"besedka/internal/auth"
+	"besedka/internal/config"
 	"besedka/internal/content"
 	"besedka/internal/models"
 	"besedka/internal/storage"
@@ -28,13 +29,15 @@ type API struct {
 	auth    *auth.AuthService
 	hub     *ws.Hub
 	storage *storage.BboltStorage
+	cfg     *config.Config
 }
 
-func New(auth *auth.AuthService, hub *ws.Hub, storage *storage.BboltStorage) *API {
+func New(auth *auth.AuthService, hub *ws.Hub, storage *storage.BboltStorage, cfg *config.Config) *API {
 	return &API{
 		auth:    auth,
 		hub:     hub,
 		storage: storage,
+		cfg:     cfg,
 	}
 }
 
@@ -452,7 +455,7 @@ func (a *API) ResetPasswordHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (a *API) processImageUpload(w http.ResponseWriter, r *http.Request, maxBytes int64) (string, error) {
+func (a *API) processUpload(w http.ResponseWriter, r *http.Request, maxBytes int64, enforceImage bool) (string, error) {
 	uploaderID := UserIDFromContext(r.Context())
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
@@ -468,10 +471,17 @@ func (a *API) processImageUpload(w http.ResponseWriter, r *http.Request, maxByte
 	hasher.Write(data)
 	hash := hex.EncodeToString(hasher.Sum(nil))
 
-	kind, err := filetype.Image(data)
-	if err != nil {
-		http.Error(w, "Invalid file type. Only images are allowed.", http.StatusBadRequest)
-		return "", err
+	mimeType := "application/octet-stream"
+	kind, err := filetype.Match(data)
+	if err == nil && kind != filetype.Unknown {
+		mimeType = kind.MIME.Value
+	}
+
+	if enforceImage {
+		if !filetype.IsImage(data) {
+			http.Error(w, "Invalid file type. Only images are allowed.", http.StatusBadRequest)
+			return "", errors.New("invalid file type")
+		}
 	}
 
 	if err := a.storage.SaveFileBlob(bytes.NewReader(data), hash); err != nil {
@@ -484,7 +494,7 @@ func (a *API) processImageUpload(w http.ResponseWriter, r *http.Request, maxByte
 	meta := storage.FileMetadata{
 		ID:        fileID,
 		Hash:      hash,
-		MimeType:  kind.MIME.Value,
+		MimeType:  mimeType,
 		Size:      int64(len(data)),
 		CreatedAt: time.Now().Unix(),
 		UserID:    uploaderID,
@@ -508,8 +518,8 @@ func (a *API) UploadImageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Limit to 10MB
-	fileID, err := a.processImageUpload(w, r, 10<<20)
+	// Limit image
+	fileID, err := a.processUpload(w, r, a.cfg.MaxImageSize, true)
 	if err != nil {
 		return
 	}
@@ -528,8 +538,8 @@ func (a *API) UploadAvatarHandler(w http.ResponseWriter, r *http.Request) {
 
 	uploaderID := UserIDFromContext(r.Context())
 
-	// Limit to 5MB for avatars
-	fileID, err := a.processImageUpload(w, r, 5<<20)
+	// Limit for avatars
+	fileID, err := a.processUpload(w, r, a.cfg.MaxAvatarSize, true)
 	if err != nil {
 		return
 	}
@@ -613,6 +623,59 @@ func (a *API) UpdateDisplayNameHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) GetImageHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		http.Error(w, "Missing file ID", http.StatusBadRequest)
+		return
+	}
+
+	meta, err := a.storage.GetFileMetadata(id)
+	if err != nil {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+
+	rc, err := a.storage.GetFileBlob(meta.Hash)
+	if err != nil {
+		log.Printf("failed to retrieve file blob: %v", err)
+		http.Error(w, "File content missing", http.StatusInternalServerError)
+		return
+	}
+	defer func() { _ = rc.Close() }()
+
+	w.Header().Set("Content-Type", meta.MimeType)
+	w.Header().Set("Content-Length", strconv.FormatInt(meta.Size, 10))
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+
+	if _, err := io.Copy(w, rc); err != nil {
+		log.Printf("failed to write file content: %v", err)
+	}
+}
+
+func (a *API) UploadFileHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Limit for files
+	fileID, err := a.processUpload(w, r, a.cfg.MaxFileSize, false)
+	if err != nil {
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(models.UploadFileResponse{ID: fileID}); err != nil {
+		log.Printf("failed to encode upload response: %v", err)
+	}
+}
+
+func (a *API) GetFileHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return

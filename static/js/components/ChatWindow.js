@@ -133,6 +133,26 @@ export function createChatWindow(container) {
                             <img src="/api/images/${att.fileId}" alt="${att.name}" loading="lazy">
                         </div>
                         `;
+                    } else if (att.type === 'file') {
+                        return `
+                        <div class="message-attachment-file" 
+                             data-file-id="${att.fileId}" 
+                             data-name="${att.name}"
+                             data-mime="${att.mimeType}">
+                            <div class="file-icon">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                    <polyline points="14 2 14 8 20 8"></polyline>
+                                    <line x1="16" y1="13" x2="8" y2="13"></line>
+                                    <line x1="16" y1="17" x2="8" y2="17"></line>
+                                    <polyline points="10 9 9 9 8 9"></polyline>
+                                </svg>
+                            </div>
+                            <div class="file-info">
+                                <span class="file-name" title="${att.name}">${att.name}</span>
+                            </div>
+                        </div>
+                        `;
                     }
                     return '';
                 }).join('');
@@ -208,7 +228,7 @@ export function createChatWindow(container) {
                 ${messagesHtml}
             </div>
             <div class="input-area">
-                <input type="file" id="file-input" accept="image/*" style="display:none">
+                <input type="file" id="file-input" style="display:none">
                 <button class="attach-btn" id="attach-btn" ${isUploading ? 'disabled' : ''}>
                     ${attachIcon}
                 </button>
@@ -289,6 +309,37 @@ export function createChatWindow(container) {
             });
         });
 
+        // File Attachments Click
+        container.querySelectorAll('.message-attachment-file').forEach(el => {
+            el.addEventListener('click', (_e) => {
+                const fileId = el.dataset.fileId;
+                const name = el.dataset.name;
+                
+                // create or reuse download menu
+                let menu = document.getElementById('file-download-menu');
+                if (!menu) {
+                    menu = document.createElement('div');
+                    menu.id = 'file-download-menu';
+                    menu.className = 'file-download-menu';
+                    document.body.appendChild(menu);
+                    
+                    // close menu when clicking outside
+                    document.addEventListener('click', (evt) => {
+                        if (!menu.contains(evt.target) && !evt.target.closest('.message-attachment-file')) {
+                            menu.style.display = 'none';
+                        }
+                    });
+                }
+                
+                menu.innerHTML = `<a href="/api/files/${fileId}" download="${name}">Download ${name}</a>`;
+                
+                const rect = el.getBoundingClientRect();
+                menu.style.display = 'block';
+                menu.style.left = `${rect.left}px`;
+                menu.style.top = `${rect.bottom + 5}px`;
+            });
+        });
+
         const input = container.querySelector('#message-input');
         const sendBtn = container.querySelector('#send-btn');
         const attachBtn = container.querySelector('#attach-btn');
@@ -347,18 +398,22 @@ export function createChatWindow(container) {
                     render(store.state); // Show spinner
 
                     try {
-                        const result = await store.uploadImage(file, uploadAbortController.signal);
+                        const isImage = file.type.startsWith('image/');
+                        const result = isImage 
+                            ? await store.uploadImage(file, uploadAbortController.signal)
+                            : await store.uploadFile(file, uploadAbortController.signal);
+                            
                         if (!uploadAbortController.signal.aborted) {
                             filesToAttach.push({
-                                type: 'image',
+                                type: isImage ? 'image' : 'file',
                                 name: file.name,
-                                mimeType: file.type || 'image/png', // fallback
+                                mimeType: file.type || 'application/octet-stream',
                                 fileId: result.id
                             });
                         }
                     } catch (err) {
                         if (!uploadAbortController?.signal.aborted) {
-                            alert(`Failed to upload image: ${err.message}`);
+                            alert(`Failed to upload ${file.name}: ${err.message}`);
                         }
                     } finally {
                         uploadAbortController = null;
