@@ -2,6 +2,7 @@ import { store } from '../state.js';
 
 export function createChatWindow(container) {
     let lastChatId = null;
+    let filesToAttach = [];
     let isUploading = false;
     let uploadAbortController = null;
 
