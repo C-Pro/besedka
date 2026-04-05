@@ -71,7 +71,7 @@ func getEnv(key, fallback string) string {
 func getEnvInt64(key string, fallback int64) int64 {
 	if value, ok := os.LookupEnv(key); ok {
 		var i int64
-		if _, err := fmt.Sscanf(value, "%d", &i); err == nil {
+		if _, err := fmt.Sscanf(value, "%d", &i); err == nil && i > 0 {
 			return i
 		}
 	}

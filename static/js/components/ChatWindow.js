@@ -2,9 +2,12 @@ import { store } from '../state.js';
 
 export function createChatWindow(container) {
     let lastChatId = null;
-    let filesToAttach = [];
     let isUploading = false;
     let uploadAbortController = null;
+
+    const escapeHTML = (str) => {
+        return String(str || '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+    };
 
     // Overlay Elements (created once)
     let overlay = document.getElementById('image-overlay');
@@ -134,11 +137,13 @@ export function createChatWindow(container) {
                         </div>
                         `;
                     } else if (att.type === 'file') {
+                        const safeName = escapeHTML(att.name);
+                        const safeMime = escapeHTML(att.mimeType);
                         return `
                         <div class="message-attachment-file" 
                              data-file-id="${att.fileId}" 
-                             data-name="${att.name}"
-                             data-mime="${att.mimeType}">
+                             data-name="${safeName}"
+                             data-mime="${safeMime}">
                             <div class="file-icon">
                                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
@@ -149,7 +154,7 @@ export function createChatWindow(container) {
                                 </svg>
                             </div>
                             <div class="file-info">
-                                <span class="file-name" title="${att.name}">${att.name}</span>
+                                <span class="file-name" title="${safeName}">${safeName}</span>
                             </div>
                         </div>
                         `;
@@ -331,12 +336,17 @@ export function createChatWindow(container) {
                     });
                 }
                 
-                menu.innerHTML = `<a href="/api/files/${fileId}" download="${name}">Download ${name}</a>`;
+                menu.replaceChildren();
+                const downloadLink = document.createElement('a');
+                downloadLink.href = `/api/files/${fileId}`;
+                downloadLink.download = name || '';
+                downloadLink.textContent = `Download ${name || ''}`;
+                menu.appendChild(downloadLink);
                 
                 const rect = el.getBoundingClientRect();
                 menu.style.display = 'block';
-                menu.style.left = `${rect.left}px`;
-                menu.style.top = `${rect.bottom + 5}px`;
+                menu.style.left = `${rect.left + window.scrollX}px`;
+                menu.style.top = `${rect.bottom + window.scrollY + 5}px`;
             });
         });
 

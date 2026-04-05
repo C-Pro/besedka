@@ -650,7 +650,7 @@ func (a *API) GetImageHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", meta.MimeType)
 	w.Header().Set("Content-Length", strconv.FormatInt(meta.Size, 10))
-	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
 
 	if _, err := io.Copy(w, rc); err != nil {
 		log.Printf("failed to write file content: %v", err)
@@ -703,7 +703,9 @@ func (a *API) GetFileHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", meta.MimeType)
 	w.Header().Set("Content-Length", strconv.FormatInt(meta.Size, 10))
-	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", id))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 
 	if _, err := io.Copy(w, rc); err != nil {
 		log.Printf("failed to write file content: %v", err)
