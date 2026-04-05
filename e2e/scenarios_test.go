@@ -569,13 +569,17 @@ func TestE2EFileUpload(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify attachment appears in chat
-	err = alicePage.Locator(".message-attachment-file[data-name='test_document.txt']").WaitFor(playwright.LocatorWaitForOptions{
+	attachmentEl := alicePage.Locator(".message-attachment-file[data-name='test_document.txt']")
+	err = attachmentEl.WaitFor(playwright.LocatorWaitForOptions{
 		State: playwright.WaitForSelectorStateVisible,
 	})
 	require.NoError(t, err)
 
+	fileID, err := attachmentEl.GetAttribute("data-file-id")
+	require.NoError(t, err)
+
 	// Click to open download menu
-	err = alicePage.Locator(".message-attachment-file[data-name='test_document.txt']").Click()
+	err = attachmentEl.Click()
 	require.NoError(t, err)
 
 	// Wait for menu
@@ -590,5 +594,5 @@ func TestE2EFileUpload(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.Equal(t, "test_document.txt", download.SuggestedFilename())
+	require.Equal(t, fileID, download.SuggestedFilename())
 }
