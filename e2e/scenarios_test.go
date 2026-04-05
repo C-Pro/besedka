@@ -492,7 +492,7 @@ func TestE2EInfiniteScroll(t *testing.T) {
 	t.Log("Reloading page...")
 	_, err = alicePage.Reload()
 	require.NoError(t, err)
-	
+
 	// Wait for chat load
 	require.Eventually(t, func() bool {
 		content, _ := alicePage.Locator(".messages-container").InnerHTML()
@@ -504,7 +504,7 @@ func TestE2EInfiniteScroll(t *testing.T) {
 	// Check if msg 1 is NOT visible (since only the last 100 are loaded by default)
 	content, _ := alicePage.Locator(".messages-container").InnerHTML()
 	require.NotContains(t, content, "fetch_scroll_test_msg_1<", "msg 1 should not be loaded yet")
-	
+
 	// Scroll to top — set scrollTop and dispatch a scroll event since programmatic
 	// changes to scrollTop don't fire scroll events in headless browsers.
 	t.Log("Scrolling to top to trigger infinite scroll...")
@@ -569,13 +569,17 @@ func TestE2EFileUpload(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify attachment appears in chat
-	err = alicePage.Locator(".message-attachment-file[data-name='test_document.txt']").WaitFor(playwright.LocatorWaitForOptions{
+	attachmentEl := alicePage.Locator(".message-attachment-file[data-name='test_document.txt']")
+	err = attachmentEl.WaitFor(playwright.LocatorWaitForOptions{
 		State: playwright.WaitForSelectorStateVisible,
 	})
 	require.NoError(t, err)
 
+	_, err = attachmentEl.GetAttribute("data-file-id")
+	require.NoError(t, err)
+
 	// Click to open download menu
-	err = alicePage.Locator(".message-attachment-file[data-name='test_document.txt']").Click()
+	err = attachmentEl.Click()
 	require.NoError(t, err)
 
 	// Wait for menu

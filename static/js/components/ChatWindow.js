@@ -340,7 +340,7 @@ export function createChatWindow(container) {
                 
                 menu.replaceChildren();
                 const downloadLink = document.createElement('a');
-                downloadLink.href = `/api/files/${fileId}`;
+                downloadLink.href = `/api/files/${fileId}?name=${encodeURIComponent(name || fileId)}`;
                 downloadLink.download = name || '';
                 downloadLink.textContent = `Download ${name || ''}`;
                 menu.appendChild(downloadLink);

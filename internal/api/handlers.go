@@ -701,10 +701,15 @@ func (a *API) GetFileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = rc.Close() }()
 
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		name = id
+	}
+
 	w.Header().Set("Content-Type", meta.MimeType)
 	w.Header().Set("Content-Length", strconv.FormatInt(meta.Size, 10))
 	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", id))
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", name))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 
 	if _, err := io.Copy(w, rc); err != nil {
