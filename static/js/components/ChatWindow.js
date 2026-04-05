@@ -129,12 +129,13 @@ export function createChatWindow(container) {
             if (msg.attachments && msg.attachments.length > 0) {
                 attachmentsHtml = msg.attachments.map(att => {
                     if (att.type === 'image') {
+                        const safeName = escapeHTML(att.name);
                         return `
                         <div class="message-attachment" 
                              data-src="/api/images/${att.fileId}" 
                              data-sender="${isMe ? 'You' : senderDisplayName}" 
                              data-time="${msg.timestamp}">
-                            <img src="/api/images/${att.fileId}" alt="${att.name}" loading="lazy">
+                            <img src="/api/images/${att.fileId}" alt="${safeName}" loading="lazy">
                         </div>
                         `;
                     } else if (att.type === 'file') {

@@ -311,7 +311,7 @@ Sent when new messages arrive in a subscribed chat.
 ### Upload File
 **Endpoint:** `POST /api/upload/file`
 
-**Description:** Uploads a generic file. Limit 25MB by default.
+**Description:** Uploads a generic file. Limit 25MB by default. Requires authentication and same-origin check.
 
 **Headers:**
 - `Content-Type`: `application/octet-stream` (body is raw binary)
