@@ -83,9 +83,11 @@ Once migrated, you can start the server normally.
 - [x] Password reset
 - [x] User deletion
 - [x] Admin UI
-- [ ] File attachments and media support
+- [x] File attachments and media support
 - [x] Infinite scrolling
-- [ ] Rich text editing
+- [x] Markdown formatting
 - [ ] Emojis and reactions
 - [x] Notifications
 - [ ] Messages backup
+- [ ] TLS support
+- [ ] LetsEncrypt integration

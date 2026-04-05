@@ -302,10 +302,34 @@ Sent when new messages arrive in a subscribed chat.
 ### Get Image
 **Endpoint:** `GET /api/images/{id}`
 
-**Description:** Downloads an image by its UUID.
+**Description:** Downloads an image by its UUID. Requires authentication.
 
 **Response:**
 - **Success (200 OK):** Binary image content with appropriate `Content-Type` and `Content-Length`.
+- **Not Found (404):** If ID doesn't exist.
+
+### Upload File
+**Endpoint:** `POST /api/upload/file`
+
+**Description:** Uploads a generic file. Limit 25MB by default. Requires authentication and same-origin check.
+
+**Headers:**
+- `Content-Type`: `application/octet-stream` (body is raw binary)
+
+**Response:**
+```json
+{
+  "id": "uuid_string"
+}
+```
+
+### Get File
+**Endpoint:** `GET /api/files/{id}`
+
+**Description:** Downloads a file by its UUID. Requires authentication.
+
+**Response:**
+- **Success (200 OK):** Binary file content with appropriate `Content-Type` and `Content-Length`.
 - **Not Found (404):** If ID doesn't exist.
 
 ## Admin API

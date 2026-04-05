@@ -26,15 +26,18 @@ func TestIntegration(t *testing.T) {
 	adminAddr := "127.0.0.1:8888"
 	apiAddr := ":8887"
 
+	uploadsDir := t.TempDir()
 	_ = os.Setenv("BESEDKA_DB", dbFile)
 	_ = os.Setenv("ADMIN_ADDR", adminAddr)
 	_ = os.Setenv("API_ADDR", apiAddr)
 	_ = os.Setenv("AUTH_SECRET", "very-secure-test-secret")
+	_ = os.Setenv("UPLOADS_PATH", uploadsDir)
 	defer func() {
 		_ = os.Unsetenv("BESEDKA_DB")
 		_ = os.Unsetenv("ADMIN_ADDR")
 		_ = os.Unsetenv("API_ADDR")
 		_ = os.Unsetenv("AUTH_SECRET")
+		_ = os.Unsetenv("UPLOADS_PATH")
 	}()
 
 	// Start server in background
@@ -181,6 +184,39 @@ func TestIntegration(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, avatarResp.AvatarURL)
 	require.Contains(t, avatarResp.AvatarURL, "/api/images/")
+
+	// Step 4.6: Upload and Download File
+	fileContent := []byte("hello world this is a test file")
+	reqFile, err := http.NewRequest("POST", fmt.Sprintf("http://localhost%s/api/upload/file", apiAddr), bytes.NewReader(fileContent))
+	require.NoError(t, err)
+	reqFile.AddCookie(&http.Cookie{Name: "token", Value: sessionToken})
+	reqFile.Header.Set("Origin", fmt.Sprintf("http://localhost%s", apiAddr))
+
+	respFile, err := client.Do(reqFile)
+	require.NoError(t, err)
+	defer func() { _ = respFile.Body.Close() }()
+	require.Equal(t, http.StatusOK, respFile.StatusCode)
+
+	var fileResp struct {
+		ID string `json:"id"`
+	}
+	err = json.NewDecoder(respFile.Body).Decode(&fileResp)
+	require.NoError(t, err)
+	require.NotEmpty(t, fileResp.ID)
+
+	// Download File
+	reqGetFile, err := http.NewRequest("GET", fmt.Sprintf("http://localhost%s/api/files/%s", apiAddr, fileResp.ID), nil)
+	require.NoError(t, err)
+	reqGetFile.AddCookie(&http.Cookie{Name: "token", Value: sessionToken})
+	respGetFile, err := client.Do(reqGetFile)
+	require.NoError(t, err)
+	defer func() { _ = respGetFile.Body.Close() }()
+	require.Equal(t, http.StatusOK, respGetFile.StatusCode)
+
+	var downloaded bytes.Buffer
+	_, err = downloaded.ReadFrom(respGetFile.Body)
+	require.NoError(t, err)
+	require.Equal(t, fileContent, downloaded.Bytes())
 
 	// Step 5: List Users (Verify Login and Avatar)
 	reqUsers, _ := http.NewRequest("GET", fmt.Sprintf("http://localhost%s/api/users", apiAddr), nil)

@@ -334,6 +334,11 @@ func (h *Hub) Dispatch(userID string, msg models.ClientMessage) {
 
 	switch msg.Type {
 	case models.ClientMessageTypeSend:
+		for i := range msg.Attachments {
+			if len(msg.Attachments[i].Name) > 255 {
+				msg.Attachments[i].Name = msg.Attachments[i].Name[:255]
+			}
+		}
 		if err := c.AddRecord(chat.ChatRecord{
 			UserID:           userID,
 			Content:          msg.Content,

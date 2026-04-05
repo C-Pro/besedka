@@ -23,6 +23,11 @@ type UploadImageResponse struct {
 	ID string `json:"id"`
 }
 
+// UploadFileResponse represents a response for a generic file upload operation.
+type UploadFileResponse struct {
+	ID string `json:"id"`
+}
+
 type UserStatus string
 
 const (

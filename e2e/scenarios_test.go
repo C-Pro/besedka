@@ -492,7 +492,7 @@ func TestE2EInfiniteScroll(t *testing.T) {
 	t.Log("Reloading page...")
 	_, err = alicePage.Reload()
 	require.NoError(t, err)
-	
+
 	// Wait for chat load
 	require.Eventually(t, func() bool {
 		content, _ := alicePage.Locator(".messages-container").InnerHTML()
@@ -504,7 +504,7 @@ func TestE2EInfiniteScroll(t *testing.T) {
 	// Check if msg 1 is NOT visible (since only the last 100 are loaded by default)
 	content, _ := alicePage.Locator(".messages-container").InnerHTML()
 	require.NotContains(t, content, "fetch_scroll_test_msg_1<", "msg 1 should not be loaded yet")
-	
+
 	// Scroll to top — set scrollTop and dispatch a scroll event since programmatic
 	// changes to scrollTop don't fire scroll events in headless browsers.
 	t.Log("Scrolling to top to trigger infinite scroll...")
@@ -521,4 +521,78 @@ func TestE2EInfiniteScroll(t *testing.T) {
 		content, _ := alicePage.Locator(".messages-container").InnerHTML()
 		return strings.Contains(content, "fetch_scroll_test_msg_1<")
 	}, 10*time.Second, 200*time.Millisecond)
+}
+
+func TestE2EFileUpload(t *testing.T) {
+	server := startServer(t)
+	defer server.Stop()
+
+	pw, browser := setupPlaywright(t)
+	defer func() { _ = pw.Stop() }()
+	defer func() { _ = browser.Close() }()
+
+	aliceSetupLink := server.CreateUser(t, "alice")
+	aliceContext := createBrowserContext(t, browser)
+	alicePage, err := aliceContext.NewPage()
+	require.NoError(t, err)
+
+	registerUser(t, alicePage, aliceSetupLink, "Alice Smith", "password123")
+
+	err = alicePage.Locator(".app-layout").WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	})
+	require.NoError(t, err)
+
+	// Create a dummy text file
+	filePath := filepath.Join(t.TempDir(), "test_document.txt")
+	err = os.WriteFile(filePath, []byte("Hello, this is a test document."), 0644)
+	require.NoError(t, err)
+
+	// Open Town Hall chat
+	err = alicePage.Locator(".chat-item:has-text(\"Town Hall\")").Click()
+	require.NoError(t, err)
+
+	// Attach file
+	err = alicePage.Locator("#file-input").SetInputFiles([]string{filePath})
+	require.NoError(t, err)
+
+	// Wait for attach indicator
+	err = alicePage.Locator(".attach-indicator").WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	})
+	require.NoError(t, err)
+
+	// Send message
+	err = alicePage.Locator("#message-input").Fill("Here is my file!")
+	require.NoError(t, err)
+	err = alicePage.Locator("#send-btn").Click()
+	require.NoError(t, err)
+
+	// Verify attachment appears in chat
+	attachmentEl := alicePage.Locator(".message-attachment-file[data-name='test_document.txt']")
+	err = attachmentEl.WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	})
+	require.NoError(t, err)
+
+	_, err = attachmentEl.GetAttribute("data-file-id")
+	require.NoError(t, err)
+
+	// Click to open download menu
+	err = attachmentEl.Click()
+	require.NoError(t, err)
+
+	// Wait for menu
+	err = alicePage.Locator("#file-download-menu a").WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	})
+	require.NoError(t, err)
+
+	// Download file
+	download, err := alicePage.ExpectDownload(func() error {
+		return alicePage.Locator("#file-download-menu a").Click()
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, "test_document.txt", download.SuggestedFilename())
 }

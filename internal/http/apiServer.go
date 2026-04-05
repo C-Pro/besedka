@@ -3,6 +3,7 @@ package http
 import (
 	"besedka/internal/api"
 	"besedka/internal/auth"
+	"besedka/internal/config"
 	"besedka/internal/storage"
 	"besedka/internal/ws"
 	"besedka/static"
@@ -17,12 +18,12 @@ type APIServer struct {
 	wg     sync.WaitGroup
 }
 
-func NewAPIServer(authService *auth.AuthService, hub *ws.Hub, storage *storage.BboltStorage, addr string) *APIServer {
+func NewAPIServer(cfg *config.Config, authService *auth.AuthService, hub *ws.Hub, storage *storage.BboltStorage, addr string) *APIServer {
 	// Initialize Hub
 	// hub := ws.NewHub(authService, bbStorage)
 
 	server := ws.NewServer(authService, hub)
-	apiHandlers := api.New(authService, hub, storage)
+	apiHandlers := api.New(authService, hub, storage, cfg)
 
 	mux := http.NewServeMux()
 
@@ -42,7 +43,9 @@ func NewAPIServer(authService *auth.AuthService, hub *ws.Hub, storage *storage.B
 	mux.HandleFunc("POST /api/users/me/avatar", api.RequireSameOrigin(apiHandlers.RequireAuth(apiHandlers.UploadAvatarHandler)))
 	mux.HandleFunc("POST /api/users/me/display-name", api.RequireSameOrigin(apiHandlers.RequireAuth(apiHandlers.UpdateDisplayNameHandler)))
 	mux.HandleFunc("POST /api/upload/image", api.RequireSameOrigin(apiHandlers.RequireAuth(apiHandlers.UploadImageHandler)))
-	mux.HandleFunc("GET /api/images/{id}", apiHandlers.GetImageHandler)
+	mux.HandleFunc("POST /api/upload/file", api.RequireSameOrigin(apiHandlers.RequireAuth(apiHandlers.UploadFileHandler)))
+	mux.HandleFunc("GET /api/images/{id}", apiHandlers.RequireAuth(apiHandlers.GetImageHandler))
+	mux.HandleFunc("GET /api/files/{id}", apiHandlers.RequireAuth(apiHandlers.GetFileHandler))
 
 	// WebSocket endpoint
 	mux.HandleFunc("/api/chat", server.HandleConnections)

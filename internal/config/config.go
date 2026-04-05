@@ -16,6 +16,9 @@ type Config struct {
 	AdminPassword string
 	AuthSecret    string
 	TokenExpiry   time.Duration
+	MaxImageSize  int64
+	MaxAvatarSize int64
+	MaxFileSize   int64
 }
 
 func Load(cliMode bool) (*Config, error) {
@@ -34,6 +37,9 @@ func Load(cliMode bool) (*Config, error) {
 		AdminPassword: getEnv("ADMIN_PASSWORD", "1337chat"),
 		AuthSecret:    os.Getenv("AUTH_SECRET"),
 		TokenExpiry:   tokenExpiry,
+		MaxImageSize:  getEnvInt64("MAX_IMAGE_SIZE", 10<<20),
+		MaxAvatarSize: getEnvInt64("MAX_AVATAR_SIZE", 5<<20),
+		MaxFileSize:   getEnvInt64("MAX_FILE_SIZE", 25<<20),
 	}
 
 	if err := cfg.Validate(cliMode); err != nil {
@@ -58,6 +64,16 @@ func (c *Config) Validate(cliMode bool) error {
 func getEnv(key, fallback string) string {
 	if value, ok := os.LookupEnv(key); ok {
 		return value
+	}
+	return fallback
+}
+
+func getEnvInt64(key string, fallback int64) int64 {
+	if value, ok := os.LookupEnv(key); ok {
+		var i int64
+		if _, err := fmt.Sscanf(value, "%d", &i); err == nil && i > 0 {
+			return i
+		}
 	}
 	return fallback
 }
