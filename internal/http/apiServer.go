@@ -49,7 +49,7 @@ func NewAPIServer(cfg *config.Config, authService *auth.AuthService, hub *ws.Hub
 	mux.HandleFunc("GET /api/files/{id}", apiHandlers.RequireAuth(apiHandlers.GetFileHandler))
 
 	// Push notification endpoints
-	mux.HandleFunc("GET /api/push/vapidPublicKey", apiHandlers.PushVAPIDPublicKeyHandler)
+	mux.HandleFunc("GET /api/push/vapidPublicKey", apiHandlers.RequireAuth(apiHandlers.PushVAPIDPublicKeyHandler))
 	mux.HandleFunc("POST /api/push/subscribe", apiHandlers.RequireAuth(apiHandlers.PushSubscribeHandler))
 
 	// WebSocket endpoint

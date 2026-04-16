@@ -21,7 +21,14 @@ const (
 	chatMaxRecords  = 500
 	locationTTL     = 10 * time.Minute
 	locationCleanup = time.Minute
+	pushWorkers     = 5
+	pushQueueSize   = 100
 )
+
+type pushTask struct {
+	userID  string
+	payload []byte
+}
 
 type Hub struct {
 	chats          map[string]*chat.Chat
@@ -31,6 +38,7 @@ type Hub struct {
 	userProvider userProvider
 	storage      storage
 	pushService  PushService
+	pushQueue    chan pushTask
 
 	mu sync.RWMutex
 }
@@ -59,6 +67,11 @@ func NewHub(ctx context.Context, userProvider userProvider, storage storage, pus
 		userProvider:   userProvider,
 		storage:        storage,
 		pushService:    pushService,
+		pushQueue:      make(chan pushTask, pushQueueSize),
+	}
+
+	for i := 0; i < pushWorkers; i++ {
+		go h.pushWorker(ctx)
 	}
 
 	chats, err := storage.ListChats()
@@ -85,6 +98,22 @@ func NewHub(ctx context.Context, userProvider userProvider, storage storage, pus
 	return h
 }
 
+func (h *Hub) pushWorker(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case task, ok := <-h.pushQueue:
+			if !ok {
+				return
+			}
+			if err := h.pushService.SendNotification(task.userID, task.payload); err != nil {
+				slog.Error("failed to send push notification", "userID", task.userID, "error", err)
+			}
+		}
+	}
+}
+
 func (h *Hub) restoreChat(modelChat models.Chat) {
 	c := chat.New(chat.Config{
 		ID:             modelChat.ID,
@@ -98,14 +127,14 @@ func (h *Hub) restoreChat(modelChat models.Chat) {
 		users, _ := h.userProvider.GetUsers()
 		for _, u := range users {
 			if u.Status != models.UserStatusDeleted {
-				c.Members[u.ID] = false
+				c.SetMemberStatus(u.ID, false)
 			}
 		}
-	} else if isUserInDM("", modelChat.ID) {
+	} else if modelChat.IsDM {
 		parts := strings.Split(modelChat.ID[3:], "_")
 		if len(parts) == 2 {
-			c.Members[parts[0]] = false
-			c.Members[parts[1]] = false
+			c.SetMemberStatus(parts[0], false)
+			c.SetMemberStatus(parts[1], false)
 		}
 	}
 
@@ -154,14 +183,14 @@ func (h *Hub) createChat(id string, maxRecords int, isDM bool) *chat.Chat {
 		users, _ := h.userProvider.GetUsers()
 		for _, u := range users {
 			if u.Status != models.UserStatusDeleted {
-				c.Members[u.ID] = false
+				c.SetMemberStatus(u.ID, false)
 			}
 		}
 	} else if isDM {
 		parts := strings.Split(id[3:], "_")
 		if len(parts) == 2 {
-			c.Members[parts[0]] = false
-			c.Members[parts[1]] = false
+			c.SetMemberStatus(parts[0], false)
+			c.SetMemberStatus(parts[1], false)
 		}
 	}
 
@@ -192,8 +221,8 @@ func (h *Hub) EnsureDMsFor(user models.User, allUsers []models.User) {
 			c := h.createChat(dmID, chatMaxRecords, true)
 			_, online1 := h.connectedUsers[user.ID]
 			_, online2 := h.connectedUsers[other.ID]
-			c.Members[user.ID] = online1
-			c.Members[other.ID] = online2
+			c.SetMemberStatus(user.ID, online1)
+			c.SetMemberStatus(other.ID, online2)
 		}
 	}
 }
@@ -261,7 +290,7 @@ func (h *Hub) BroadcastNewUser(user models.User) {
 
 	h.mu.Lock()
 	if townhall, ok := h.chats["townhall"]; ok {
-		townhall.Members[user.ID] = false
+		townhall.SetMemberStatus(user.ID, false)
 	}
 	h.mu.Unlock()
 
@@ -591,11 +620,11 @@ func (h *Hub) handleRecordCallback(receiverID string, chatID string, record chat
 		}
 
 		payloadBytes, _ := json.Marshal(payload)
-		go func() {
-			if err := h.pushService.SendNotification(receiverID, payloadBytes); err != nil {
-				slog.Error("failed to send push notification", "userID", receiverID, "error", err)
-			}
-		}()
+		select {
+		case h.pushQueue <- pushTask{userID: receiverID, payload: payloadBytes}:
+		default:
+			slog.Warn("Push notification queue full, dropping notification", "userID", receiverID)
+		}
 	}
 }
 

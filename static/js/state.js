@@ -531,25 +531,29 @@ class Store {
     async showLocalNotification(chatId, message) {
         if (!('serviceWorker' in navigator)) return;
 
-        const senderUser = this.state.users.find(u => u.id === message.userId);
-        const senderName = senderUser ? (senderUser.displayName || senderUser.userName) : message.userId;
-        
-        const chat = this.state.chats.find(c => c.id === chatId);
-        let title = senderName;
-        if (chat && !chat.isDm) {
-            title = `${senderName} in ${chat.name}`;
-        }
-
-        const registration = await navigator.serviceWorker.ready;
-        registration.showNotification(title, {
-            body: message.rawText || message.text,
-            icon: senderUser?.avatarUrl || '/besedka.png',
-            tag: `/?chat=${chatId}`,
-            renotify: true,
-            data: {
-                url: `/?chat=${chatId}`
+        try {
+            const senderUser = this.state.users.find(u => u.id === message.userId);
+            const senderName = senderUser ? (senderUser.displayName || senderUser.userName) : message.userId;
+            
+            const chat = this.state.chats.find(c => c.id === chatId);
+            let title = senderName;
+            if (chat && !chat.isDm) {
+                title = `${senderName} in ${chat.name}`;
             }
-        });
+
+            const registration = await navigator.serviceWorker.ready;
+            await registration.showNotification(title, {
+                body: message.rawText || message.text,
+                icon: senderUser?.avatarUrl || '/besedka.png',
+                tag: `/?chat=${chatId}`,
+                renotify: true,
+                data: {
+                    url: `/?chat=${chatId}`
+                }
+            });
+        } catch (e) {
+            console.error('Failed to show local notification:', e);
+        }
     }
 
     // UI Actions

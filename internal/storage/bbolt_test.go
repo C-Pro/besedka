@@ -326,6 +326,55 @@ func TestStorage(t *testing.T) {
 			t.Fatal("old_active user not found")
 		}
 	})
+
+	t.Run("VAPID", func(t *testing.T) {
+		priv := "private_key_123"
+		pub := "public_key_456"
+		if err := store.SaveVAPIDKeys(priv, pub); err != nil {
+			t.Fatalf("SaveVAPIDKeys failed: %v", err)
+		}
+
+		gotPriv, gotPub, err := store.GetVAPIDKeys()
+		if err != nil {
+			t.Fatalf("GetVAPIDKeys failed: %v", err)
+		}
+		if gotPriv != priv || gotPub != pub {
+			t.Errorf("expected %s/%s, got %s/%s", priv, pub, gotPriv, gotPub)
+		}
+	})
+
+	t.Run("PushSubscriptions", func(t *testing.T) {
+		userID := "user1"
+		endpoint := "https://example.com/push/123"
+		subData := []byte(`{"endpoint":"https://example.com/push/123","keys":{"p256dh":"...","auth":"..."}}`)
+
+		if err := store.UpsertPushSubscription(userID, endpoint, subData); err != nil {
+			t.Fatalf("UpsertPushSubscription failed: %v", err)
+		}
+
+		subs, err := store.GetPushSubscriptions(userID)
+		if err != nil {
+			t.Fatalf("GetPushSubscriptions failed: %v", err)
+		}
+		if len(subs) != 1 {
+			t.Fatalf("expected 1 subscription, got %d", len(subs))
+		}
+		if string(subs[0]) != string(subData) {
+			t.Errorf("expected subscription data %s, got %s", string(subData), string(subs[0]))
+		}
+
+		if err := store.DeletePushSubscription(userID, endpoint); err != nil {
+			t.Fatalf("DeletePushSubscription failed: %v", err)
+		}
+
+		subs, err = store.GetPushSubscriptions(userID)
+		if err != nil {
+			t.Fatalf("GetPushSubscriptions failed: %v", err)
+		}
+		if len(subs) != 0 {
+			t.Errorf("expected 0 subscriptions after delete, got %d", len(subs))
+		}
+	})
 }
 
 func TestNewBboltStorage_UnencryptedDbFailsWithKey(t *testing.T) {

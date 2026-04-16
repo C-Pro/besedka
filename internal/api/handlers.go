@@ -676,6 +676,9 @@ func (a *API) PushSubscribeHandler(w http.ResponseWriter, r *http.Request) {
 		Keys     json.RawMessage `json:"keys"`
 	}
 
+	// Limit request body size to 10KB
+	r.Body = http.MaxBytesReader(w, r.Body, 10240)
+
 	// Read raw body to save it as is
 	body, err := io.ReadAll(r.Body)
 	if err != nil {

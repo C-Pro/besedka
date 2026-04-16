@@ -673,6 +673,7 @@ func (s *BboltStorage) GetPushSubscriptions(userID string) ([][]byte, error) {
 
 			var dbSub DBPushSubscription
 			if err := dbSub.UnmarshalBinary(v); err != nil {
+				slog.Error("failed to unmarshal push subscription", "userID", userID, "error", err)
 				return nil
 			}
 			subs = append(subs, dbSub.Data)
