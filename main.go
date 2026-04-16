@@ -6,6 +6,7 @@ import (
 	"besedka/internal/config"
 	"besedka/internal/filestore"
 	"besedka/internal/http"
+	"besedka/internal/push"
 	"besedka/internal/storage"
 	"besedka/internal/ws"
 	"context"
@@ -55,10 +56,15 @@ func run(ctx context.Context, addUser string) error {
 		return err
 	}
 
-	hub := ws.NewHub(ctx, authService, bbStorage)
+	pushService, err := push.NewService(bbStorage)
+	if err != nil {
+		return fmt.Errorf("failed to initialize push service: %w", err)
+	}
+
+	hub := ws.NewHub(ctx, authService, bbStorage, pushService)
 
 	adminServer := http.NewAdminServer(cfg, authService, hub)
-	apiServer := http.NewAPIServer(cfg, authService, hub, bbStorage, cfg.APIAddr)
+	apiServer := http.NewAPIServer(cfg, authService, hub, bbStorage, pushService, cfg.APIAddr)
 
 	g, gCtx := errgroup.WithContext(ctx)
 

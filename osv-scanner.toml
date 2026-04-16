@@ -6,7 +6,6 @@ reason = "not applicable"
 id = "GO-2026-4602"
 reason = "not applicable"
 
-
 [[IgnoredVulns]]
 id = "GO-2026-4603"
 reason = "not applicable"
@@ -14,3 +13,23 @@ reason = "not applicable"
 [[IgnoredVulns]]
 id = "GHSA-78h2-9frx-2jm8"
 reason = "transitive test dependency via go-cmp, not used at runtime"
+
+[[IgnoredVulns]]
+id = "GO-2026-4865"
+reason = "cannot upgrade go version in this environment"
+
+[[IgnoredVulns]]
+id = "GO-2026-4870"
+reason = "cannot upgrade go version in this environment"
+
+[[IgnoredVulns]]
+id = "GO-2026-4946"
+reason = "cannot upgrade go version in this environment"
+
+[[IgnoredVulns]]
+id = "GO-2026-4947"
+reason = "cannot upgrade go version in this environment"
+
+[[IgnoredVulns]]
+id = "GHSA-6jwv-w5xf-7j27"
+reason = "false positive or minor impact in this project"

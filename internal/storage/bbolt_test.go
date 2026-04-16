@@ -302,26 +302,28 @@ func TestStorage(t *testing.T) {
 		// Find the backfilled users
 		var oldCreated, oldActive *auth.UserCredentials
 		for i := range allCreds {
-			switch allCreds[i].ID {
-			case "old_created":
+			if allCreds[i].ID == "old_created" {
 				oldCreated = &allCreds[i]
-			case "old_active":
+			}
+			if allCreds[i].ID == "old_active" {
 				oldActive = &allCreds[i]
 			}
 		}
 
-		if oldCreated == nil {
+		if oldCreated != nil {
+			if oldCreated.Status != models.UserStatusCreated {
+				t.Errorf("expected old_created status to be %s, got %s", models.UserStatusCreated, oldCreated.Status)
+			}
+		} else {
 			t.Fatal("old_created user not found")
 		}
-		if oldCreated.Status != models.UserStatusCreated {
-			t.Errorf("expected old_created status to be %s, got %s", models.UserStatusCreated, oldCreated.Status)
-		}
 
-		if oldActive == nil {
+		if oldActive != nil {
+			if oldActive.Status != models.UserStatusActive {
+				t.Errorf("expected old_active status to be %s, got %s", models.UserStatusActive, oldActive.Status)
+			}
+		} else {
 			t.Fatal("old_active user not found")
-		}
-		if oldActive.Status != models.UserStatusActive {
-			t.Errorf("expected old_active status to be %s, got %s", models.UserStatusActive, oldActive.Status)
 		}
 	})
 }

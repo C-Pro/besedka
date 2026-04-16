@@ -17,10 +17,10 @@ This document defines the client-server JSON-based protocol for the chat applica
 ```
 
 **Response:**
-- **Success (200 OK):** Returns the JWT token in the body and sets it as a cookie.
+- **Success (200 OK):** Returns the session token in the body and sets it as a cookie.
   ```json
   {
-    "token": "jwt_token_string",
+    "token": "token_string",
     "tokenExpiry": 1234567890,
     "needRegister": false
   }
@@ -71,7 +71,7 @@ This document defines the client-server JSON-based protocol for the chat applica
 ### Logoff
 **Endpoint:** `POST /api/logoff`
 
-**Description:** Invalidates the JWT on the server and unsets the cookie.
+**Description:** Invalidates the session token on the server and unsets the cookie.
 
 **Response:**
 - **Success (200 OK)**
@@ -79,7 +79,7 @@ This document defines the client-server JSON-based protocol for the chat applica
 ### Reset Password
 **Endpoint:** `POST /api/reset-password`
 
-**Description:** Resets the password for the currently authenticated user. Invalidates all tokens, generates a new TOTP secret, and returns a new setup link. The user status is changed back to "created".
+**Description:** Resets the password for the currently authenticated user. Invalidates all session tokens, generates a new TOTP secret, and returns a new setup link. The user status is changed back to "created".
 
 **Response:**
 - **Success (200 OK):**
@@ -92,7 +92,7 @@ This document defines the client-server JSON-based protocol for the chat applica
 
 ## Users & Chats
 
-All endpoints below require a valid JWT token.
+All endpoints below require a valid session token.
 
 ### Get Current User
 **Endpoint:** `GET /api/me`
@@ -332,7 +332,42 @@ Sent when new messages arrive in a subscribed chat.
 - **Success (200 OK):** Binary file content with appropriate `Content-Type` and `Content-Length`.
 - **Not Found (404):** If ID doesn't exist.
 
-## Admin API
+## Push Notifications
+
+All endpoints below require a valid session token.
+
+### Get VAPID Public Key
+**Endpoint:** `GET /api/push/vapidPublicKey`
+
+**Description:** Returns the VAPID public key required to subscribe to push notifications.
+
+**Response:**
+- **Success (200 OK):** Plain text VAPID public key.
+
+### Subscribe to Push Notifications
+**Endpoint:** `POST /api/push/subscribe`
+
+**Description:** Saves a user's push subscription to the server.
+
+**Request Body:**
+A standard `PushSubscription` JSON object as returned by the browser's `PushManager.subscribe()` method.
+```json
+{
+  "endpoint": "https://fcm.googleapis.com/fcm/send/...",
+  "expirationTime": null,
+  "keys": {
+    "p256dh": "...",
+    "auth": "..."
+  }
+}
+```
+
+**Response:**
+- **Success (200 OK)**
+- **Error (400 Bad Request):** If the subscription JSON is invalid.
+
+## WebSocket Protocol
+
 
 The Admin API runs on a separate port (default 8081) and is used for management tasks.
 

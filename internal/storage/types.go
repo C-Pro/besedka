@@ -111,3 +111,42 @@ func (m *DBMessage) UnmarshalBinary(data []byte) error {
 	type alias DBMessage
 	return msgpack.Unmarshal(data, (*alias)(m))
 }
+
+type DBVAPIDKeys struct {
+	PrivateKey string `msgpack:"privateKey"`
+	PublicKey  string `msgpack:"publicKey"`
+}
+
+func (k *DBVAPIDKeys) Key() []byte {
+	return []byte("vapid_keys")
+}
+
+func (k *DBVAPIDKeys) MarshalBinary() (data []byte, err error) {
+	type alias DBVAPIDKeys
+	return msgpack.Marshal((*alias)(k))
+}
+
+func (k *DBVAPIDKeys) UnmarshalBinary(data []byte) error {
+	type alias DBVAPIDKeys
+	return msgpack.Unmarshal(data, (*alias)(k))
+}
+
+type DBPushSubscription struct {
+	UserID   string `msgpack:"userId"`
+	Endpoint string `msgpack:"endpoint"`
+	Data     []byte `msgpack:"data"`
+}
+
+func (s *DBPushSubscription) Key() []byte {
+	return []byte(s.Endpoint)
+}
+
+func (s *DBPushSubscription) MarshalBinary() (data []byte, err error) {
+	type alias DBPushSubscription
+	return msgpack.Marshal((*alias)(s))
+}
+
+func (s *DBPushSubscription) UnmarshalBinary(data []byte) error {
+	type alias DBPushSubscription
+	return msgpack.Unmarshal(data, (*alias)(s))
+}

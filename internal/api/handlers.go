@@ -25,28 +25,30 @@ import (
 	"github.com/h2non/filetype"
 )
 
+type PushService interface {
+	PublicKey() string
+	SendNotification(userID string, payload []byte) error
+}
+
 type API struct {
 	auth    *auth.AuthService
 	hub     *ws.Hub
 	storage *storage.BboltStorage
 	cfg     *config.Config
+	push    PushService
 }
 
-func New(auth *auth.AuthService, hub *ws.Hub, storage *storage.BboltStorage, cfg *config.Config) *API {
+func New(auth *auth.AuthService, hub *ws.Hub, storage *storage.BboltStorage, cfg *config.Config, push PushService) *API {
 	return &API{
 		auth:    auth,
 		hub:     hub,
 		storage: storage,
 		cfg:     cfg,
+		push:    push,
 	}
 }
 
 func (a *API) LoginHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	var req struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -144,11 +146,6 @@ func (a *API) RequireAuth(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func (a *API) LogoffHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	token := a.getToken(r)
 	if token != "" {
 		_ = a.auth.Logoff(token)
@@ -167,11 +164,6 @@ func (a *API) LogoffHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) RegisterHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	var req auth.RegistrationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -215,11 +207,6 @@ func (a *API) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) RegisterInfoHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	token := r.URL.Query().Get("token")
 	if token == "" {
 		http.Error(w, "Token required", http.StatusBadRequest)
@@ -243,7 +230,6 @@ func (a *API) RegisterInfoHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) UsersHandler(w http.ResponseWriter, r *http.Request) {
-
 	users, err := a.auth.GetUsers()
 	if err != nil {
 		http.Error(w, "Failed to fetch users", http.StatusInternalServerError)
@@ -280,11 +266,6 @@ func (a *API) ChatsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) ChatMessagesHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	chatID := r.PathValue("id")
 	if chatID == "" {
 		http.Error(w, "Missing chat ID", http.StatusBadRequest)
@@ -414,11 +395,6 @@ func RequireSameOrigin(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func (a *API) ResetPasswordHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	userID := UserIDFromContext(r.Context())
 
 	regToken, err := a.auth.ResetPassword(userID)
@@ -513,11 +489,6 @@ func (a *API) processUpload(w http.ResponseWriter, r *http.Request, maxBytes int
 }
 
 func (a *API) UploadImageHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	// Limit image
 	fileID, err := a.processUpload(w, r, a.cfg.MaxImageSize, true)
 	if err != nil {
@@ -531,11 +502,6 @@ func (a *API) UploadImageHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) UploadAvatarHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	uploaderID := UserIDFromContext(r.Context())
 
 	// Limit for avatars
@@ -568,11 +534,6 @@ func (a *API) UploadAvatarHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) UpdateDisplayNameHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	userID := UserIDFromContext(r.Context())
 
 	var req struct {
@@ -623,11 +584,6 @@ func (a *API) UpdateDisplayNameHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) GetImageHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	id := r.PathValue("id")
 	if id == "" {
 		http.Error(w, "Missing file ID", http.StatusBadRequest)
@@ -658,11 +614,6 @@ func (a *API) GetImageHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) UploadFileHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	// Limit for files
 	fileID, err := a.processUpload(w, r, a.cfg.MaxFileSize, false)
 	if err != nil {
@@ -676,11 +627,6 @@ func (a *API) UploadFileHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) GetFileHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	id := r.PathValue("id")
 	if id == "" {
 		http.Error(w, "Missing file ID", http.StatusBadRequest)
@@ -715,4 +661,43 @@ func (a *API) GetFileHandler(w http.ResponseWriter, r *http.Request) {
 	if _, err := io.Copy(w, rc); err != nil {
 		log.Printf("failed to write file content: %v", err)
 	}
+}
+
+func (a *API) PushVAPIDPublicKeyHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/octet-stream")
+	_, _ = w.Write([]byte(a.push.PublicKey()))
+}
+
+func (a *API) PushSubscribeHandler(w http.ResponseWriter, r *http.Request) {
+	userID := UserIDFromContext(r.Context())
+
+	var sub struct {
+		Endpoint string          `json:"endpoint"`
+		Keys     json.RawMessage `json:"keys"`
+	}
+
+	// Read raw body to save it as is
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read body", http.StatusBadRequest)
+		return
+	}
+
+	if err := json.Unmarshal(body, &sub); err != nil {
+		http.Error(w, "Invalid subscription JSON", http.StatusBadRequest)
+		return
+	}
+
+	if sub.Endpoint == "" {
+		http.Error(w, "Missing endpoint", http.StatusBadRequest)
+		return
+	}
+
+	if err := a.storage.UpsertPushSubscription(userID, sub.Endpoint, body); err != nil {
+		log.Printf("failed to save push subscription: %v", err)
+		http.Error(w, "Internal Database Error", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }

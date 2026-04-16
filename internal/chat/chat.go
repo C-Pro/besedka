@@ -102,8 +102,8 @@ func (c *Chat) AddRecord(record ChatRecord) error {
 		c.LastIndex = i
 	}
 
-	for receiverID, online := range c.Members {
-		if online && c.RecordCallback != nil {
+	for receiverID := range c.Members {
+		if c.RecordCallback != nil {
 			c.RecordCallback(receiverID, c.ID, record)
 		}
 	}
