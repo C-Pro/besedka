@@ -69,6 +69,7 @@ type Message struct {
 	ChatID      string       `json:"chatId"`
 	UserID      string       `json:"userId"`
 	Content     string       `json:"content"`
+	RawContent  string       `json:"rawContent,omitempty"`
 	Attachments []Attachment `json:"attachments,omitempty"`
 }
 

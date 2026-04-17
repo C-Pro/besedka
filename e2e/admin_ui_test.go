@@ -49,7 +49,12 @@ func (m *mockStorage) UpsertRegistrationToken(uid, token string) error {
 }
 func (m *mockStorage) DeleteRegistrationToken(uid string) error           { return nil }
 func (m *mockStorage) ListRegistrationTokens() (map[string]string, error) { return m.regTokens, nil }
-func (m *mockStorage) MigrateTokens(f func(string) string) error          { return nil }
+
+func (m *mockStorage) GetVAPIDKeys() (string, string, error)             { return "", "", models.ErrNotFound }
+func (m *mockStorage) SaveVAPIDKeys(priv, pub string) error             { return nil }
+func (m *mockStorage) UpsertPushSubscription(uid, end string, sub []byte) error { return nil }
+func (m *mockStorage) GetPushSubscriptions(uid string) ([][]byte, error) { return nil, nil }
+func (m *mockStorage) DeletePushSubscription(uid, end string) error      { return nil }
 
 // ws.storage implementation
 func (m *mockStorage) UpsertMessage(message models.Message) error { return nil }
@@ -58,6 +63,10 @@ func (m *mockStorage) ListMessages(chatID string, from, to int64) ([]models.Mess
 }
 func (m *mockStorage) ListChats() ([]models.Chat, error) { return nil, nil }
 func (m *mockStorage) UpsertChat(chat models.Chat) error { return nil }
+
+type mockPushService struct{}
+
+func (m *mockPushService) SendNotification(userID string, payload []byte) error { return nil }
 
 func TestAdminUI(t *testing.T) {
 	// Setup dependencies
@@ -81,7 +90,7 @@ func TestAdminUI(t *testing.T) {
 		t.Fatalf("Failed to create auth service: %v", err)
 	}
 
-	hub := ws.NewHub(context.Background(), authService, store)
+	hub := ws.NewHub(context.Background(), authService, store, &mockPushService{})
 
 	adminServer := http.NewAdminServer(cfg, authService, hub)
 

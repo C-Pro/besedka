@@ -302,26 +302,77 @@ func TestStorage(t *testing.T) {
 		// Find the backfilled users
 		var oldCreated, oldActive *auth.UserCredentials
 		for i := range allCreds {
-			switch allCreds[i].ID {
-			case "old_created":
+			if allCreds[i].ID == "old_created" {
 				oldCreated = &allCreds[i]
-			case "old_active":
+			}
+			if allCreds[i].ID == "old_active" {
 				oldActive = &allCreds[i]
 			}
 		}
 
-		if oldCreated == nil {
+		if oldCreated != nil {
+			if oldCreated.Status != models.UserStatusCreated {
+				t.Errorf("expected old_created status to be %s, got %s", models.UserStatusCreated, oldCreated.Status)
+			}
+		} else {
 			t.Fatal("old_created user not found")
 		}
-		if oldCreated.Status != models.UserStatusCreated {
-			t.Errorf("expected old_created status to be %s, got %s", models.UserStatusCreated, oldCreated.Status)
-		}
 
-		if oldActive == nil {
+		if oldActive != nil {
+			if oldActive.Status != models.UserStatusActive {
+				t.Errorf("expected old_active status to be %s, got %s", models.UserStatusActive, oldActive.Status)
+			}
+		} else {
 			t.Fatal("old_active user not found")
 		}
-		if oldActive.Status != models.UserStatusActive {
-			t.Errorf("expected old_active status to be %s, got %s", models.UserStatusActive, oldActive.Status)
+	})
+
+	t.Run("VAPID", func(t *testing.T) {
+		priv := "private_key_123"
+		pub := "public_key_456"
+		if err := store.SaveVAPIDKeys(priv, pub); err != nil {
+			t.Fatalf("SaveVAPIDKeys failed: %v", err)
+		}
+
+		gotPriv, gotPub, err := store.GetVAPIDKeys()
+		if err != nil {
+			t.Fatalf("GetVAPIDKeys failed: %v", err)
+		}
+		if gotPriv != priv || gotPub != pub {
+			t.Errorf("expected %s/%s, got %s/%s", priv, pub, gotPriv, gotPub)
+		}
+	})
+
+	t.Run("PushSubscriptions", func(t *testing.T) {
+		userID := "user1"
+		endpoint := "https://example.com/push/123"
+		subData := []byte(`{"endpoint":"https://example.com/push/123","keys":{"p256dh":"...","auth":"..."}}`)
+
+		if err := store.UpsertPushSubscription(userID, endpoint, subData); err != nil {
+			t.Fatalf("UpsertPushSubscription failed: %v", err)
+		}
+
+		subs, err := store.GetPushSubscriptions(userID)
+		if err != nil {
+			t.Fatalf("GetPushSubscriptions failed: %v", err)
+		}
+		if len(subs) != 1 {
+			t.Fatalf("expected 1 subscription, got %d", len(subs))
+		}
+		if string(subs[0]) != string(subData) {
+			t.Errorf("expected subscription data %s, got %s", string(subData), string(subs[0]))
+		}
+
+		if err := store.DeletePushSubscription(userID, endpoint); err != nil {
+			t.Fatalf("DeletePushSubscription failed: %v", err)
+		}
+
+		subs, err = store.GetPushSubscriptions(userID)
+		if err != nil {
+			t.Fatalf("GetPushSubscriptions failed: %v", err)
+		}
+		if len(subs) != 0 {
+			t.Errorf("expected 0 subscriptions after delete, got %d", len(subs))
 		}
 	})
 }

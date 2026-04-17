@@ -35,11 +35,6 @@ type AddUserResponse struct {
 }
 
 func (h *AdminHandler) AddUserHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	var req AddUserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -143,11 +138,6 @@ func (h *AdminHandler) DeleteUserHandler(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *AdminHandler) ResetUserPasswordHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	userID := r.URL.Query().Get("id")
 	if userID == "" {
 		http.Error(w, "User ID is required", http.StatusBadRequest)

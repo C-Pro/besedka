@@ -306,6 +306,70 @@ function renderApp() {
     });
 }
 
+function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding)
+        .replace(/-/g, '+')
+        .replace(/_/g, '/');
+
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+
+    for (let i = 0; i < rawData.length; ++i) {
+        outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+}
+
+async function setupPushNotifications() {
+    console.log('Setting up push notifications...');
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        console.warn('Push notifications are not supported');
+        return;
+    }
+
+    try {
+        const registration = await navigator.serviceWorker.register('/sw.js');
+        
+        // Fetch public key
+        const response = await fetch('/api/push/vapidPublicKey');
+        if (!response.ok) {
+            throw new Error('Failed to fetch VAPID public key');
+        }
+        const vapidPublicKey = await response.text();
+        const convertedKey = urlBase64ToUint8Array(vapidPublicKey);
+
+        // Check if already subscribed
+        let subscription = await registration.pushManager.getSubscription();
+        
+        if (!subscription) {
+            console.log('No subscription found, creating one...');
+            subscription = await registration.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: convertedKey
+            });
+            console.log('Push subscription created:', subscription);
+        }
+        
+        // Always send subscription to server to ensure it's in sync
+        const subResponse = await fetch('/api/push/subscribe', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(subscription)
+        });
+        
+        if (subResponse.ok) {
+            console.log('Push subscription synchronized with server');
+        } else {
+            console.error('Failed to sync push subscription:', await subResponse.text());
+        }
+    } catch (error) {
+        console.error('Failed to setup push notifications:', error);
+    }
+}
+
 function init() {
     // Check authentication logic is primarily handled by the server (sending back 401 on data fetch).
     // However, we can try to fetch the initial data. If it fails with 401, redirect to login.
@@ -319,6 +383,7 @@ function init() {
             store.fetchUsers();
             store.fetchChats();
             store.connectWebSocket();
+            setupPushNotifications();
 
             // Setup periodic session check (every 5 minutes)
             setInterval(() => {

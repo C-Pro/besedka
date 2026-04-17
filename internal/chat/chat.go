@@ -66,7 +66,6 @@ func New(config Config) *Chat {
 // - Sending updates to all connected clients
 func (c *Chat) AddRecord(record ChatRecord) error {
 	c.mux.Lock()
-	defer c.mux.Unlock()
 
 	c.LastSeq++
 	record.Seq = c.LastSeq
@@ -82,6 +81,7 @@ func (c *Chat) AddRecord(record ChatRecord) error {
 			Attachments: record.Attachments,
 		})
 		if err != nil {
+			c.mux.Unlock()
 			slog.Error("failed to persist message", "chatID", c.ID, "error", err)
 			return fmt.Errorf("failed to persist message: %w", err)
 		}
@@ -102,8 +102,16 @@ func (c *Chat) AddRecord(record ChatRecord) error {
 		c.LastIndex = i
 	}
 
-	for receiverID, online := range c.Members {
-		if online && c.RecordCallback != nil {
+	// Collect receivers while holding the lock
+	receivers := make([]string, 0, len(c.Members))
+	for receiverID := range c.Members {
+		receivers = append(receivers, receiverID)
+	}
+	c.mux.Unlock()
+
+	// Call callbacks outside of the lock to avoid deadlock
+	if c.RecordCallback != nil {
+		for _, receiverID := range receivers {
 			c.RecordCallback(receiverID, c.ID, record)
 		}
 	}
@@ -231,6 +239,10 @@ func (c *Chat) addMember(userID string, online bool) {
 	defer c.mux.Unlock()
 
 	c.Members[userID] = online
+}
+
+func (c *Chat) SetMemberStatus(userID string, online bool) {
+	c.addMember(userID, online)
 }
 
 func (c *Chat) Join(userID string) {

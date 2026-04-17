@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"besedka/internal/auth"
@@ -23,6 +24,8 @@ var (
 	bucketRegistrationTokens = []byte("registration_tokens")
 	bucketFiles              = []byte("files")
 	bucketSettings           = []byte("settings")
+	bucketVAPIDKeys          = []byte("vapid_keys")
+	bucketPushSubscriptions  = []byte("push_subscriptions")
 )
 
 type BboltStorage struct {
@@ -58,6 +61,12 @@ func NewBboltStorage(path string, key []byte, fs filestore.FileStore) (*BboltSto
 			return err
 		}
 		if _, err := tx.CreateBucketIfNotExists(bucketSettings); err != nil {
+			return err
+		}
+		if _, err := tx.CreateBucketIfNotExists(bucketVAPIDKeys); err != nil {
+			return err
+		}
+		if _, err := tx.CreateBucketIfNotExists(bucketPushSubscriptions); err != nil {
 			return err
 		}
 		return nil
@@ -557,4 +566,130 @@ func (s *BboltStorage) ListRegistrationTokens() (map[string]string, error) {
 		})
 	})
 	return tokens, err
+}
+
+func (s *BboltStorage) GetVAPIDKeys() (privateKey, publicKey string, err error) {
+	err = s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketVAPIDKeys)
+		data := b.Get([]byte("vapid_keys"))
+		if data == nil {
+			return models.ErrNotFound
+		}
+
+		if s.isEncrypted {
+			var err error
+			data, err = s.crypter.Decrypt(data)
+			if err != nil {
+				return fmt.Errorf("failed to decrypt vapid keys: %w", err)
+			}
+		}
+
+		var keys DBVAPIDKeys
+		if err := keys.UnmarshalBinary(data); err != nil {
+			return err
+		}
+
+		privateKey = keys.PrivateKey
+		publicKey = keys.PublicKey
+		return nil
+	})
+	return privateKey, publicKey, err
+}
+
+func (s *BboltStorage) SaveVAPIDKeys(privateKey, publicKey string) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketVAPIDKeys)
+		keys := DBVAPIDKeys{
+			PrivateKey: privateKey,
+			PublicKey:  publicKey,
+		}
+		data, err := keys.MarshalBinary()
+		if err != nil {
+			return err
+		}
+
+		if s.isEncrypted {
+			var err error
+			data, err = s.crypter.Encrypt(data)
+			if err != nil {
+				return fmt.Errorf("failed to encrypt vapid keys: %w", err)
+			}
+		}
+
+		return b.Put(keys.Key(), data)
+	})
+}
+
+func (s *BboltStorage) UpsertPushSubscription(userID string, endpoint string, sub []byte) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		mainBucket := tx.Bucket(bucketPushSubscriptions)
+		userBucket, err := mainBucket.CreateBucketIfNotExists([]byte(userID))
+		if err != nil {
+			return fmt.Errorf("failed to create user push bucket: %w", err)
+		}
+
+		dbSub := DBPushSubscription{
+			UserID:   userID,
+			Endpoint: endpoint,
+			Data:     sub,
+		}
+
+		data, err := dbSub.MarshalBinary()
+		if err != nil {
+			return err
+		}
+
+		if s.isEncrypted {
+			var err error
+			data, err = s.crypter.Encrypt(data)
+			if err != nil {
+				return fmt.Errorf("failed to encrypt push subscription: %w", err)
+			}
+		}
+
+		return userBucket.Put(dbSub.Key(), data)
+	})
+}
+
+func (s *BboltStorage) GetPushSubscriptions(userID string) ([][]byte, error) {
+	var subs [][]byte
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		mainBucket := tx.Bucket(bucketPushSubscriptions)
+		userBucket := mainBucket.Bucket([]byte(userID))
+		if userBucket == nil {
+			return nil
+		}
+
+		return userBucket.ForEach(func(k, v []byte) error {
+			if s.isEncrypted {
+				var err error
+				v, err = s.crypter.Decrypt(v)
+				if err != nil {
+					// Log and skip if decryption fails for a single record instead of failing everything
+					slog.Warn("failed to decrypt push subscription record, skipping", "userID", userID, "error", err)
+					return nil
+				}
+			}
+
+			var dbSub DBPushSubscription
+			if err := dbSub.UnmarshalBinary(v); err != nil {
+				slog.Error("failed to unmarshal push subscription", "userID", userID, "error", err)
+				return nil
+			}
+			subs = append(subs, dbSub.Data)
+			return nil
+		})
+	})
+	return subs, err
+}
+
+func (s *BboltStorage) DeletePushSubscription(userID string, endpoint string) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		mainBucket := tx.Bucket(bucketPushSubscriptions)
+		userBucket := mainBucket.Bucket([]byte(userID))
+		if userBucket == nil {
+			return nil
+		}
+		return userBucket.Delete([]byte(endpoint))
+	})
 }

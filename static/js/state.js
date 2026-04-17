@@ -54,12 +54,7 @@ class Store {
     }
 
     // API Actions
-    // API Actions
     async login(username, password, otp = 0) {
-        if ('Notification' in window && Notification.permission === 'default') {
-            Notification.requestPermission().catch(console.error);
-        }
-
         try {
             const body = `username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}&totp=${otp}`;
             const response = await fetch('/api/login', {
@@ -464,6 +459,7 @@ class Store {
                 id: `${chatId}-${m.seq}`, // unique id
                 seq: m.seq,
                 text: m.content,
+                rawText: m.rawContent,
                 sender: m.userId === this.state.currentUser?.id ? 'me' : m.userId,
                 timestamp: (() => {
                     const d = new Date(m.timestamp * 1000);
@@ -510,54 +506,58 @@ class Store {
             }
         });
 
-        // Handle Notifications
-        if ('Notification' in window && document.hidden && Notification.permission === "granted") {
-            const isHistoryFetch = currentMessages.length === 0 && newMessages.length > 1; // Basic heuristic
-            if (!wasLoadingHistory && !isHistoryFetch) {
-                const now = Date.now();
-                const lastSeq = currentMessages.length > 0 ? currentMessages[currentMessages.length - 1].seq : 0;
-                for (const m of newMessages) {
-                    const alreadyExists = m.seq <= lastSeq;
-                    const isOld = (now - m.rawTimestamp) > 5 * 60 * 1000; // 5 minutes
+        // Show local notification if message is from a different chat or tab is hidden
+        const isHistoryFetch = currentMessages.length === 0 && newMessages.length > 1;
+        if (!wasLoadingHistory && !isHistoryFetch) {
+            const now = Date.now();
+            const lastSeq = currentMessages.length > 0 ? currentMessages[currentMessages.length - 1].seq : 0;
+            
+            for (const m of newMessages) {
+                const alreadyExists = m.seq <= lastSeq;
+                const isOld = (now - m.rawTimestamp) > 5 * 60 * 1000;
 
-                    if (m.userId !== this.state.currentUser?.id && !alreadyExists && !isOld) {
-                        const senderUser = this.state.users.find(u => u.id === m.userId);
-                        const senderName = senderUser ? (senderUser.displayName || senderUser.userName) : m.userId;
-                        
-                        const chat = this.state.chats.find(c => c.id === chatId);
-                        let title = senderName;
-                        if (chat && !chat.isDm) {
-                            title = `${senderName} in ${chat.name}`;
-                        }
+                if (m.userId !== this.state.currentUser?.id && !alreadyExists && !isOld) {
+                    const isDifferentChat = chatId !== this.state.activeChatId;
+                    const isTabHidden = document.hidden;
 
-                        const iconUrl = senderUser?.avatarUrl || '/besedka.png';
-
-                        try {
-                            const notification = new Notification(title, {
-                                body: m.text,
-                                icon: iconUrl
-                            });
-
-                            notification.onclick = () => {
-                                window.focus();
-                                notification.close();
-                                this.setActiveChat(chatId);
-                            };
-                        } catch (e) {
-                            console.error('Failed to create notification:', e);
-                        }
+                    if (isDifferentChat || isTabHidden) {
+                        this.showLocalNotification(chatId, m);
                     }
                 }
             }
         }
     }
 
+    async showLocalNotification(chatId, message) {
+        if (!('serviceWorker' in navigator)) return;
+
+        try {
+            const senderUser = this.state.users.find(u => u.id === message.userId);
+            const senderName = senderUser ? (senderUser.displayName || senderUser.userName) : message.userId;
+            
+            const chat = this.state.chats.find(c => c.id === chatId);
+            let title = senderName;
+            if (chat && !chat.isDm) {
+                title = `${senderName} in ${chat.name}`;
+            }
+
+            const registration = await navigator.serviceWorker.ready;
+            await registration.showNotification(title, {
+                body: message.rawText || message.text,
+                icon: senderUser?.avatarUrl || '/besedka.png',
+                tag: `/?chat=${chatId}`,
+                renotify: true,
+                data: {
+                    url: `/?chat=${chatId}`
+                }
+            });
+        } catch (e) {
+            console.error('Failed to show local notification:', e);
+        }
+    }
+
     // UI Actions
     setActiveChat(chatId) {
-        if ('Notification' in window && Notification.permission === 'default') {
-            Notification.requestPermission().catch(console.error);
-        }
-
         if (this.state.activeChatId === chatId) return;
 
         // Leave previous chat
@@ -587,10 +587,6 @@ class Store {
     }
 
     sendMessage(chatId, text, attachments = []) {
-        if ('Notification' in window && Notification.permission === 'default') {
-            Notification.requestPermission().catch(console.error);
-        }
-
         this.sendWebSocketMessage({
             type: 'send',
             chatId,

@@ -1,16 +1,18 @@
 package http
 
 import (
+	"context"
+	"log/slog"
+	"net/http"
+	"sync"
+
 	"besedka/internal/api"
 	"besedka/internal/auth"
 	"besedka/internal/config"
+	"besedka/internal/push"
 	"besedka/internal/storage"
 	"besedka/internal/ws"
 	"besedka/static"
-	"context"
-	"log"
-	"net/http"
-	"sync"
 )
 
 type APIServer struct {
@@ -18,12 +20,12 @@ type APIServer struct {
 	wg     sync.WaitGroup
 }
 
-func NewAPIServer(cfg *config.Config, authService *auth.AuthService, hub *ws.Hub, storage *storage.BboltStorage, addr string) *APIServer {
+func NewAPIServer(cfg *config.Config, authService *auth.AuthService, hub *ws.Hub, storage *storage.BboltStorage, pushService *push.Service, addr string) *APIServer {
 	// Initialize Hub
 	// hub := ws.NewHub(authService, bbStorage)
 
 	server := ws.NewServer(authService, hub)
-	apiHandlers := api.New(authService, hub, storage, cfg)
+	apiHandlers := api.New(authService, hub, storage, cfg, pushService)
 
 	mux := http.NewServeMux()
 
@@ -47,6 +49,10 @@ func NewAPIServer(cfg *config.Config, authService *auth.AuthService, hub *ws.Hub
 	mux.HandleFunc("GET /api/images/{id}", apiHandlers.RequireAuth(apiHandlers.GetImageHandler))
 	mux.HandleFunc("GET /api/files/{id}", apiHandlers.RequireAuth(apiHandlers.GetFileHandler))
 
+	// Push notification endpoints
+	mux.HandleFunc("GET /api/push/vapidPublicKey", apiHandlers.RequireAuth(apiHandlers.PushVAPIDPublicKeyHandler))
+	mux.HandleFunc("POST /api/push/subscribe", apiHandlers.RequireAuth(apiHandlers.PushSubscribeHandler))
+
 	// WebSocket endpoint
 	mux.HandleFunc("/api/chat", server.HandleConnections)
 
@@ -63,7 +69,7 @@ func NewAPIServer(cfg *config.Config, authService *auth.AuthService, hub *ws.Hub
 }
 
 func (s *APIServer) Start() error {
-	log.Printf("Server started on %s", s.server.Addr)
+	slog.Info("Server started", "address", s.server.Addr)
 	s.wg.Add(1)
 	defer s.wg.Done()
 

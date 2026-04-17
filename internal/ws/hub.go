@@ -2,6 +2,7 @@ package ws
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -20,7 +21,14 @@ const (
 	chatMaxRecords  = 500
 	locationTTL     = 10 * time.Minute
 	locationCleanup = time.Minute
+	pushWorkers     = 5
+	pushQueueSize   = 100
 )
+
+type pushTask struct {
+	userID  string
+	payload []byte
+}
 
 type Hub struct {
 	chats          map[string]*chat.Chat
@@ -29,6 +37,8 @@ type Hub struct {
 
 	userProvider userProvider
 	storage      storage
+	pushService  PushService
+	pushQueue    chan pushTask
 
 	mu sync.RWMutex
 }
@@ -45,13 +55,23 @@ type userProvider interface {
 	GetUsers() ([]models.User, error)
 }
 
-func NewHub(ctx context.Context, userProvider userProvider, storage storage) *Hub {
+type PushService interface {
+	SendNotification(userID string, payload []byte) error
+}
+
+func NewHub(ctx context.Context, userProvider userProvider, storage storage, pushService PushService) *Hub {
 	h := &Hub{
 		chats:          make(map[string]*chat.Chat),
 		connectedUsers: make(map[string]chan models.ServerMessage),
 		userLocations:  geche.NewMapTTLCache[string, models.Location](ctx, locationTTL, locationCleanup),
 		userProvider:   userProvider,
 		storage:        storage,
+		pushService:    pushService,
+		pushQueue:      make(chan pushTask, pushQueueSize),
+	}
+
+	for i := 0; i < pushWorkers; i++ {
+		go h.pushWorker(ctx)
 	}
 
 	chats, err := storage.ListChats()
@@ -78,6 +98,22 @@ func NewHub(ctx context.Context, userProvider userProvider, storage storage) *Hu
 	return h
 }
 
+func (h *Hub) pushWorker(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case task, ok := <-h.pushQueue:
+			if !ok {
+				return
+			}
+			if err := h.pushService.SendNotification(task.userID, task.payload); err != nil {
+				slog.Error("failed to send push notification", "userID", task.userID, "error", err)
+			}
+		}
+	}
+}
+
 func (h *Hub) restoreChat(modelChat models.Chat) {
 	c := chat.New(chat.Config{
 		ID:             modelChat.ID,
@@ -85,6 +121,22 @@ func (h *Hub) restoreChat(modelChat models.Chat) {
 		RecordCallback: h.handleRecordCallback,
 		Storage:        h.storage,
 	})
+
+	// Populate initial members for the chat object to ensure callbacks trigger even for offline users
+	if modelChat.ID == "townhall" {
+		users, _ := h.userProvider.GetUsers()
+		for _, u := range users {
+			if u.Status != models.UserStatusDeleted {
+				c.SetMemberStatus(u.ID, false)
+			}
+		}
+	} else if modelChat.IsDM {
+		parts := strings.Split(modelChat.ID[3:], "_")
+		if len(parts) == 2 {
+			c.SetMemberStatus(parts[0], false)
+			c.SetMemberStatus(parts[1], false)
+		}
+	}
 
 	if modelChat.LastSeq > 0 {
 		from := int64(modelChat.LastSeq) - chatMaxRecords + 1
@@ -127,6 +179,21 @@ func (h *Hub) createChat(id string, maxRecords int, isDM bool) *chat.Chat {
 		Storage:        h.storage,
 	})
 
+	if id == "townhall" {
+		users, _ := h.userProvider.GetUsers()
+		for _, u := range users {
+			if u.Status != models.UserStatusDeleted {
+				c.SetMemberStatus(u.ID, false)
+			}
+		}
+	} else if isDM {
+		parts := strings.Split(id[3:], "_")
+		if len(parts) == 2 {
+			c.SetMemberStatus(parts[0], false)
+			c.SetMemberStatus(parts[1], false)
+		}
+	}
+
 	if err := h.storage.UpsertChat(models.Chat{
 		ID:   id,
 		Name: id,
@@ -152,12 +219,10 @@ func (h *Hub) EnsureDMsFor(user models.User, allUsers []models.User) {
 		dmID := getDMID(user.ID, other.ID)
 		if _, exists := h.chats[dmID]; !exists {
 			c := h.createChat(dmID, chatMaxRecords, true)
-			if _, ok := h.connectedUsers[user.ID]; ok {
-				c.Join(user.ID)
-			}
-			if _, ok := h.connectedUsers[other.ID]; ok {
-				c.Join(other.ID)
-			}
+			_, online1 := h.connectedUsers[user.ID]
+			_, online2 := h.connectedUsers[other.ID]
+			c.SetMemberStatus(user.ID, online1)
+			c.SetMemberStatus(other.ID, online2)
 		}
 	}
 }
@@ -209,8 +274,10 @@ func (h *Hub) Leave(userID string) {
 	}
 
 	// Leave all relevant chats
-	for _, c := range h.chats {
-		c.Leave(userID)
+	for chatID, c := range h.chats {
+		if chatID == "townhall" || isUserInDM(userID, chatID) {
+			c.Leave(userID)
+		}
 	}
 
 	// Notify others that user is offline
@@ -220,6 +287,13 @@ func (h *Hub) Leave(userID string) {
 func (h *Hub) BroadcastNewUser(user models.User) {
 	user.DisplayName = content.Escape(user.DisplayName)
 	user.UserName = content.Escape(user.UserName)
+
+	h.mu.Lock()
+	if townhall, ok := h.chats["townhall"]; ok {
+		townhall.SetMemberStatus(user.ID, false)
+	}
+	h.mu.Unlock()
+
 	h.BroadcastToAll(models.ServerMessage{
 		Type: models.ServerMessageTypeNew,
 		User: user,
@@ -512,22 +586,45 @@ func (h *Hub) handleRecordCallback(receiverID string, chatID string, record chat
 	ch, online := h.connectedUsers[receiverID]
 	h.mu.RUnlock()
 
-	if !online {
-		return
-	}
+	if online {
+		msg := models.ServerMessage{
+			Type:   models.ServerMessageTypeMessages,
+			ChatID: chatID,
+			Messages: mapRecordsToMessages([]chat.ChatRecord{record}),
+		}
 
-	msg := models.ServerMessage{
-		Type:   models.ServerMessageTypeMessages,
-		ChatID: chatID,
-		Messages: mapRecordsToMessages([]chat.ChatRecord{record}),
-	}
+		select {
+		case ch <- msg:
+		default:
+			// TODO: disconnect user? Channel has size 100 so if the client
+			// is 100 messages behind, there's something off with it.
+			slog.Warn("Message channel full, dropping message", "chatID", chatID, "userID", receiverID)
+		}
+	} else if receiverID != record.UserID {
+		// Send push notification if user is offline AND is not the sender
+		sender, _ := h.userProvider.GetUser(record.UserID)
+		senderName := sender.DisplayName
+		if senderName == "" {
+			senderName = sender.UserName
+		}
 
-	select {
-	case ch <- msg:
-	default:
-		// TODO: disconnect user? Channel has size 100 so if the client
-		// is 100 messages behind, there's something off with it.
-		slog.Warn("Message channel full, dropping message", "chatID", chatID, "userID", receiverID)
+		formatted := record.FormattedContent
+		if formatted == "" {
+			formatted = content.FormatMessage(record.Content)
+		}
+
+		payload := map[string]string{
+			"title": senderName,
+			"body":  content.Sanitize(formatted),
+			"url":   fmt.Sprintf("/?chat=%s", chatID),
+		}
+
+		payloadBytes, _ := json.Marshal(payload)
+		select {
+		case h.pushQueue <- pushTask{userID: receiverID, payload: payloadBytes}:
+		default:
+			slog.Warn("Push notification queue full, dropping notification", "userID", receiverID)
+		}
 	}
 }
 
@@ -542,6 +639,7 @@ func mapRecordsToMessages(records []chat.ChatRecord) []models.Message {
 			Seq:         int64(r.Seq),
 			UserID:      r.UserID,
 			Content:     formatted,
+			RawContent:  content.Sanitize(formatted),
 			Timestamp:   r.Timestamp,
 			Attachments: r.Attachments,
 		}

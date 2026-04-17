@@ -124,9 +124,11 @@ func TestChat_Callback(t *testing.T) {
 		t.Errorf("online_user received wrong content: %s", rec.Content)
 	}
 
-	// Check offline user did not receive it
-	if _, ok := received["chat1:offline_user"]; ok {
-		t.Error("offline_user received message but shouldn't have")
+	// Check offline user also received it (for Push notifications)
+	if rec, ok := received["chat1:offline_user"]; !ok {
+		t.Error("offline_user did not receive message")
+	} else if rec.Content != "hello" {
+		t.Errorf("offline_user received wrong content: %s", rec.Content)
 	}
 }
 

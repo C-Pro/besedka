@@ -69,6 +69,12 @@ func (m *MockStorage) UpsertChat(chat models.Chat) error {
 	return nil
 }
 
+type MockPushService struct{}
+
+func (m *MockPushService) SendNotification(userID string, payload []byte) error {
+	return nil
+}
+
 // drainMessages consumes up to count messages from a channel during test setup.
 // This is used to clear expected messages (like online notifications) that would
 // otherwise interfere with testing subsequent behavior. If fewer than count messages
@@ -90,7 +96,7 @@ func TestHub_Lifecycle(t *testing.T) {
 		users: []models.User{user1, user2},
 	}
 	store := NewMockStorage()
-	h := NewHub(context.Background(), provider, store)
+	h := NewHub(context.Background(), provider, store, &MockPushService{})
 
 	// 1. Add Users - Automatically handled by NewHub via provider
 
@@ -219,7 +225,7 @@ func TestHub_Broadcasting(t *testing.T) {
 		users: []models.User{user1, user2, user3},
 	}
 	store := NewMockStorage()
-	h := NewHub(context.Background(), provider, store)
+	h := NewHub(context.Background(), provider, store, &MockPushService{})
 
 	ch1 := h.Join(user1.ID)
 	ch2 := h.Join(user2.ID)
@@ -290,7 +296,7 @@ func TestHub_JoinChat_ReturnsHistory(t *testing.T) {
 		users: []models.User{user1, user2},
 	}
 	store := NewMockStorage()
-	h := NewHub(context.Background(), provider, store)
+	h := NewHub(context.Background(), provider, store, &MockPushService{})
 
 	// User 1 connects
 	ch1 := h.Join(user1.ID)
@@ -356,7 +362,7 @@ func TestHub_RemoveDeletedUser(t *testing.T) {
 		users: []models.User{user1, user2, user3},
 	}
 	store := NewMockStorage()
-	h := NewHub(context.Background(), provider, store)
+	h := NewHub(context.Background(), provider, store, &MockPushService{})
 
 	// Connect all users
 	ch1 := h.Join(user1.ID)
@@ -461,7 +467,7 @@ func TestHub_GetChats_TownHallAvatarURL(t *testing.T) {
 		users: []models.User{user1, user2},
 	}
 	store := NewMockStorage()
-	h := NewHub(context.Background(), provider, store)
+	h := NewHub(context.Background(), provider, store, &MockPushService{})
 
 	chats := h.GetChats(user1.ID)
 
@@ -475,14 +481,15 @@ func TestHub_GetChats_TownHallAvatarURL(t *testing.T) {
 		}
 	}
 
-	if townhall == nil {
+	if townhall != nil {
+		if townhall.AvatarURL != "/besedka.png" {
+			t.Errorf("Town Hall AvatarURL: expected %q, got %q", "/besedka.png", townhall.AvatarURL)
+		}
+		if townhall.Name != "Town Hall" {
+			t.Errorf("Town Hall Name: expected %q, got %q", "Town Hall", townhall.Name)
+		}
+	} else {
 		t.Fatal("Town Hall chat not found in GetChats result")
-	}
-	if townhall.AvatarURL != "/besedka.png" {
-		t.Errorf("Town Hall AvatarURL: expected %q, got %q", "/besedka.png", townhall.AvatarURL)
-	}
-	if townhall.Name != "Town Hall" {
-		t.Errorf("Town Hall Name: expected %q, got %q", "Town Hall", townhall.Name)
 	}
 
 	for _, dm := range dms {
@@ -499,7 +506,7 @@ func TestHub_FetchMessages_ReturnsRange(t *testing.T) {
 		users: []models.User{user1},
 	}
 	store := NewMockStorage()
-	h := NewHub(context.Background(), provider, store)
+	h := NewHub(context.Background(), provider, store, &MockPushService{})
 
 	ch1 := h.Join(user1.ID)
 	if ch1 == nil {
@@ -561,7 +568,7 @@ func TestHub_EnsureDMsFor_JoinsConnectedUsers(t *testing.T) {
 		users: []models.User{user1, user2},
 	}
 	store := NewMockStorage()
-	h := NewHub(context.Background(), provider, store)
+	h := NewHub(context.Background(), provider, store, &MockPushService{})
 
 	// Connect user1
 	ch1 := h.Join(user1.ID)
@@ -605,7 +612,7 @@ func TestHub_LocationBroadcast(t *testing.T) {
 		users: []models.User{user1, user2},
 	}
 	store := NewMockStorage()
-	h := NewHub(context.Background(), provider, store)
+	h := NewHub(context.Background(), provider, store, &MockPushService{})
 
 	ch1 := h.Join(user1.ID)
 	ch2 := h.Join(user2.ID)

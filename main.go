@@ -1,24 +1,26 @@
 package main
 
 import (
-	"besedka/internal/auth"
-	"besedka/internal/commands"
-	"besedka/internal/config"
-	"besedka/internal/filestore"
-	"besedka/internal/http"
-	"besedka/internal/storage"
-	"besedka/internal/ws"
 	"context"
 	"encoding/base64"
 	"errors"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	oshttp "net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	"besedka/internal/auth"
+	"besedka/internal/commands"
+	"besedka/internal/config"
+	"besedka/internal/filestore"
+	"besedka/internal/http"
+	"besedka/internal/push"
+	"besedka/internal/storage"
+	"besedka/internal/ws"
 
 	"golang.org/x/sync/errgroup"
 )
@@ -55,10 +57,15 @@ func run(ctx context.Context, addUser string) error {
 		return err
 	}
 
-	hub := ws.NewHub(ctx, authService, bbStorage)
+	pushService, err := push.NewService(bbStorage)
+	if err != nil {
+		return fmt.Errorf("failed to initialize push service: %w", err)
+	}
+
+	hub := ws.NewHub(ctx, authService, bbStorage, pushService)
 
 	adminServer := http.NewAdminServer(cfg, authService, hub)
-	apiServer := http.NewAPIServer(cfg, authService, hub, bbStorage, cfg.APIAddr)
+	apiServer := http.NewAPIServer(cfg, authService, hub, bbStorage, pushService, cfg.APIAddr)
 
 	g, gCtx := errgroup.WithContext(ctx)
 
@@ -83,16 +90,16 @@ func run(ctx context.Context, addUser string) error {
 	// Wait for context cancellation (signal)
 	g.Go(func() error {
 		<-gCtx.Done()
-		log.Println("Shutting down servers...")
+		slog.Info("Shutting down servers...")
 
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
 		if err := adminServer.Shutdown(shutdownCtx); err != nil {
-			log.Printf("Admin server shutdown error: %v", err)
+			slog.Error("Admin server shutdown error", "error", err)
 		}
 		if err := apiServer.Shutdown(shutdownCtx); err != nil {
-			log.Printf("API server shutdown error: %v", err)
+			slog.Error("API server shutdown error", "error", err)
 		}
 		return nil
 	})
@@ -108,6 +115,7 @@ func main() {
 	defer cancel()
 
 	if err := run(ctx, *addUser); err != nil && !errors.Is(err, context.Canceled) {
-		log.Fatalf("Application error: %v", err)
+		slog.Error("Application stopped with error", "error", err)
+		os.Exit(1)
 	}
 }
