@@ -1,6 +1,11 @@
 package http
 
 import (
+	"context"
+	"log/slog"
+	"net/http"
+	"sync"
+
 	"besedka/internal/api"
 	"besedka/internal/auth"
 	"besedka/internal/config"
@@ -8,10 +13,6 @@ import (
 	"besedka/internal/storage"
 	"besedka/internal/ws"
 	"besedka/static"
-	"context"
-	"log"
-	"net/http"
-	"sync"
 )
 
 type APIServer struct {
@@ -68,7 +69,7 @@ func NewAPIServer(cfg *config.Config, authService *auth.AuthService, hub *ws.Hub
 }
 
 func (s *APIServer) Start() error {
-	log.Printf("Server started on %s", s.server.Addr)
+	slog.Info("Server started", "address", s.server.Addr)
 	s.wg.Add(1)
 	defer s.wg.Done()
 

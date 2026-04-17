@@ -1,11 +1,12 @@
 package ws
 
 import (
-	"besedka/internal/auth"
 	"errors"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
+
+	"besedka/internal/auth"
 
 	"github.com/gorilla/websocket"
 )
@@ -34,7 +35,7 @@ func (s *Server) HandleConnections(w http.ResponseWriter, r *http.Request) {
 
 	userID, err := s.auth.GetUserID(token)
 	if err != nil {
-		log.Printf("unauthorized websocket connection attempt")
+		slog.Warn("unauthorized websocket connection attempt")
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -42,7 +43,7 @@ func (s *Server) HandleConnections(w http.ResponseWriter, r *http.Request) {
 	// nosemgrep
 	ws, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("error upgrading to websocket: %v", err)
+		slog.Error("error upgrading to websocket", "address", r.RemoteAddr, "error", err)
 		return
 	}
 
@@ -61,6 +62,6 @@ func (s *Server) HandleConnections(w http.ResponseWriter, r *http.Request) {
 		if errors.As(err, &netErr) && netErr.Timeout() {
 			return
 		}
-		log.Printf("connection handler error: %v", err)
+		slog.Error("connection handler failed", "error", err)
 	}
 }

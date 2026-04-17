@@ -1,12 +1,6 @@
 package api
 
 import (
-	"besedka/internal/auth"
-	"besedka/internal/config"
-	"besedka/internal/content"
-	"besedka/internal/models"
-	"besedka/internal/storage"
-	"besedka/internal/ws"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -15,11 +9,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
 	"time"
+
+	"besedka/internal/auth"
+	"besedka/internal/config"
+	"besedka/internal/content"
+	"besedka/internal/models"
+	"besedka/internal/storage"
+	"besedka/internal/ws"
 
 	"github.com/google/uuid"
 	"github.com/h2non/filetype"
@@ -87,7 +88,7 @@ func (a *API) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	if !loginResp.Success {
 		w.WriteHeader(http.StatusUnauthorized)
 		if err := json.NewEncoder(w).Encode(loginResp); err != nil {
-			log.Printf("failed to encode login response: %v", err)
+			slog.Error("failed to encode login response", "error", err)
 		}
 		return
 	}
@@ -103,7 +104,7 @@ func (a *API) LoginHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(loginResp); err != nil {
-		log.Printf("failed to encode login response: %v", err)
+		slog.Error("failed to encode login response", "error", err)
 	}
 }
 
@@ -178,7 +179,7 @@ func (a *API) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		if err := json.NewEncoder(w).Encode(resp); err != nil {
-			log.Printf("failed to encode register response: %v", err)
+			slog.Error("failed to encode register response", "error", err)
 		}
 		return
 	}
@@ -202,7 +203,7 @@ func (a *API) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		log.Printf("failed to encode register response: %v", err)
+		slog.Error("failed to encode register response", "error", err)
 	}
 }
 
@@ -225,7 +226,7 @@ func (a *API) RegisterInfoHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(info); err != nil {
-		log.Printf("failed to encode register info response: %v", err)
+		slog.Error("failed to encode register info response", "error", err)
 	}
 }
 
@@ -245,7 +246,7 @@ func (a *API) UsersHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(users); err != nil {
-		log.Printf("failed to encode users response: %v", err)
+		slog.Error("failed to encode users response", "error", err)
 	}
 }
 
@@ -261,7 +262,7 @@ func (a *API) ChatsHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(chats); err != nil {
-		log.Printf("failed to encode chats response: %v", err)
+		slog.Error("failed to encode chats response", "error", err)
 	}
 }
 
@@ -310,7 +311,7 @@ func (a *API) ChatMessagesHandler(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, models.ErrNotFound) {
 			http.Error(w, "Chat not found or access denied", http.StatusForbidden)
 		} else {
-			log.Printf("failed to get chat records: %v", err)
+			slog.Error("failed to get chat records", "error", err)
 			http.Error(w, "Server error", http.StatusInternalServerError)
 		}
 		return
@@ -318,7 +319,7 @@ func (a *API) ChatMessagesHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(messages); err != nil {
-		log.Printf("failed to encode messages response: %v", err)
+		slog.Error("failed to encode messages response", "error", err)
 	}
 }
 
@@ -326,7 +327,6 @@ func (a *API) MeHandler(w http.ResponseWriter, r *http.Request) {
 	userID := UserIDFromContext(r.Context())
 
 	currentUser, err := a.auth.GetUser(userID)
-
 	if err != nil {
 		http.Error(w, "User not found", http.StatusNotFound)
 		return
@@ -345,7 +345,7 @@ func (a *API) MeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		log.Printf("failed to encode me response: %v", err)
+		slog.Error("failed to encode me response", "error", err)
 	}
 }
 
@@ -399,7 +399,7 @@ func (a *API) ResetPasswordHandler(w http.ResponseWriter, r *http.Request) {
 
 	regToken, err := a.auth.ResetPassword(userID)
 	if err != nil {
-		log.Printf("failed to reset password for user %s: %v", userID, err)
+		slog.Error("failed to reset password for user", "userID", userID, "error", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(models.APIResponse{
@@ -461,7 +461,7 @@ func (a *API) processUpload(w http.ResponseWriter, r *http.Request, maxBytes int
 	}
 
 	if err := a.storage.SaveFileBlob(bytes.NewReader(data), hash); err != nil {
-		log.Printf("failed to save file blob: %v", err)
+		slog.Error("failed to save file blob", "error", err)
 		http.Error(w, "Internal Storage Error", http.StatusInternalServerError)
 		return "", err
 	}
@@ -480,7 +480,7 @@ func (a *API) processUpload(w http.ResponseWriter, r *http.Request, maxBytes int
 	}
 
 	if err := a.storage.UpsertFileMetadata(meta); err != nil {
-		log.Printf("failed to save file metadata: %v", err)
+		slog.Error("failed to save file metadata", "error", err)
 		http.Error(w, "Internal Database Error", http.StatusInternalServerError)
 		return "", err
 	}
@@ -497,7 +497,7 @@ func (a *API) UploadImageHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(models.UploadImageResponse{ID: fileID}); err != nil {
-		log.Printf("failed to encode upload response: %v", err)
+		slog.Error("failed to encode upload response", "error", err)
 	}
 }
 
@@ -512,7 +512,7 @@ func (a *API) UploadAvatarHandler(w http.ResponseWriter, r *http.Request) {
 
 	avatarURL := fmt.Sprintf("/api/images/%s", fileID)
 	if err := a.auth.UpdateAvatarURL(uploaderID, avatarURL); err != nil {
-		log.Printf("failed to update user avatar url: %v", err)
+		slog.Error("failed to update user avatar url", "error", err)
 		http.Error(w, "Internal Database Error", http.StatusInternalServerError)
 		return
 	}
@@ -529,7 +529,7 @@ func (a *API) UploadAvatarHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		log.Printf("failed to encode upload avatar response: %v", err)
+		slog.Error("failed to encode upload avatar response", "error", err)
 	}
 }
 
@@ -561,7 +561,7 @@ func (a *API) UpdateDisplayNameHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if code >= http.StatusInternalServerError {
-			log.Printf("failed to update user display name: %v", err)
+			slog.Error("failed to update user display name", "error", err)
 		}
 		http.Error(w, msg, code)
 		return
@@ -577,7 +577,7 @@ func (a *API) UpdateDisplayNameHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		log.Printf("failed to encode update display name response: %v", err)
+		slog.Error("failed to encode update display name response", "error", err)
 	}
 
 	// We can broadcast the change if needed, but for now we follow Avatar updating behavior.
@@ -598,7 +598,7 @@ func (a *API) GetImageHandler(w http.ResponseWriter, r *http.Request) {
 
 	rc, err := a.storage.GetFileBlob(meta.Hash)
 	if err != nil {
-		log.Printf("failed to retrieve file blob: %v", err)
+		slog.Error("failed to retrieve file blob", "error", err)
 		http.Error(w, "File content missing", http.StatusInternalServerError)
 		return
 	}
@@ -609,7 +609,7 @@ func (a *API) GetImageHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
 
 	if _, err := io.Copy(w, rc); err != nil {
-		log.Printf("failed to write file content: %v", err)
+		slog.Error("failed to write file content", "error", err)
 	}
 }
 
@@ -622,7 +622,7 @@ func (a *API) UploadFileHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(models.UploadFileResponse{ID: fileID}); err != nil {
-		log.Printf("failed to encode upload response: %v", err)
+		slog.Error("failed to encode upload response", "error", err)
 	}
 }
 
@@ -641,7 +641,7 @@ func (a *API) GetFileHandler(w http.ResponseWriter, r *http.Request) {
 
 	rc, err := a.storage.GetFileBlob(meta.Hash)
 	if err != nil {
-		log.Printf("failed to retrieve file blob: %v", err)
+		slog.Error("failed to retrieve file blob", "error", err)
 		http.Error(w, "File content missing", http.StatusInternalServerError)
 		return
 	}
@@ -659,7 +659,7 @@ func (a *API) GetFileHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 
 	if _, err := io.Copy(w, rc); err != nil {
-		log.Printf("failed to write file content: %v", err)
+		slog.Error("failed to write file content", "error", err)
 	}
 }
 
@@ -697,7 +697,7 @@ func (a *API) PushSubscribeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := a.storage.UpsertPushSubscription(userID, sub.Endpoint, body); err != nil {
-		log.Printf("failed to save push subscription: %v", err)
+		slog.Error("failed to save push subscription", "error", err)
 		http.Error(w, "Internal Database Error", http.StatusInternalServerError)
 		return
 	}

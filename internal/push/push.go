@@ -67,6 +67,7 @@ func (s *Service) PublicKey() string {
 }
 
 func (s *Service) SendNotification(userID string, payload []byte) error {
+	// Should we cache this to avoid hitting the DB every time?
 	subs, err := s.storage.GetPushSubscriptions(userID)
 	if err != nil {
 		slog.Error("failed to get push subscriptions from DB", "userID", userID, "error", err)
