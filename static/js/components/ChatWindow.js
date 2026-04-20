@@ -85,6 +85,8 @@ export function createChatWindow(container) {
     };
     document.addEventListener('keydown', handleEscape);
 
+    let forceScrollToBottom = false;
+
     const render = (state) => {
         const oldInput = container.querySelector('#message-input');
         let currentText = '';
@@ -96,11 +98,18 @@ export function createChatWindow(container) {
         let prevScrollHeight = 0;
         let prevScrollTop = 0;
         let wasAtBottom = true;
+        const chatChanged = state.activeChatId !== lastChatId;
+
         const oldMessagesContainer = container.querySelector('#messages-container');
-        if (oldMessagesContainer) {
+        if (oldMessagesContainer && !chatChanged) {
             prevScrollHeight = oldMessagesContainer.scrollHeight;
             prevScrollTop = oldMessagesContainer.scrollTop;
             wasAtBottom = (oldMessagesContainer.scrollHeight - oldMessagesContainer.scrollTop - oldMessagesContainer.clientHeight) < 50;
+        }
+
+        if (forceScrollToBottom || chatChanged) {
+            wasAtBottom = true;
+            forceScrollToBottom = false;
         }
 
         lastChatId = state.activeChatId;
@@ -365,6 +374,7 @@ export function createChatWindow(container) {
         const handleSend = () => {
             const text = input.value.trim();
             if (text || filesToAttach.length > 0) {
+                forceScrollToBottom = true;
                 store.sendMessage(state.activeChatId, text, filesToAttach);
                 input.value = '';
                 input.style.height = '40px'; // Reset height
