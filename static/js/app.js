@@ -163,15 +163,19 @@ function renderApp() {
 
     // Swipe Navigation
     let touchStartX = 0;
+    let touchStartY = 0;
     let touchEndX = 0;
+    let touchEndY = 0;
     const minSwipeDistance = 50;
 
     const onTouchStart = (e) => {
         touchStartX = e.changedTouches[0].screenX;
+        touchStartY = e.changedTouches[0].screenY;
     };
 
     const onTouchEnd = (e) => {
         touchEndX = e.changedTouches[0].screenX;
+        touchEndY = e.changedTouches[0].screenY;
         handleSwipe();
     };
 
@@ -179,13 +183,15 @@ function renderApp() {
     document.addEventListener('touchend', onTouchEnd);
 
     const handleSwipe = () => {
-        const distance = touchEndX - touchStartX;
-        if (Math.abs(distance) < minSwipeDistance) return;
+        const distanceX = touchEndX - touchStartX;
+        const distanceY = touchEndY - touchStartY;
+        if (Math.abs(distanceX) < minSwipeDistance) return;
+        if (Math.abs(distanceY) > Math.abs(distanceX)) return;
 
         const currentTab = store.state.mobileActiveTab;
         let newTab = currentTab;
 
-        if (distance > 0) { // Swipe Right
+        if (distanceX > 0) { // Swipe Right
             if (currentTab === 'chat-window') newTab = 'chat-list';
             else if (currentTab === 'info-panel') newTab = 'chat-window';
         } else { // Swipe Left
