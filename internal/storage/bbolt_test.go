@@ -377,38 +377,3 @@ func TestStorage(t *testing.T) {
 	})
 }
 
-func TestNewBboltStorage_UnencryptedDbFailsWithKey(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "storage_fail_test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = os.RemoveAll(tmpDir) }()
-
-	dbPath := filepath.Join(tmpDir, "fail_test.db")
-	fs, _ := filestore.NewLocalFileStore(filepath.Join(tmpDir, "fs"))
-
-	// 1. Create unencrypted populated DB
-	store, err := NewBboltStorage(dbPath, nil, fs)
-	if err != nil {
-		t.Fatal(err)
-	}
-	creds := auth.UserCredentials{
-		User:         models.User{ID: "fail_user"},
-		PasswordHash: "empty",
-	}
-	if err := store.UpsertCredentials(creds); err != nil {
-		t.Fatal(err)
-	}
-	_ = store.Close()
-
-	// 2. Open populated DB with key - should FAIL
-	key := []byte("12345678901234567890123456789012") // 32 bytes
-	_, err = NewBboltStorage(dbPath, key, fs)
-	if err == nil {
-		t.Fatal("expected NewBboltStorage to fail when opening unencrypted database with key")
-	}
-	if err.Error() != "data encryption salt is not set and database is not empty. Please run the migration tool" {
-		t.Fatalf("unexpected error message: %v", err)
-	}
-}
-

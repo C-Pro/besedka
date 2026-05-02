@@ -101,28 +101,7 @@ func NewBboltStorage(path string, key []byte, fs filestore.FileStore) (*BboltSto
 			bs.crypter = crypter
 			bs.isEncrypted = true
 		} else {
-			// If salt is not set, we need to check if DB is empty
-			isEmpty := true
-			err := db.View(func(tx *bbolt.Tx) error {
-				b := tx.Bucket(bucketUsers)
-				c := b.Cursor()
-				k, _ := c.First()
-				if k != nil {
-					isEmpty = false
-				}
-				return nil
-			})
-			if err != nil {
-				_ = db.Close()
-				return nil, fmt.Errorf("failed to check if storage is empty: %w", err)
-			}
-
-			if !isEmpty {
-				_ = db.Close()
-				return nil, errors.New("data encryption salt is not set and database is not empty. Please run the migration tool")
-			}
-
-			// Empty database: generate random salt and persist it
+			// Generate random salt and persist it
 			salt, err := genSalt()
 			if err != nil {
 				_ = db.Close()

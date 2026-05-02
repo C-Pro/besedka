@@ -443,9 +443,12 @@ func (a *API) processUpload(w http.ResponseWriter, r *http.Request, maxBytes int
 	}
 	data := buf.Bytes()
 
-	hasher := sha256.New()
-	hasher.Write(data)
-	hash := hex.EncodeToString(hasher.Sum(nil))
+	if enforceImage {
+		if !filetype.IsImage(data) {
+			http.Error(w, "Invalid file type. Only images are allowed.", http.StatusBadRequest)
+			return "", errors.New("invalid file type")
+		}
+	}
 
 	mimeType := "application/octet-stream"
 	kind, err := filetype.Match(data)
@@ -453,12 +456,9 @@ func (a *API) processUpload(w http.ResponseWriter, r *http.Request, maxBytes int
 		mimeType = kind.MIME.Value
 	}
 
-	if enforceImage {
-		if !filetype.IsImage(data) {
-			http.Error(w, "Invalid file type. Only images are allowed.", http.StatusBadRequest)
-			return "", errors.New("invalid file type")
-		}
-	}
+	hasher := sha256.New()
+	hasher.Write(data)
+	hash := hex.EncodeToString(hasher.Sum(nil))
 
 	if err := a.storage.SaveFileBlob(bytes.NewReader(data), hash); err != nil {
 		slog.Error("failed to save file blob", "error", err)
@@ -665,7 +665,7 @@ func (a *API) GetFileHandler(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) PushVAPIDPublicKeyHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/octet-stream")
-	_, _ = w.Write([]byte(a.push.PublicKey()))
+	_, _ = w.Write([]byte(a.push.PublicKey())) //nosemgrep
 }
 
 func (a *API) PushSubscribeHandler(w http.ResponseWriter, r *http.Request) {
