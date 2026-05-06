@@ -22,6 +22,8 @@ var (
 		p.AllowAttrs("href").OnElements("a")
 		p.RequireParseableURLs(true)
 		p.AllowURLSchemes("http", "https", "mailto")
+		p.AddTargetBlankToFullyQualifiedLinks(true)
+		p.RequireNoReferrerOnFullyQualifiedLinks(true)
 		return p
 	}()
 

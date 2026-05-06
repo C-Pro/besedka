@@ -881,7 +881,8 @@
     min-width: 150px;
 }
 
-.file-download-menu a {
+.file-download-menu a,
+.file-download-menu a:visited {
     display: block;
     padding: var(--space-sm) var(--space-md);
     color: var(--text-primary);

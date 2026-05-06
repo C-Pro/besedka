@@ -81,12 +81,12 @@ func TestFormatMessage(t *testing.T) {
 	}{
 		{"Plain text", "Hello", "<p>Hello</p>\n"},
 		{"Bold and Italic", "**Bold** and *Italic*", "<p><strong>Bold</strong> and <em>Italic</em></p>\n"},
-		{"Link", "[Open AI](https://openai.com)", "<p><a href=\"https://openai.com\">Open AI</a></p>\n"},
+		{"Link", "[Open AI](https://openai.com)", "<p><a href=\"https://openai.com\" rel=\"noreferrer noopener\" target=\"_blank\">Open AI</a></p>\n"},
 		{"Image (stripped)", "![Cute cat](cat.jpg)", "<p></p>\n"},
 		{"Unsafe HTML", "Hello <script>alert(1)</script>", "<p>Hello alert(1)</p>\n"},
 		{"Javascript Link", "[Click](javascript:alert(1))", "<p>Click</p>\n"},
 		{"Multiple paragraphs", "One\n\nTwo", "<p>One</p>\n<p>Two</p>\n"},
-		{"Raw URL", "https://example.com/test", "<p><a href=\"https://example.com/test\">https://example.com/test</a></p>\n"},
+		{"Raw URL", "https://example.com/test", "<p><a href=\"https://example.com/test\" rel=\"noreferrer noopener\" target=\"_blank\">https://example.com/test</a></p>\n"},
 		{"Code with quotes", "`\"test\"`", "<p><code>&#34;test&#34;</code></p>\n"},
 	}
 
