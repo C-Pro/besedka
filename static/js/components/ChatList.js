@@ -24,6 +24,7 @@ export function createChatList(container) {
             const avatarHtml = avatarUrl
                 ? `<div class="avatar" style="padding:0;"></div>`
                 : `<div class="avatar">${chat.name.charAt(0)}</div>`;
+            const unreadCount = state.unreadCounts ? (state.unreadCounts[chat.id] || 0) : 0;
             return `
                     <div class="chat-item ${state.activeChatId === chat.id ? 'active' : ''}" data-id="${chat.id}">
                         ${avatarHtml}
@@ -31,7 +32,7 @@ export function createChatList(container) {
                             <div class="chat-name">${chat.name}</div>
                             <div class="chat-preview">${chat.isDm && chat.online ? '<span style="color: #4caf50; font-size: 0.8em;">● Online</span>' : ''}</div>
                         </div>
-                        ${chat.unreadCount > 0 ? `<div class="unread-badge">${chat.unreadCount}</div>` : ''}
+                        ${unreadCount > 0 ? `<div class="unread-badge">${unreadCount}</div>` : ''}
                     </div>
                     `;
         }).join('')}

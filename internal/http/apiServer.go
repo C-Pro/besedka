@@ -47,6 +47,7 @@ func NewAPIServer(cfg *config.Config, authService *auth.AuthService, hub *ws.Hub
 	mux.HandleFunc("GET /api/users", apiHandlers.RequireAuth(apiHandlers.UsersHandler))
 	mux.HandleFunc("GET /api/chats", apiHandlers.RequireAuth(apiHandlers.ChatsHandler))
 	mux.HandleFunc("GET /api/chats/{id}/messages", apiHandlers.RequireAuth(apiHandlers.ChatMessagesHandler))
+	mux.HandleFunc("POST /api/chats/{id}/messages", api.RequireSameOrigin(apiHandlers.RequireAuth(apiHandlers.SendMessageHandler)))
 	mux.HandleFunc("GET /api/me", apiHandlers.RequireAuth(apiHandlers.MeHandler))
 	mux.HandleFunc("POST /api/users/me/avatar", api.RequireSameOrigin(apiHandlers.RequireAuth(apiHandlers.UploadAvatarHandler)))
 	mux.HandleFunc("POST /api/users/me/display-name", api.RequireSameOrigin(apiHandlers.RequireAuth(apiHandlers.UpdateDisplayNameHandler)))

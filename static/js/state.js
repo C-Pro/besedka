@@ -10,7 +10,8 @@ class Store {
             users: [],
             messages: {}, // chatId -> [messages]
             isLoadingHistory: {}, // chatId -> boolean
-            userLocations: new Map() // userId -> { lat, lng, timestamp }
+            userLocations: new Map(), // userId -> { lat, lng, timestamp }
+            unreadCounts: {} // chatId -> count
         };
         this.listeners = [];
         this.socket = null;
@@ -109,8 +110,11 @@ class Store {
                     chats: [],
                     users: [],
                     messages: {},
-                    activeChatId: null
+                    activeChatId: null,
+                    unreadCounts: {}
                 });
+
+                this.updateAppBadge();
 
                 // Close websocket if open
                 if (this.socket) {
@@ -509,6 +513,8 @@ class Store {
         // Show local notification if message is from a different chat or tab is hidden
         const isHistoryFetch = currentMessages.length === 0 && newMessages.length > 1;
         if (!wasLoadingHistory && !isHistoryFetch) {
+            let hasNewUnread = false;
+            let newUnreadCount = 0;
             const now = Date.now();
             const lastSeq = currentMessages.length > 0 ? currentMessages[currentMessages.length - 1].seq : 0;
             
@@ -523,7 +529,22 @@ class Store {
                     if (isDifferentChat || isTabHidden) {
                         this.showLocalNotification(chatId, m);
                     }
+                    if (isDifferentChat) {
+                        hasNewUnread = true;
+                        newUnreadCount++;
+                    }
                 }
+            }
+
+            if (hasNewUnread) {
+                const currentUnread = this.state.unreadCounts[chatId] || 0;
+                this.setState({
+                    unreadCounts: {
+                        ...this.state.unreadCounts,
+                        [chatId]: currentUnread + newUnreadCount
+                    }
+                });
+                this.updateAppBadge();
             }
         }
     }
@@ -565,10 +586,17 @@ class Store {
             this.sendWebSocketMessage({ type: 'leave', chatId: this.state.activeChatId });
         }
 
+        const newUnreadCounts = { ...this.state.unreadCounts };
+        if (chatId && newUnreadCounts[chatId]) {
+            delete newUnreadCounts[chatId];
+        }
+
         this.setState({
             activeChatId: chatId,
-            mobileActiveTab: 'chat-window'
+            mobileActiveTab: 'chat-window',
+            unreadCounts: newUnreadCounts
         });
+        this.updateAppBadge();
 
         // Join new chat
         if (chatId) {
@@ -672,6 +700,16 @@ class Store {
                 }
             }
         );
+    }
+
+    updateAppBadge() {
+        if (!navigator.setAppBadge) return;
+        const total = Object.values(this.state.unreadCounts).reduce((a, b) => a + b, 0);
+        if (total > 0) {
+            navigator.setAppBadge(total).catch(console.error);
+        } else {
+            navigator.clearAppBadge().catch(console.error);
+        }
     }
 }
 
