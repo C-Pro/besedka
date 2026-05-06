@@ -90,12 +90,12 @@
 }
 
 .message-line {
-    display: flex;
-    align-items: flex-start;
-    gap: var(--space-sm);
+    display: block;
     padding: 2px 0;
     font-family: monospace;
     line-height: 1.4;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
 
 .message-line:hover {
@@ -106,13 +106,14 @@
     color: var(--text-muted);
     font-size: 0.85em;
     white-space: nowrap;
-    min-width: 60px;
+    margin-right: var(--space-sm);
 }
 
 .message-sender {
     font-weight: 600;
     color: var(--accent-color);
     white-space: nowrap;
+    margin-right: var(--space-sm);
 }
 
 .message-sender.is-me {
@@ -121,8 +122,16 @@
 
 .message-content {
     color: var(--text-primary);
-    word-wrap: break-word;
-    flex: 1;
+    display: inline;
+}
+
+.message-content p {
+    display: inline;
+}
+
+.message-content p + p {
+    display: block;
+    margin-top: var(--space-sm);
 }
 
 .unread-badge {

@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -123,11 +124,13 @@ func TestScreenshots(t *testing.T) {
 	require.NoError(t, err)
 	time.Sleep(1 * time.Second)
 
-	_, err = desktopPage.Screenshot(playwright.PageScreenshotOptions{
-		Path: playwright.String("../static/screenshot_desktop.webp"),
-	})
-	require.NoError(t, err)
-	t.Log("Desktop screenshot saved.")
+	if os.Getenv("CI") == "" {
+		_, err = desktopPage.Screenshot(playwright.PageScreenshotOptions{
+			Path: playwright.String("../static/screenshot_desktop.webp"),
+		})
+		require.NoError(t, err)
+		t.Log("Desktop screenshot saved.")
+	}
 
 	// Wait for TOTP to rotate so the mobile login doesn't hit replay protection
 	desktopCode := getTOTP(t, secrets["bob"])
@@ -171,11 +174,13 @@ func TestScreenshots(t *testing.T) {
 	require.NoError(t, err)
 	time.Sleep(1 * time.Second)
 
-	_, err = mobilePage.Screenshot(playwright.PageScreenshotOptions{
-		Path: playwright.String("../static/screenshot_mobile.webp"),
-	})
-	require.NoError(t, err)
-	t.Log("Mobile screenshot saved.")
+	if os.Getenv("CI") == "" {
+		_, err = mobilePage.Screenshot(playwright.PageScreenshotOptions{
+			Path: playwright.String("../static/screenshot_mobile.webp"),
+		})
+		require.NoError(t, err)
+		t.Log("Mobile screenshot saved.")
+	}
 }
 
 func loginViaForm(t *testing.T, page playwright.Page, baseURL, username, password, secret string) {

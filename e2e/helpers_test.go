@@ -20,8 +20,8 @@ import (
 )
 
 type TestServer struct {
-	APIAddr   string
-	AdminAddr string
+	APIAddr     string
+	AdminAddr   string
 	BaseURL     string
 	DBPath      string
 	UploadsPath string
@@ -66,10 +66,6 @@ func startServer(t *testing.T) *TestServer {
 	// Redirect output to stdout/stderr for debugging if needed
 	// cmd.Stdout = os.Stdout
 	// cmd.Stderr = os.Stderr
-
-	logFile, _ := os.Create("server_e2e.log")
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
 
 	err = cmd.Start()
 	require.NoError(t, err)
