@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"time"
 )
@@ -87,6 +88,10 @@ func (c *Config) Validate(cliMode bool) error {
 
 	if c.EnableHTTPChallenge && c.TLSAutoCertPath == "" {
 		return fmt.Errorf("ENABLE_HTTP_CHALLENGE requires TLS_AUTO_CERT_PATH")
+	}
+
+	if _, err := url.Parse(c.BaseURL); err != nil {
+		return fmt.Errorf("BASE_URL must be a valid URL: %w", err)
 	}
 
 	return nil
