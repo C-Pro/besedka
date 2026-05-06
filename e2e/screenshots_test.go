@@ -156,12 +156,6 @@ func TestScreenshots(t *testing.T) {
 	// Wait for the chat list to populate.
 	time.Sleep(2 * time.Second)
 
-	// Debug: dump the page URL and visible chat items
-	url := mobilePage.URL()
-	t.Logf("Mobile page URL: %s", url)
-	content, _ := mobilePage.Locator("#sidebar").InnerHTML()
-	t.Logf("Sidebar HTML: %.500s", content)
-
 	// Click Town Hall to switch to chat-window tab with messages.
 	// On mobile the sidebar may not be visible yet; use DispatchEvent to bypass visibility checks.
 	err = mobilePage.Locator(".chat-item[data-id='townhall']").DispatchEvent("click", nil)
