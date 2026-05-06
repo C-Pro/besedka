@@ -3,7 +3,9 @@ package http
 import (
 	"context"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"sync"
 
 	"besedka/internal/api"
@@ -13,11 +15,15 @@ import (
 	"besedka/internal/storage"
 	"besedka/internal/ws"
 	"besedka/static"
+
+	"golang.org/x/crypto/acme/autocert"
 )
 
 type APIServer struct {
-	server *http.Server
-	wg     sync.WaitGroup
+	server              *http.Server
+	httpChallengeServer *http.Server
+	cfg                 *config.Config
+	wg                  sync.WaitGroup
 }
 
 func NewAPIServer(cfg *config.Config, authService *auth.AuthService, hub *ws.Hub, storage *storage.BboltStorage, pushService *push.Service, addr string) *APIServer {
@@ -56,15 +62,12 @@ func NewAPIServer(cfg *config.Config, authService *auth.AuthService, hub *ws.Hub
 	// WebSocket endpoint
 	mux.HandleFunc("/api/chat", server.HandleConnections)
 
-	if addr == "" {
-		addr = ":8080"
-	}
-
 	return &APIServer{
 		server: &http.Server{
 			Addr:    addr,
 			Handler: mux,
 		},
+		cfg: cfg,
 	}
 }
 
@@ -73,6 +76,58 @@ func (s *APIServer) Start() error {
 	s.wg.Add(1)
 	defer s.wg.Done()
 
+	if s.cfg.TLSAutoCertPath != "" {
+		hostURL, err := url.Parse(s.cfg.BaseURL)
+		if err != nil {
+			return err
+		}
+		hostname := hostURL.Hostname()
+
+		manager := &autocert.Manager{
+			Cache:      autocert.DirCache(s.cfg.TLSAutoCertPath),
+			Prompt:     autocert.AcceptTOS,
+			HostPolicy: autocert.HostWhitelist(hostname),
+		}
+		s.server.TLSConfig = manager.TLSConfig()
+
+		if s.cfg.EnableHTTPChallenge {
+			port := s.cfg.HTTPChallengePort
+			if port == "" {
+				port = "80"
+			}
+
+			host, _, err := net.SplitHostPort(s.server.Addr)
+			var challengeAddr string
+			if err == nil {
+				challengeAddr = net.JoinHostPort(host, port)
+			} else {
+				// Fallback if SplitHostPort fails (shouldn't happen with valid listen address)
+				challengeAddr = ":" + port
+			}
+
+			s.httpChallengeServer = &http.Server{
+				Addr:    challengeAddr,
+				Handler: manager.HTTPHandler(http.HandlerFunc(s.httpsRedirectFallbackHandler)),
+			}
+			s.wg.Go(func() {
+				slog.Info("HTTP challenge server started", "address", s.httpChallengeServer.Addr)
+				if err := s.httpChallengeServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+					slog.Error("HTTP challenge server error", "error", err)
+				}
+			})
+		}
+
+		if err := s.server.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+			return err
+		}
+		return nil
+	} else if s.cfg.TLSCert != "" && s.cfg.TLSKey != "" {
+		if err := s.server.ListenAndServeTLS(s.cfg.TLSCert, s.cfg.TLSKey); err != nil && err != http.ErrServerClosed {
+			return err
+		}
+		return nil
+	}
+
 	if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
 	}
@@ -80,6 +135,25 @@ func (s *APIServer) Start() error {
 }
 
 func (s *APIServer) Shutdown(ctx context.Context) error {
+	if s.httpChallengeServer != nil {
+		if err := s.httpChallengeServer.Shutdown(ctx); err != nil {
+			slog.Error("HTTP challenge server shutdown error", "error", err)
+		}
+	}
 	defer s.wg.Wait()
 	return s.server.Shutdown(ctx)
+}
+
+func (s *APIServer) httpsRedirectFallbackHandler(w http.ResponseWriter, r *http.Request) {
+	u, _ := url.Parse(s.cfg.BaseURL)
+	if r.Host != u.Host {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	target := "https://" + r.Host + r.URL.Path
+	if len(r.URL.RawQuery) > 0 {
+		target += "?" + r.URL.RawQuery
+	}
+	http.Redirect(w, r, target, http.StatusTemporaryRedirect) //nosemgrep
 }
