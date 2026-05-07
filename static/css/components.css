@@ -91,15 +91,17 @@
 
 .message-line {
     display: block;
-    padding: 2px 0;
+    padding: 2px 0 2px 12px;
     font-family: monospace;
     line-height: 1.4;
     word-wrap: break-word;
     overflow-wrap: break-word;
+    border-left: 3px solid transparent;
+    transition: border-left-color var(--transition-fast);
 }
 
 .message-line:hover {
-    background-color: var(--bg-hover);
+    border-left-color: var(--accent-color);
 }
 
 .message-time {
@@ -132,6 +134,64 @@
 .message-content p+p {
     display: block;
     margin-top: var(--space-sm);
+}
+
+.message-content code {
+    background-color: var(--bg-hover);
+    padding: 0.2em 0.4em;
+    border-radius: var(--radius-sm);
+    font-size: 85%;
+    font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+}
+
+.message-content pre {
+    position: relative;
+    background-color: var(--bg-hover);
+    padding: var(--space-md);
+    border-radius: var(--radius-md);
+    margin: var(--space-sm) 0;
+    overflow-x: auto;
+    display: block; /* Ensure pre is a block */
+}
+
+.message-content pre code {
+    background-color: transparent;
+    padding: 0;
+    border-radius: 0;
+    font-size: 90%;
+    display: block;
+    white-space: pre;
+}
+
+.copy-code-btn {
+    position: absolute;
+    top: var(--space-sm);
+    right: var(--space-sm);
+    background: var(--bg-panel);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    padding: 4px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity var(--transition-fast), color var(--transition-fast);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+}
+
+.message-content pre:hover .copy-code-btn {
+    opacity: 1;
+}
+
+.copy-code-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--text-muted);
+}
+
+.copy-code-btn.copied {
+    color: #10b981;
 }
 
 .unread-badge {
