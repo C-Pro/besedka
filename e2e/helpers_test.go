@@ -20,11 +20,12 @@ import (
 )
 
 type TestServer struct {
-	APIAddr   string
-	AdminAddr string
-	BaseURL   string
-	DBPath    string
-	Cmd       *exec.Cmd
+	APIAddr     string
+	AdminAddr   string
+	BaseURL     string
+	DBPath      string
+	UploadsPath string
+	Cmd         *exec.Cmd
 }
 
 func getFreePort(t *testing.T) int {
@@ -49,6 +50,9 @@ func startServer(t *testing.T) *TestServer {
 	dbPath := tmpDB.Name()
 	_ = tmpDB.Close()
 
+	uploadsPath, err := os.MkdirTemp("", "besedka-e2e-uploads-*")
+	require.NoError(t, err)
+
 	cmd := exec.Command(serverBinPath)
 	cmd.Env = append(os.Environ(),
 		"AUTH_SECRET=test-secret-key-must-be-long-enough-for-base64-if-needed",
@@ -56,6 +60,7 @@ func startServer(t *testing.T) *TestServer {
 		fmt.Sprintf("ADMIN_ADDR=%s", adminAddr),
 		fmt.Sprintf("BASE_URL=%s", baseURL),
 		fmt.Sprintf("BESEDKA_DB=%s", dbPath),
+		fmt.Sprintf("UPLOADS_PATH=%s", uploadsPath),
 	)
 
 	// Redirect output to stdout/stderr for debugging if needed
@@ -76,11 +81,12 @@ func startServer(t *testing.T) *TestServer {
 	}, 5*time.Second, 200*time.Millisecond, "Server failed to start")
 
 	return &TestServer{
-		APIAddr:   apiAddr,
-		AdminAddr: adminAddr,
-		BaseURL:   baseURL,
-		DBPath:    dbPath,
-		Cmd:       cmd,
+		APIAddr:     apiAddr,
+		AdminAddr:   adminAddr,
+		BaseURL:     baseURL,
+		DBPath:      dbPath,
+		UploadsPath: uploadsPath,
+		Cmd:         cmd,
 	}
 }
 
@@ -97,6 +103,9 @@ func (s *TestServer) Stop() {
 		_ = os.Remove(s.DBPath)
 		_ = os.Remove(s.DBPath + "-lock") // bbolt lock file
 	}
+	if s.UploadsPath != "" {
+		_ = os.RemoveAll(s.UploadsPath)
+	}
 }
 
 func (s *TestServer) Restart(t *testing.T) {
@@ -109,6 +118,7 @@ func (s *TestServer) Restart(t *testing.T) {
 		fmt.Sprintf("ADMIN_ADDR=%s", s.AdminAddr),
 		fmt.Sprintf("BASE_URL=%s", s.BaseURL),
 		fmt.Sprintf("BESEDKA_DB=%s", s.DBPath),
+		fmt.Sprintf("UPLOADS_PATH=%s", s.UploadsPath),
 	)
 
 	err := cmd.Start()

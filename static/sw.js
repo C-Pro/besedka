@@ -8,8 +8,23 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Dummy fetch handler
+  // Dummy fetch handler to satisfy PWA installability requirements
 });
+
+async function syncBadge() {
+  if (navigator.setAppBadge) {
+    try {
+      const notifications = await self.registration.getNotifications();
+      if (notifications.length > 0) {
+        await navigator.setAppBadge(notifications.length);
+      } else {
+        await navigator.clearAppBadge();
+      }
+    } catch (e) {
+      console.error('Failed to sync app badge:', e);
+    }
+  }
+}
 
 self.addEventListener('push', function(event) {
   console.log('Push message received:', event);
@@ -34,17 +49,47 @@ self.addEventListener('push', function(event) {
     vibrate: [100, 50, 100],
     tag: data.url || 'besedka-notification', // Replace notifications with same tag
     renotify: true, // Vibrate even if replaced
+    actions: [
+      { action: 'reply', type: 'text', title: 'Reply', placeholder: 'Type your message...' }
+    ],
     data: {
       url: data.url || '/'
     }
   };
   event.waitUntil(
     self.registration.showNotification(data.title || 'Besedka', options)
+      .then(() => syncBadge())
   );
 });
 
 self.addEventListener('notificationclick', function(event) {
+  if (event.action === 'reply') {
+    const replyText = event.reply;
+    const url = new URL(event.notification.data.url || '/', self.location.origin);
+    const chatId = url.searchParams.get('chat');
+    
+    if (chatId && replyText) {
+      event.waitUntil(
+        fetch(`/api/chats/${chatId}/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: replyText })
+        }).then(() => {
+          event.notification.close();
+          return syncBadge();
+        }).catch(err => {
+          console.error('Failed to send reply:', err);
+        })
+      );
+    } else {
+      event.notification.close();
+      event.waitUntil(syncBadge());
+    }
+    return;
+  }
+
   event.notification.close();
+  event.waitUntil(syncBadge());
   
   const urlToOpen = new URL(event.notification.data.url || '/', self.location.origin).href;
 

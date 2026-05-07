@@ -323,6 +323,38 @@ func (a *API) ChatMessagesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (a *API) SendMessageHandler(w http.ResponseWriter, r *http.Request) {
+	chatID := r.PathValue("id")
+	if chatID == "" {
+		http.Error(w, "Missing chat ID", http.StatusBadRequest)
+		return
+	}
+
+	userID := UserIDFromContext(r.Context())
+
+	var req struct {
+		Content string `json:"content"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Content == "" {
+		http.Error(w, "Message content cannot be empty", http.StatusBadRequest)
+		return
+	}
+
+	a.hub.Dispatch(userID, models.ClientMessage{
+		Type:    models.ClientMessageTypeSend,
+		ChatID:  chatID,
+		Content: req.Content,
+	})
+
+	w.WriteHeader(http.StatusOK)
+}
+
 func (a *API) MeHandler(w http.ResponseWriter, r *http.Request) {
 	userID := UserIDFromContext(r.Context())
 

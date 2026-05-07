@@ -86,16 +86,16 @@
     padding: var(--space-md);
     display: flex;
     flex-direction: column;
-    gap: var(--space-sm);
+    gap: var(--space-xs);
 }
 
 .message-line {
-    display: flex;
-    align-items: flex-start;
-    gap: var(--space-sm);
+    display: block;
     padding: 2px 0;
     font-family: monospace;
     line-height: 1.4;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
 
 .message-line:hover {
@@ -106,13 +106,14 @@
     color: var(--text-muted);
     font-size: 0.85em;
     white-space: nowrap;
-    min-width: 60px;
+    margin-right: var(--space-sm);
 }
 
 .message-sender {
     font-weight: 600;
     color: var(--accent-color);
     white-space: nowrap;
+    margin-right: var(--space-sm);
 }
 
 .message-sender.is-me {
@@ -121,8 +122,16 @@
 
 .message-content {
     color: var(--text-primary);
-    word-wrap: break-word;
-    flex: 1;
+    display: inline;
+}
+
+.message-content p {
+    display: inline;
+}
+
+.message-content p+p {
+    display: block;
+    margin-top: var(--space-sm);
 }
 
 .unread-badge {
@@ -722,15 +731,19 @@
     0% {
         content: "";
     }
+
     25% {
         content: ".";
     }
+
     50% {
         content: "..";
     }
+
     75% {
         content: "...";
     }
+
     100% {
         content: "";
     }
@@ -738,7 +751,7 @@
 
 /* Location Map Styles */
 .location-map-container {
-    box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+    box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.5);
     border: 1px solid var(--border-subtle);
 }
 
@@ -761,7 +774,8 @@
 }
 
 .icon-button.active {
-    color: #10b981; /* active green */
+    color: #10b981;
+    /* active green */
     background: rgba(16, 185, 129, 0.1);
 }
 
@@ -813,12 +827,12 @@
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
-.ios-toggle input:checked + .ios-toggle-slider {
+.ios-toggle input:checked+.ios-toggle-slider {
     background-color: #34C759;
     border-color: #34C759;
 }
 
-.ios-toggle input:checked + .ios-toggle-slider:before {
+.ios-toggle input:checked+.ios-toggle-slider:before {
     transform: translateX(18px);
     background-color: #fff;
 }

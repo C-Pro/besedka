@@ -92,6 +92,53 @@ func TestE2EMainFlow(t *testing.T) {
 		content, _ := alicePage.Locator(".messages-container").InnerHTML()
 		return strings.Contains(content, bobReply)
 	}, 5*time.Second, 200*time.Millisecond)
+
+	// Test Unread Badge
+	t.Log("Alice switches to Town Hall to test unread badges...")
+	err = alicePage.Locator(".chat-item:has-text(\"Town Hall\")").Click()
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		content, _ := alicePage.Locator(".chat-header h3").InnerHTML()
+		return strings.Contains(content, "Town Hall")
+	}, 5*time.Second, 200*time.Millisecond)
+
+	t.Log("Bob sends a second message...")
+	bobMsg2 := "Are you still there?"
+	err = bobPage.Locator("#message-input").Fill(bobMsg2)
+	require.NoError(t, err)
+	err = bobPage.Locator("#send-btn").Click()
+	require.NoError(t, err)
+
+	t.Log("Alice should see an unread badge with '1'...")
+	bobChatLocator := alicePage.Locator(".chat-item:has-text(\"Bob Jones\")")
+	require.Eventually(t, func() bool {
+		badge, err := bobChatLocator.Locator(".unread-badge").InnerText()
+		return err == nil && strings.TrimSpace(badge) == "1"
+	}, 5*time.Second, 200*time.Millisecond)
+
+	t.Log("Bob sends a third message...")
+	bobMsg3 := "Hellooo?"
+	err = bobPage.Locator("#message-input").Fill(bobMsg3)
+	require.NoError(t, err)
+	err = bobPage.Locator("#send-btn").Click()
+	require.NoError(t, err)
+
+	t.Log("Alice should see an unread badge with '2'...")
+	require.Eventually(t, func() bool {
+		badge, err := bobChatLocator.Locator(".unread-badge").InnerText()
+		return err == nil && strings.TrimSpace(badge) == "2"
+	}, 5*time.Second, 200*time.Millisecond)
+
+	t.Log("Alice switches back to Bob's chat...")
+	err = bobChatLocator.Click()
+	require.NoError(t, err)
+
+	t.Log("Unread badge should disappear...")
+	require.Eventually(t, func() bool {
+		count, _ := bobChatLocator.Locator(".unread-badge").Count()
+		return count == 0
+	}, 5*time.Second, 200*time.Millisecond)
 }
 
 func TestE2EDeleteUserRemovesChat(t *testing.T) {

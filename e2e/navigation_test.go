@@ -51,7 +51,7 @@ func TestE2ENavigationBack(t *testing.T) {
 	// Scenario 2: Mobile - Back within the app tabs
 	t.Run("Mobile Tab Navigation Back", func(t *testing.T) {
 		bobSetupLink := server.CreateUser(t, "bob_nav")
-		
+
 		// Create mobile context
 		context, err := browser.NewContext(playwright.BrowserNewContextOptions{
 			Viewport: &playwright.Size{
@@ -79,7 +79,7 @@ func TestE2ENavigationBack(t *testing.T) {
 
 		// On mobile, the app might auto-select Town Hall and switch to chat-window tab
 		t.Log("Waiting for either chat-list or auto-selected chat-window...")
-		
+
 		// Wait for either the chat item to be visible OR the chat area to be visible
 		require.Eventually(t, func() bool {
 			listVisible, _ := page.Locator(".chat-item:has-text(\"Town Hall\")").IsVisible()
@@ -107,7 +107,7 @@ func TestE2ENavigationBack(t *testing.T) {
 		t.Log("Opening mobile menu...")
 		err = page.Locator("#hamburger-btn").Click()
 		require.NoError(t, err)
-		
+
 		t.Log("Clicking Info tab...")
 		err = page.Locator(".mobile-menu-item[data-tab='info-panel']").Click()
 		require.NoError(t, err)
@@ -138,12 +138,12 @@ func TestE2ENavigationBack(t *testing.T) {
 			visible, _ := page.Locator("#sidebar").IsVisible()
 			return visible
 		}, 5*time.Second, 100*time.Millisecond, "Should be back on chat list")
-		
+
 		// 7. Press Back again (should NOT be login page)
 		t.Log("Pressing back (from Chat List)...")
 		_, err = page.GoBack()
 		require.NoError(t, err)
-		
+
 		url := page.URL()
 		t.Logf("URL after back: %s", url)
 		require.False(t, strings.Contains(url, "login.html"), "Should NOT be on login page")
