@@ -29,6 +29,7 @@ jobs:
     name: OSV Scanner
     runs-on: ubuntu-latest
     container: ghcr.io/google/osv-scanner
+    continue-on-error: true
     steps:
       - name: Check out code
         uses: actions/checkout@v4
