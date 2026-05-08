@@ -25,6 +25,7 @@ type Config struct {
 	TLSAutoCertPath     string
 	EnableHTTPChallenge bool
 	HTTPChallengePort   string
+	ChatName            string
 }
 
 func Load(cliMode bool) (*Config, error) {
@@ -64,6 +65,7 @@ func Load(cliMode bool) (*Config, error) {
 		TLSAutoCertPath:     tlsAutoCertPath,
 		EnableHTTPChallenge: getEnv("ENABLE_HTTP_CHALLENGE", "false") == "true" || getEnv("ENABLE_HTTP_CHALLENGE", "false") == "1",
 		HTTPChallengePort:   getEnv("HTTP_CHALLENGE_PORT", "80"),
+		ChatName:            getEnv("CHAT_NAME", "Besedka"),
 	}
 
 	if err := cfg.Validate(cliMode); err != nil {

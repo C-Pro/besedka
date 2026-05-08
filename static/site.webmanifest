@@ -1,6 +1,6 @@
 {
-  "name": "Besedka",
-  "short_name": "Besedka",
+  "name": "{{CHATNAME}}",
+  "short_name": "{{CHATNAME}}",
   "description": "Private self-hosted chat",
   "start_url": "/",
   "id": "/",

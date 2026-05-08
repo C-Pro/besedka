@@ -78,8 +78,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 // Generate QR Code
                 // The OTP Auth URL format: otpauth://totp/Label?secret=SECRET&issuer=Issuer
-                const label = `Besedka:${username}`;
-                const issuer = 'Besedka';
+                const label = `{{CHATNAME}}:${username}`;
+                const issuer = '{{CHATNAME}}';
                 const otpAuthUrl = `otpauth://totp/${encodeURIComponent(label)}?secret=${result.totpSecret}&issuer=${encodeURIComponent(issuer)}`;
 
                 // Clear previous if any

@@ -14,7 +14,7 @@ import (
 	"besedka/internal/push"
 	"besedka/internal/storage"
 	"besedka/internal/ws"
-	"besedka/static"
+	"io/fs"
 
 	"golang.org/x/crypto/acme/autocert"
 )
@@ -26,7 +26,7 @@ type APIServer struct {
 	wg                  sync.WaitGroup
 }
 
-func NewAPIServer(cfg *config.Config, authService *auth.AuthService, hub *ws.Hub, storage *storage.BboltStorage, pushService *push.Service, addr string) *APIServer {
+func NewAPIServer(cfg *config.Config, authService *auth.AuthService, hub *ws.Hub, storage *storage.BboltStorage, pushService *push.Service, addr string, assets fs.FS) *APIServer {
 	// Initialize Hub
 	// hub := ws.NewHub(authService, bbStorage)
 
@@ -36,7 +36,7 @@ func NewAPIServer(cfg *config.Config, authService *auth.AuthService, hub *ws.Hub
 	mux := http.NewServeMux()
 
 	// Serve static files with Auth check
-	mux.HandleFunc("/", NewFileServerHandler(authService, static.Content))
+	mux.HandleFunc("/", NewFileServerHandler(authService, assets))
 
 	// API endpoints
 	mux.HandleFunc("POST /api/login", api.RequireSameOrigin(apiHandlers.LoginHandler))

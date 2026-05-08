@@ -1,11 +1,13 @@
 package e2e
 
 import (
+	"besedka/internal/assets"
 	"besedka/internal/auth"
 	"besedka/internal/config"
 	"besedka/internal/http"
 	"besedka/internal/models"
 	"besedka/internal/ws"
+	"besedka/static"
 	"context"
 	oshttp "net/http"
 	"net/http/httptest"
@@ -92,7 +94,13 @@ func TestAdminUI(t *testing.T) {
 
 	hub := ws.NewHub(context.Background(), authService, store, &mockPushService{})
 
-	adminServer := http.NewAdminServer(cfg, authService, hub)
+	// Load assets with default substitution
+	assetsFS, err := assets.Load("Besedka", static.Content)
+	if err != nil {
+		t.Fatalf("Failed to load assets: %v", err)
+	}
+
+	adminServer := http.NewAdminServer(cfg, authService, hub, assetsFS)
 
 	ts := httptest.NewServer(adminServer.Server().Handler)
 	defer ts.Close()
