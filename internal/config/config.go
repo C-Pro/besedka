@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"regexp"
 	"time"
 )
+
+var chatNameRegex = regexp.MustCompile(`^[a-zA-Z0-9-]{3,32}$`)
 
 type Config struct {
 	DBFile              string
@@ -94,6 +97,10 @@ func (c *Config) Validate(cliMode bool) error {
 
 	if _, err := url.Parse(c.BaseURL); err != nil {
 		return fmt.Errorf("BASE_URL must be a valid URL: %w", err)
+	}
+
+	if !chatNameRegex.MatchString(c.ChatName) {
+		return fmt.Errorf("CHAT_NAME must be 3-32 alphanumeric characters or dashes")
 	}
 
 	return nil
