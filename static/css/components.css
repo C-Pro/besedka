@@ -185,6 +185,13 @@
     opacity: 1;
 }
 
+.copy-code-btn:focus,
+.copy-code-btn:focus-visible {
+    opacity: 1;
+    outline: 2px solid var(--text-muted);
+    outline-offset: 2px;
+}
+
 .copy-code-btn:hover {
     color: var(--text-primary);
     border-color: var(--text-muted);
