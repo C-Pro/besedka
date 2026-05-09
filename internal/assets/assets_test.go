@@ -92,3 +92,35 @@ func TestDirectoryListing(t *testing.T) {
 		t.Errorf("unexpected directory entries: %+v", entries)
 	}
 }
+
+func TestSeek(t *testing.T) {
+	mockFS := fstest.MapFS{
+		"site.webmanifest": {
+			Data: []byte(`{"name": "{{CHATNAME}}"}`),
+		},
+		"unmodified.txt": {
+			Data: []byte(`hello`),
+		},
+	}
+
+	processedFS, _ := Load("TestChat", mockFS)
+
+	for _, name := range []string{"site.webmanifest", "unmodified.txt"} {
+		file, err := processedFS.Open(name)
+		if err != nil {
+			t.Fatalf("failed to open %s: %v", name, err)
+		}
+
+		seeker, ok := file.(io.Seeker)
+		if !ok {
+			t.Fatalf("expected file %s to implement io.Seeker", name)
+		}
+
+		_, err = seeker.Seek(0, io.SeekEnd)
+		if err != nil {
+			t.Errorf("seek failed for %s: %v", name, err)
+		}
+
+		_ = file.Close()
+	}
+}
