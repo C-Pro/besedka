@@ -2,6 +2,7 @@ package assets
 
 import (
 	"io"
+	"io/fs"
 	"testing"
 	"testing/fstest"
 )
@@ -49,5 +50,45 @@ func TestLoad(t *testing.T) {
 			t.Errorf("for %s, expected %q, got %q", tt.path, tt.expected, string(content))
 		}
 		_ = file.Close()
+	}
+}
+
+func TestDirectoryListing(t *testing.T) {
+	mockFS := fstest.MapFS{
+		"dir/file.txt": {Data: []byte("hello")},
+	}
+
+	processedFS, _ := Load("TestChat", mockFS)
+
+	// Open the directory
+	file, err := processedFS.Open("dir")
+	if err != nil {
+		t.Fatalf("failed to open dir: %v", err)
+	}
+	defer file.Close()
+
+	// Check if it's a directory
+	stat, err := file.Stat()
+	if err != nil {
+		t.Fatalf("failed to stat dir: %v", err)
+	}
+
+	if !stat.IsDir() {
+		t.Errorf("expected dir to be a directory")
+	}
+
+	// Try to read the directory
+	dirFile, ok := file.(fs.ReadDirFile)
+	if !ok {
+		t.Fatal("expected file to be fs.ReadDirFile")
+	}
+
+	entries, err := dirFile.ReadDir(-1)
+	if err != nil {
+		t.Fatalf("failed to read dir: %v", err)
+	}
+
+	if len(entries) != 1 || entries[0].Name() != "file.txt" {
+		t.Errorf("unexpected directory entries: %+v", entries)
 	}
 }
