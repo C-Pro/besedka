@@ -2,6 +2,7 @@ package assets
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"io/fs"
 	"path"
@@ -92,6 +93,13 @@ func (f *memFile) Close() error {
 	return f.close()
 }
 
+func (f *memFile) Seek(offset int64, whence int) (int64, error) {
+	if s, ok := f.Reader.(io.Seeker); ok {
+		return s.Seek(offset, whence)
+	}
+	return 0, errors.New("seeker can't seek")
+}
+
 func (f *memFile) Stat() (fs.FileInfo, error) {
 	return &memFileInfo{name: f.name, size: f.size, isDir: f.isDir}, nil
 }
@@ -109,9 +117,9 @@ type memFileInfo struct {
 	isDir bool
 }
 
-func (fi *memFileInfo) Name() string       { return fi.name }
-func (fi *memFileInfo) Size() int64        { return fi.size }
-func (fi *memFileInfo) Mode() fs.FileMode  {
+func (fi *memFileInfo) Name() string { return fi.name }
+func (fi *memFileInfo) Size() int64  { return fi.size }
+func (fi *memFileInfo) Mode() fs.FileMode {
 	if fi.isDir {
 		return fs.ModeDir | 0o555
 	}
