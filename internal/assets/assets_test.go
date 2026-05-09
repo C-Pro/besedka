@@ -65,7 +65,7 @@ func TestDirectoryListing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open dir: %v", err)
 	}
-	defer file.Close()
+	defer file.Close() //nolint:errcheck
 
 	// Check if it's a directory
 	stat, err := file.Stat()
