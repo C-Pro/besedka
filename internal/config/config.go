@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"regexp"
 	"time"
 )
+
+var chatNameRegex = regexp.MustCompile(`^[a-zA-Z0-9-]{3,32}$`)
 
 type Config struct {
 	DBFile              string
@@ -25,6 +28,7 @@ type Config struct {
 	TLSAutoCertPath     string
 	EnableHTTPChallenge bool
 	HTTPChallengePort   string
+	ChatName            string
 }
 
 func Load(cliMode bool) (*Config, error) {
@@ -64,6 +68,7 @@ func Load(cliMode bool) (*Config, error) {
 		TLSAutoCertPath:     tlsAutoCertPath,
 		EnableHTTPChallenge: getEnv("ENABLE_HTTP_CHALLENGE", "false") == "true" || getEnv("ENABLE_HTTP_CHALLENGE", "false") == "1",
 		HTTPChallengePort:   getEnv("HTTP_CHALLENGE_PORT", "80"),
+		ChatName:            getEnv("CHAT_NAME", "Besedka"),
 	}
 
 	if err := cfg.Validate(cliMode); err != nil {
@@ -92,6 +97,10 @@ func (c *Config) Validate(cliMode bool) error {
 
 	if _, err := url.Parse(c.BaseURL); err != nil {
 		return fmt.Errorf("BASE_URL must be a valid URL: %w", err)
+	}
+
+	if !chatNameRegex.MatchString(c.ChatName) {
+		return fmt.Errorf("CHAT_NAME must be 3-32 alphanumeric characters or dashes")
 	}
 
 	return nil

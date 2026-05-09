@@ -61,6 +61,7 @@ Besedka is configured entirely via environment variables.
 | Variable | Description | Default |
 | :--- | :--- | :--- |
 | `AUTH_SECRET` | **(Required)** Secret key used for encrypting data and signing tokens. | |
+| `CHAT_NAME` | Name of the chat application. | `Besedka` |
 | `BESEDKA_DB` | Path to the bbolt database file. | `besedka.db` |
 | `API_ADDR` | Address for the main chat server to listen on. | `:443` (if TLS enabled), else `:8080` |
 | `ADMIN_ADDR` | Address for the Admin UI to listen on. | `localhost:8081` |

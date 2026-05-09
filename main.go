@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"besedka/internal/assets"
 	"besedka/internal/auth"
 	"besedka/internal/commands"
 	"besedka/internal/config"
@@ -21,6 +22,7 @@ import (
 	"besedka/internal/push"
 	"besedka/internal/storage"
 	"besedka/internal/ws"
+	"besedka/static"
 
 	"golang.org/x/sync/errgroup"
 )
@@ -64,8 +66,14 @@ func run(ctx context.Context, addUser string) error {
 
 	hub := ws.NewHub(ctx, authService, bbStorage, pushService)
 
-	adminServer := http.NewAdminServer(cfg, authService, hub)
-	apiServer := http.NewAPIServer(cfg, authService, hub, bbStorage, pushService, cfg.APIAddr)
+	// Load assets with substitution
+	assetsFS, err := assets.Load(cfg.ChatName, static.Content)
+	if err != nil {
+		return fmt.Errorf("failed to load assets: %w", err)
+	}
+
+	adminServer := http.NewAdminServer(cfg, authService, hub, assetsFS)
+	apiServer := http.NewAPIServer(cfg, authService, hub, bbStorage, pushService, cfg.APIAddr, assetsFS)
 
 	g, gCtx := errgroup.WithContext(ctx)
 

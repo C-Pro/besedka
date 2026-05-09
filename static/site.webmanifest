@@ -1,6 +1,6 @@
 {
-  "name": "Besedka",
-  "short_name": "Besedka",
+  "name": "{{CHATNAME}}",
+  "short_name": "{{CHATNAME}}",
   "description": "Private self-hosted chat",
   "start_url": "/",
   "id": "/",
@@ -19,6 +19,18 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
+    },
+    {
+      "src": "/maskable-icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/maskable-icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ],
   "screenshots": [

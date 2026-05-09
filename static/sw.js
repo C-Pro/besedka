@@ -36,7 +36,7 @@ self.addEventListener('push', function(event) {
   } catch (e) {
     console.warn('Push payload was not JSON:', event.data.text());
     data = {
-      title: 'Besedka',
+      title: '{{CHATNAME}}',
       body: event.data.text()
     };
   }
@@ -57,7 +57,7 @@ self.addEventListener('push', function(event) {
     }
   };
   event.waitUntil(
-    self.registration.showNotification(data.title || 'Besedka', options)
+    self.registration.showNotification(data.title || '{{CHATNAME}}', options)
       .then(() => syncBadge())
   );
 });

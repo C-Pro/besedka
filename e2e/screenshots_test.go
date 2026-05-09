@@ -105,10 +105,10 @@ func TestScreenshots(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Desktop screenshot: log in as Bob at 1280x720
+	// Desktop screenshot: log in as Bob
 	t.Log("Taking desktop screenshot as Bob...")
 	desktopCtx, err := browser.NewContext(playwright.BrowserNewContextOptions{
-		Viewport: &playwright.Size{Width: 1280, Height: 720},
+		Viewport: &playwright.Size{Width: 1920, Height: 1080},
 	})
 	require.NoError(t, err)
 	defer func() { _ = desktopCtx.Close() }()
@@ -138,10 +138,13 @@ func TestScreenshots(t *testing.T) {
 		time.Sleep(1 * time.Second)
 	}
 
-	// Mobile screenshot: log in as Bob at 390x844
+	// Mobile screenshot: log in as Bob
 	t.Log("Taking mobile screenshot as Bob...")
 	mobileCtx, err := browser.NewContext(playwright.BrowserNewContextOptions{
-		Viewport: &playwright.Size{Width: 390, Height: 844},
+		Viewport:          &playwright.Size{Width: 360, Height: 640},
+		DeviceScaleFactor: playwright.Float(3.0),
+		IsMobile:          playwright.Bool(true),
+		HasTouch:          playwright.Bool(true),
 	})
 	require.NoError(t, err)
 	defer func() { _ = mobileCtx.Close() }()

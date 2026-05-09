@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -16,7 +17,6 @@ import (
 	"besedka/internal/auth"
 	"besedka/internal/config"
 	"besedka/internal/ws"
-	"besedka/static"
 )
 
 type AdminServer struct {
@@ -29,9 +29,9 @@ type AdminServer struct {
 	baseURL      string
 }
 
-func NewAdminServer(cfg *config.Config, authService *auth.AuthService, hub *ws.Hub) *AdminServer {
+func NewAdminServer(cfg *config.Config, authService *auth.AuthService, hub *ws.Hub, assets fs.FS) *AdminServer {
 	// Parse admin template
-	tmpl, err := template.ParseFS(static.Content, "admin.html")
+	tmpl, err := template.ParseFS(assets, "admin.html")
 	if err != nil {
 		slog.Error("failed to parse admin template", "error", err)
 		os.Exit(1)
