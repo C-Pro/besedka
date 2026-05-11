@@ -288,11 +288,18 @@ class Store {
             const chats = await response.json();
             this.setState({ chats });
 
-            // Set Townhall as active chat if none selected
+            // Set active chat from URL or default to Townhall if none selected
             if (!this.state.activeChatId) {
-                const townhall = chats.find(c => c.id === 'townhall');
-                if (townhall) {
-                    this.setActiveChat(townhall.id);
+                const urlParams = new URLSearchParams(window.location.search);
+                const urlChatId = urlParams.get('chat');
+                
+                if (urlChatId && chats.find(c => c.id === urlChatId)) {
+                    this.setActiveChat(urlChatId);
+                } else {
+                    const townhall = chats.find(c => c.id === 'townhall');
+                    if (townhall) {
+                        this.setActiveChat(townhall.id);
+                    }
                 }
             }
         } catch (error) {

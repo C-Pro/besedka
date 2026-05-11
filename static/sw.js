@@ -106,11 +106,12 @@ self.addEventListener('notificationclick', function(event) {
         }
       }
       
-      // 2. If no exact match, try to find ANY tab of this app and navigate it
+      // 2. If no exact match, try to find ANY tab of this app and postMessage
       for (let i = 0; i < windowClients.length; i++) {
         const client = windowClients[i];
-        if ('navigate' in client && 'focus' in client) {
-          return client.navigate(urlToOpen).then(c => c.focus());
+        if ('focus' in client) {
+          client.postMessage({ type: 'open_chat', url: urlToOpen });
+          return client.focus();
         }
       }
 

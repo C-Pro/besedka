@@ -371,6 +371,21 @@ async function setupPushNotifications() {
         } else {
             console.error('Failed to sync push subscription:', await subResponse.text());
         }
+
+        navigator.serviceWorker.addEventListener('message', (event) => {
+            if (event.data && event.data.type === 'open_chat') {
+                try {
+                    const url = new URL(event.data.url);
+                    const chatId = url.searchParams.get('chat');
+                    if (chatId) {
+                        store.setActiveChat(chatId);
+                    }
+                } catch (e) {
+                    console.error('Error handling service worker message:', e);
+                }
+            }
+        });
+
     } catch (error) {
         console.error('Failed to setup push notifications:', error);
     }
