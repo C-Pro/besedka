@@ -339,6 +339,21 @@ async function setupPushNotifications() {
     try {
         const registration = await navigator.serviceWorker.register('/sw.js');
         
+        navigator.serviceWorker.addEventListener('message', (event) => {
+            if (event.data && event.data.type === 'open_chat') {
+                try {
+                    const url = new URL(event.data.url);
+                    const chatId = url.searchParams.get('chat');
+                    if (chatId) {
+                        store.setActiveChat(chatId);
+                        store.setState({ forceScrollSignal: (store.state.forceScrollSignal || 0) + 1 });
+                    }
+                } catch (e) {
+                    console.error('Error handling service worker message:', e);
+                }
+            }
+        });
+
         // Fetch public key
         const response = await fetch('/api/push/vapidPublicKey');
         if (!response.ok) {
@@ -373,21 +388,6 @@ async function setupPushNotifications() {
         } else {
             console.error('Failed to sync push subscription:', await subResponse.text());
         }
-
-        navigator.serviceWorker.addEventListener('message', (event) => {
-            if (event.data && event.data.type === 'open_chat') {
-                try {
-                    const url = new URL(event.data.url);
-                    const chatId = url.searchParams.get('chat');
-                    if (chatId) {
-                        store.setActiveChat(chatId);
-                        store.setState({ forceScrollSignal: (store.state.forceScrollSignal || 0) + 1 });
-                    }
-                } catch (e) {
-                    console.error('Error handling service worker message:', e);
-                }
-            }
-        });
 
     } catch (error) {
         console.error('Failed to setup push notifications:', error);

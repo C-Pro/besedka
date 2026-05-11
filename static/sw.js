@@ -109,7 +109,19 @@ self.addEventListener('notificationclick', function(event) {
         }
       }
       
-      // 2. If no exact match, try to find ANY tab of this app
+      // 2. If no exact match, try to find a tab at the main app route
+      if (!clientToFocus) {
+        for (let i = 0; i < windowClients.length; i++) {
+          const client = windowClients[i];
+          const pathname = new URL(client.url).pathname;
+          if ((pathname === '/' || pathname === '/index.html') && 'focus' in client) {
+            clientToFocus = client;
+            break;
+          }
+        }
+      }
+
+      // 3. If still no main app client, just find any focusable client
       if (!clientToFocus) {
         for (let i = 0; i < windowClients.length; i++) {
           const client = windowClients[i];
@@ -121,11 +133,19 @@ self.addEventListener('notificationclick', function(event) {
       }
 
       if (clientToFocus) {
-        clientToFocus.postMessage({ type: 'open_chat', url: urlToOpen });
-        return clientToFocus.focus();
+        const clientPathname = new URL(clientToFocus.url).pathname;
+        if (clientPathname === '/' || clientPathname === '/index.html') {
+          clientToFocus.postMessage({ type: 'open_chat', url: urlToOpen });
+          return clientToFocus.focus();
+        } else {
+          if ('navigate' in clientToFocus) {
+            return clientToFocus.navigate(urlToOpen).then(client => client ? client.focus() : null);
+          }
+          return clientToFocus.focus();
+        }
       }
 
-      // 3. If no tabs are open, open a new one
+      // 4. If no tabs are open, open a new one
       if (clients.openWindow) {
         return clients.openWindow(urlToOpen);
       }
