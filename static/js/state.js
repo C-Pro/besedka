@@ -11,7 +11,8 @@ class Store {
             messages: {}, // chatId -> [messages]
             isLoadingHistory: {}, // chatId -> boolean
             userLocations: new Map(), // userId -> { lat, lng, timestamp }
-            unreadCounts: {} // chatId -> count
+            unreadCounts: {}, // chatId -> count
+            forceScrollSignal: 0
         };
         this.listeners = [];
         this.socket = null;

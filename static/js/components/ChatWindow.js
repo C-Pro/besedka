@@ -86,6 +86,7 @@ export function createChatWindow(container) {
     document.addEventListener('keydown', handleEscape);
 
     let forceScrollToBottom = false;
+    let lastForceScrollSignal = 0;
     let scrollState = {
         wasAtBottom: true,
         prevScrollHeight: 0,
@@ -101,6 +102,12 @@ export function createChatWindow(container) {
         }
 
         const chatChanged = state.activeChatId !== lastChatId;
+        
+        if (state.forceScrollSignal !== lastForceScrollSignal) {
+            forceScrollToBottom = true;
+            lastForceScrollSignal = state.forceScrollSignal;
+        }
+
         const messages = state.messages[state.activeChatId] || [];
         const currentFirstSeq = messages.length > 0 ? messages[0].seq : -1;
 

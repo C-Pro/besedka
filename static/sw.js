@@ -98,21 +98,31 @@ self.addEventListener('notificationclick', function(event) {
       type: 'window',
       includeUncontrolled: true
     }).then(function(windowClients) {
+      let clientToFocus = null;
+      
       // 1. Try to find an existing tab that is already at the target URL
       for (let i = 0; i < windowClients.length; i++) {
         const client = windowClients[i];
         if (client.url === urlToOpen && 'focus' in client) {
-          return client.focus();
+          clientToFocus = client;
+          break;
         }
       }
       
-      // 2. If no exact match, try to find ANY tab of this app and postMessage
-      for (let i = 0; i < windowClients.length; i++) {
-        const client = windowClients[i];
-        if ('focus' in client) {
-          client.postMessage({ type: 'open_chat', url: urlToOpen });
-          return client.focus();
+      // 2. If no exact match, try to find ANY tab of this app
+      if (!clientToFocus) {
+        for (let i = 0; i < windowClients.length; i++) {
+          const client = windowClients[i];
+          if ('focus' in client) {
+            clientToFocus = client;
+            break;
+          }
         }
+      }
+
+      if (clientToFocus) {
+        clientToFocus.postMessage({ type: 'open_chat', url: urlToOpen });
+        return clientToFocus.focus();
       }
 
       // 3. If no tabs are open, open a new one

@@ -42,10 +42,7 @@ function renderApp() {
         </div>
     `;
 
-    // Initialize components
-    createChatList(document.getElementById('sidebar'));
-    createChatWindow(document.getElementById('chat-area'));
-    createInfoPanel(document.getElementById('info-panel'), store);
+    // Delay component initialization until after store.subscribe so visibility is handled first
 
     // Handle responsive visibility
     const handleVisibility = (state) => {
@@ -306,6 +303,11 @@ function renderApp() {
         }
     });
 
+    // Initialize components now that the initial visibility state is processed
+    createChatList(document.getElementById('sidebar'));
+    createChatWindow(document.getElementById('chat-area'));
+    createInfoPanel(document.getElementById('info-panel'), store);
+
     // Resize listener
     window.addEventListener('resize', () => {
         handleVisibility(store.state);
@@ -379,6 +381,7 @@ async function setupPushNotifications() {
                     const chatId = url.searchParams.get('chat');
                     if (chatId) {
                         store.setActiveChat(chatId);
+                        store.setState({ forceScrollSignal: (store.state.forceScrollSignal || 0) + 1 });
                     }
                 } catch (e) {
                     console.error('Error handling service worker message:', e);
