@@ -86,6 +86,13 @@ export function createChatWindow(container) {
     document.addEventListener('keydown', handleEscape);
 
     let forceScrollToBottom = false;
+    let lastForceScrollSignal = 0;
+    let scrollState = {
+        wasAtBottom: true,
+        prevScrollHeight: 0,
+        prevScrollTop: 0,
+        firstSeq: -1
+    };
 
     const render = (state) => {
         const oldInput = container.querySelector('#message-input');
@@ -94,28 +101,31 @@ export function createChatWindow(container) {
             currentText = oldInput.value;
         }
 
-        // Preserve scroll state
-        let prevScrollHeight = 0;
-        let prevScrollTop = 0;
-        let wasAtBottom = true;
         const chatChanged = state.activeChatId !== lastChatId;
+        
+        if (state.forceScrollSignal !== lastForceScrollSignal) {
+            forceScrollToBottom = true;
+            lastForceScrollSignal = state.forceScrollSignal;
+        }
+
+        const messages = state.messages[state.activeChatId] || [];
+        const currentFirstSeq = messages.length > 0 ? messages[0].seq : -1;
 
         const oldMessagesContainer = container.querySelector('#messages-container');
-        if (oldMessagesContainer && !chatChanged) {
-            prevScrollHeight = oldMessagesContainer.scrollHeight;
-            prevScrollTop = oldMessagesContainer.scrollTop;
-            wasAtBottom = (oldMessagesContainer.scrollHeight - oldMessagesContainer.scrollTop - oldMessagesContainer.clientHeight) < 50;
+        if (oldMessagesContainer && !chatChanged && oldMessagesContainer.clientHeight > 0) {
+            scrollState.prevScrollHeight = oldMessagesContainer.scrollHeight;
+            scrollState.prevScrollTop = oldMessagesContainer.scrollTop;
+            scrollState.wasAtBottom = (oldMessagesContainer.scrollHeight - oldMessagesContainer.scrollTop - oldMessagesContainer.clientHeight) < 50;
         }
 
         if (forceScrollToBottom || chatChanged) {
-            wasAtBottom = true;
+            scrollState.wasAtBottom = true;
             forceScrollToBottom = false;
         }
 
         lastChatId = state.activeChatId;
 
         const activeChat = state.chats.find(c => c.id === state.activeChatId);
-        const messages = state.messages[state.activeChatId] || [];
 
         if (!activeChat) {
             container.innerHTML = `
@@ -272,15 +282,29 @@ export function createChatWindow(container) {
 
         const newMessagesContainer = container.querySelector('#messages-container');
         if (newMessagesContainer) {
-            if (wasAtBottom) {
+            if (scrollState.wasAtBottom) {
                 newMessagesContainer.scrollTop = newMessagesContainer.scrollHeight;
-            } else if (prevScrollHeight > 0) {
-                const heightDiff = newMessagesContainer.scrollHeight - prevScrollHeight;
-                newMessagesContainer.scrollTop = prevScrollTop + heightDiff;
+            } else if (scrollState.prevScrollHeight > 0) {
+                if (currentFirstSeq !== scrollState.firstSeq && scrollState.firstSeq !== -1) {
+                    const heightDiff = newMessagesContainer.scrollHeight - scrollState.prevScrollHeight;
+                    newMessagesContainer.scrollTop = scrollState.prevScrollTop + heightDiff;
+                } else {
+                    newMessagesContainer.scrollTop = scrollState.prevScrollTop;
+                }
             }
+
+            scrollState.prevScrollHeight = newMessagesContainer.scrollHeight;
+            scrollState.prevScrollTop = newMessagesContainer.scrollTop;
+            scrollState.firstSeq = currentFirstSeq;
 
             let scrollThrottleTimer = null;
             newMessagesContainer.addEventListener('scroll', () => {
+                if (newMessagesContainer.clientHeight > 0) {
+                    scrollState.prevScrollHeight = newMessagesContainer.scrollHeight;
+                    scrollState.prevScrollTop = newMessagesContainer.scrollTop;
+                    scrollState.wasAtBottom = (newMessagesContainer.scrollHeight - newMessagesContainer.scrollTop - newMessagesContainer.clientHeight) < 50;
+                }
+
                 if (scrollThrottleTimer) return;
                 scrollThrottleTimer = setTimeout(() => {
                     scrollThrottleTimer = null;
@@ -294,6 +318,20 @@ export function createChatWindow(container) {
                         }
                     }
                 }, 200);
+            });
+
+            // Handle image loads
+            const images = newMessagesContainer.querySelectorAll('img');
+            images.forEach(img => {
+                img.addEventListener('load', () => {
+                    if (scrollState.wasAtBottom) {
+                        newMessagesContainer.scrollTop = newMessagesContainer.scrollHeight;
+                    }
+                    if (newMessagesContainer.clientHeight > 0) {
+                        scrollState.prevScrollHeight = newMessagesContainer.scrollHeight;
+                        scrollState.prevScrollTop = newMessagesContainer.scrollTop;
+                    }
+                });
             });
         }
 

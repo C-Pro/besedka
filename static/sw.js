@@ -98,23 +98,61 @@ self.addEventListener('notificationclick', function(event) {
       type: 'window',
       includeUncontrolled: true
     }).then(function(windowClients) {
+      let clientToFocus = null;
+      
       // 1. Try to find an existing tab that is already at the target URL
       for (let i = 0; i < windowClients.length; i++) {
         const client = windowClients[i];
         if (client.url === urlToOpen && 'focus' in client) {
-          return client.focus();
+          clientToFocus = client;
+          break;
         }
       }
       
-      // 2. If no exact match, try to find ANY tab of this app and navigate it
-      for (let i = 0; i < windowClients.length; i++) {
-        const client = windowClients[i];
-        if ('navigate' in client && 'focus' in client) {
-          return client.navigate(urlToOpen).then(c => c.focus());
+      // 2. If no exact match, try to find a tab at the main app route
+      if (!clientToFocus) {
+        for (let i = 0; i < windowClients.length; i++) {
+          const client = windowClients[i];
+          try {
+            const pathname = new URL(client.url, self.location.origin).pathname;
+            if ((pathname === '/' || pathname === '/index.html') && 'focus' in client) {
+              clientToFocus = client;
+              break;
+            }
+          } catch (_) { /* skip unparseable client URLs */ }
         }
       }
 
-      // 3. If no tabs are open, open a new one
+      // 3. If still no main app client, just find any focusable client
+      if (!clientToFocus) {
+        for (let i = 0; i < windowClients.length; i++) {
+          const client = windowClients[i];
+          if ('focus' in client) {
+            clientToFocus = client;
+            break;
+          }
+        }
+      }
+
+      if (clientToFocus) {
+        let isAppShell = false;
+        try {
+          const clientPathname = new URL(clientToFocus.url, self.location.origin).pathname;
+          isAppShell = clientPathname === '/' || clientPathname === '/index.html';
+        } catch (_) { /* treat unparseable as non-app-shell */ }
+
+        if (isAppShell) {
+          clientToFocus.postMessage({ type: 'open_chat', url: urlToOpen });
+          return clientToFocus.focus();
+        } else {
+          if ('navigate' in clientToFocus) {
+            return clientToFocus.navigate(urlToOpen).then(client => client ? client.focus() : null);
+          }
+          return clientToFocus.focus();
+        }
+      }
+
+      // 4. If no tabs are open, open a new one
       if (clients.openWindow) {
         return clients.openWindow(urlToOpen);
       }

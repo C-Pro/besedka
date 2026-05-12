@@ -4,6 +4,10 @@
 
 Besedka is a self-hosted chat application for a limited number of users (e.g. for a family or a small group of friends) built with Go and vanilla web technologies.
 
+![Besedka Desktop Screenshot](static/screenshot_desktop.webp)
+
+It is a fully installable Progressive Web App (PWA) that provides a native-like experience on both Mobile and Desktop devices, including support for Push Notifications.
+
 It is designed to be self-sufficient without any hard dependencies on external services. All CSS and JS is self hosted, no 3rd party APIs or CDNs are used. It does not require nor support authentication with external OAuth providers (login with Google, Apple, etc.).
 It does not track you or share your data with anyone.
 ## 🚧 Work in Progress
@@ -36,7 +40,7 @@ docker run --name besedka -v $(pwd)/data:/data -e AUTH_SECRET=your-secret-key \
 3. Access the Admin UI at [http://localhost:8081](http://localhost:8081) to manage users.
    - Default credentials: `admin` / `1337chat`
 
-4. Create a user and follow the provided registration link to register.
+4. Create a user and follow the provided registration link to register (user will need TOTP app like Google Authenticator).
 5. Chat is available at [http://localhost:8080](http://localhost:8080)
 
 

@@ -85,7 +85,7 @@ func (s *Service) SendNotification(userID string, payload []byte) error {
 			Subscriber:      "besedka-service",
 			VAPIDPublicKey:  s.publicKey,
 			VAPIDPrivateKey: s.privateKey,
-			TTL:             30,
+			TTL:             86400, // 24 hours
 			HTTPClient:      s.httpClient,
 		})
 		if err != nil {
