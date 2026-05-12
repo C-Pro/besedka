@@ -54,15 +54,20 @@ func TestE2EScrollPosition(t *testing.T) {
 			const c = document.querySelector('#messages-container');
 			return (c.scrollHeight - c.scrollTop - c.clientHeight) < 50;
 		}`)
-		require.NoError(t, err)
-		return res.(bool)
+		if err != nil {
+			return false
+		}
+		v, ok := res.(bool)
+		return ok && v
 	}
 
 	require.Eventually(t, isAtBottom, 5*time.Second, 100*time.Millisecond)
 
 	// User scrolls back
 	_, err = alicePage.Evaluate(`() => {
-		document.querySelector('#messages-container').scrollTop = 0;
+		const c = document.querySelector('#messages-container');
+		c.scrollTop = 0;
+		c.dispatchEvent(new Event('scroll'));
 	}`)
 	require.NoError(t, err)
 

@@ -113,11 +113,13 @@ self.addEventListener('notificationclick', function(event) {
       if (!clientToFocus) {
         for (let i = 0; i < windowClients.length; i++) {
           const client = windowClients[i];
-          const pathname = new URL(client.url).pathname;
-          if ((pathname === '/' || pathname === '/index.html') && 'focus' in client) {
-            clientToFocus = client;
-            break;
-          }
+          try {
+            const pathname = new URL(client.url, self.location.origin).pathname;
+            if ((pathname === '/' || pathname === '/index.html') && 'focus' in client) {
+              clientToFocus = client;
+              break;
+            }
+          } catch (_) { /* skip unparseable client URLs */ }
         }
       }
 
@@ -133,8 +135,13 @@ self.addEventListener('notificationclick', function(event) {
       }
 
       if (clientToFocus) {
-        const clientPathname = new URL(clientToFocus.url).pathname;
-        if (clientPathname === '/' || clientPathname === '/index.html') {
+        let isAppShell = false;
+        try {
+          const clientPathname = new URL(clientToFocus.url, self.location.origin).pathname;
+          isAppShell = clientPathname === '/' || clientPathname === '/index.html';
+        } catch (_) { /* treat unparseable as non-app-shell */ }
+
+        if (isAppShell) {
           clientToFocus.postMessage({ type: 'open_chat', url: urlToOpen });
           return clientToFocus.focus();
         } else {
