@@ -264,13 +264,24 @@ func (h *Hub) Join(userID string) chan models.ServerMessage {
 	return ch
 }
 
-func (h *Hub) Leave(userID string) {
+func (h *Hub) Leave(userID string, expectedCh chan models.ServerMessage) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+
+	if expectedCh != nil {
+		if ch, ok := h.connectedUsers[userID]; ok && ch != expectedCh {
+			// A new connection has already taken over.
+			// Just close the old channel and do nothing else.
+			close(expectedCh)
+			return
+		}
+	}
 
 	if ch, ok := h.connectedUsers[userID]; ok {
 		close(ch)
 		delete(h.connectedUsers, userID)
+	} else if expectedCh != nil {
+		close(expectedCh)
 	}
 
 	// Leave all relevant chats
@@ -328,7 +339,7 @@ func (h *Hub) RemoveDeletedUser(userID string) {
 }
 
 func (h *Hub) DisconnectUser(userID string) {
-	h.Leave(userID)
+	h.Leave(userID, nil)
 }
 
 // BroadcastToAll sends a message to all connected users except the excluded one.

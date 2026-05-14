@@ -314,6 +314,16 @@ function renderApp() {
     });
 }
 
+function showUpdateBanner() {
+    const banner = document.createElement('div');
+    banner.className = 'update-banner';
+    banner.id = 'update-banner';
+    banner.textContent = '⬆ Update available — tap to reload';
+    banner.addEventListener('click', () => window.location.reload());
+    document.body.appendChild(banner);
+    requestAnimationFrame(() => banner.classList.add('visible'));
+}
+
 function urlBase64ToUint8Array(base64String) {
     const padding = '='.repeat((4 - base64String.length % 4) % 4);
     const base64 = (base64String + padding)
@@ -338,7 +348,7 @@ async function setupPushNotifications() {
 
     try {
         const registration = await navigator.serviceWorker.register('/sw.js');
-        
+
         navigator.serviceWorker.addEventListener('message', (event) => {
             if (event.data && event.data.type === 'open_chat') {
                 try {
@@ -351,6 +361,14 @@ async function setupPushNotifications() {
                 } catch (e) {
                     console.error('Error handling service worker message:', e);
                 }
+            }
+        });
+
+        let refreshing = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+            if (!refreshing) {
+                refreshing = true;
+                showUpdateBanner();
             }
         });
 

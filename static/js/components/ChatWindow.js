@@ -97,8 +97,14 @@ export function createChatWindow(container) {
     const render = (state) => {
         const oldInput = container.querySelector('#message-input');
         let currentText = '';
+        let selStart = 0;
+        let selEnd = 0;
+        let wasFocused = false;
         if (oldInput && lastChatId === state.activeChatId) {
             currentText = oldInput.value;
+            selStart = oldInput.selectionStart;
+            selEnd = oldInput.selectionEnd;
+            wasFocused = document.activeElement === oldInput;
         }
 
         const chatChanged = state.activeChatId !== lastChatId;
@@ -293,8 +299,10 @@ export function createChatWindow(container) {
                 }
             }
 
-            scrollState.prevScrollHeight = newMessagesContainer.scrollHeight;
-            scrollState.prevScrollTop = newMessagesContainer.scrollTop;
+            if (newMessagesContainer.clientHeight > 0) {
+                scrollState.prevScrollHeight = newMessagesContainer.scrollHeight;
+                scrollState.prevScrollTop = newMessagesContainer.scrollTop;
+            }
             scrollState.firstSeq = currentFirstSeq;
 
             let scrollThrottleTimer = null;
@@ -404,9 +412,15 @@ export function createChatWindow(container) {
         const attachBtn = container.querySelector('#attach-btn');
         const fileInput = container.querySelector('#file-input');
 
+        const isMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
         if (input) {
             input.value = currentText;
-            if (!isUploading) input.focus();
+            if (!isUploading) {
+                if (wasFocused || (!isMobile && currentText === '' && !oldInput)) {
+                    input.focus();
+                    input.setSelectionRange(selStart, selEnd);
+                }
+            }
         }
 
         const handleSend = () => {
@@ -418,7 +432,7 @@ export function createChatWindow(container) {
                 input.style.height = '40px'; // Reset height
                 filesToAttach = []; // Clear attachments
                 render(store.state); // Re-render to remove indicator
-                input.focus();
+                if (!isMobile) input.focus();
             }
         };
 
@@ -427,7 +441,7 @@ export function createChatWindow(container) {
             // Auto resize
             const autoResize = () => {
                 input.style.height = 'auto';
-                input.style.height = `${input.scrollHeight}px`;
+                input.style.height = `${Math.max(40, input.scrollHeight)}px`;
             };
             input.addEventListener('input', autoResize);
 
@@ -480,7 +494,7 @@ export function createChatWindow(container) {
                         isUploading = false;
                         fileInput.value = ''; // Reset input
                         render(store.state); // Update UI
-                        input.focus();
+                        if (!isMobile) input.focus();
                     }
                 }
             });

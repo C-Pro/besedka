@@ -975,3 +975,32 @@
 .file-download-menu a:hover {
     background-color: var(--bg-hover);
 }
+
+/* Update Banner */
+.update-banner {
+    position: fixed;
+    top: -60px;
+    left: 0;
+    right: 0;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-md);
+    padding: var(--space-sm) var(--space-md);
+    background: linear-gradient(135deg, var(--accent-color), var(--accent-hover));
+    color: var(--text-on-accent);
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+    transition: top 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+}
+
+.update-banner.visible {
+    top: 0;
+}
+
+.update-banner:hover {
+    filter: brightness(1.08);
+}

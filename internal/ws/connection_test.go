@@ -88,7 +88,7 @@ func (m *mockHub) Join(userID string) chan models.ServerMessage {
 	return ch
 }
 
-func (m *mockHub) Leave(userID string) {
+func (m *mockHub) Leave(userID string, expectedCh chan models.ServerMessage) {
 	m.leaveCh <- userID
 	if ch, ok := m.userChans[userID]; ok {
 		close(ch)

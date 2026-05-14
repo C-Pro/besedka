@@ -198,7 +198,7 @@ func TestHub_Lifecycle(t *testing.T) {
 	}
 
 	// 5. Leave
-	h.Leave(user1.ID)
+	h.Leave(user1.ID, nil)
 
 	h.Dispatch(user2.ID, models.ClientMessage{
 		ChatID:  dmID,
@@ -272,7 +272,7 @@ func TestHub_Broadcasting(t *testing.T) {
 	}
 
 	// Test Leave (Offline)
-	h.Leave(user2.ID)
+	h.Leave(user2.ID, nil)
 
 	// User 1 should receive Offline message
 	select {

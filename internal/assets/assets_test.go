@@ -21,6 +21,9 @@ func TestLoad(t *testing.T) {
 		"style.css": {
 			Data: []byte(".body { color: red; }"),
 		},
+		"sw.js": {
+			Data: []byte("const CACHE_VERSION = '{{CACHE_VERSION}}';"),
+		},
 	}
 
 	chatName := "MyCustomChat"
@@ -29,6 +32,7 @@ func TestLoad(t *testing.T) {
 		t.Fatalf("Load failed: %v", err)
 	}
 
+	expectedVersion := compileTime.UTC().Format("20060102150405")
 	tests := []struct {
 		path     string
 		expected string
@@ -37,6 +41,7 @@ func TestLoad(t *testing.T) {
 		{"config.js", "const app = 'MyCustomChat';"},
 		{"site.webmanifest", `{"name": "MyCustomChat"}`},
 		{"style.css", ".body { color: red; }"},
+		{"sw.js", "const CACHE_VERSION = '" + expectedVersion + "';"},
 	}
 
 	for _, tt := range tests {

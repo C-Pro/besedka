@@ -22,7 +22,7 @@ type wsConnection interface {
 
 type messageHub interface {
 	Join(userID string) chan models.ServerMessage
-	Leave(userID string)
+	Leave(userID string, expectedCh chan models.ServerMessage)
 	Dispatch(userID string, msg models.ClientMessage)
 }
 
@@ -55,7 +55,7 @@ func (c *Connection) Handle(ctx context.Context) error {
 	defer func() {
 		close(c.fromClient)
 		close(c.errorCh)
-		c.hub.Leave(c.userID)
+		c.hub.Leave(c.userID, c.fromServer)
 	}()
 
 	var wg sync.WaitGroup
@@ -114,7 +114,10 @@ func (c *Connection) mainLoop(ctx context.Context) error {
 			if err := c.processClientMessage(msg); err != nil {
 				return err
 			}
-		case msg := <-c.fromServer:
+		case msg, ok := <-c.fromServer:
+			if !ok {
+				return nil
+			}
 			if err := c.ws.WriteJSON(msg); err != nil {
 				return err
 			}
