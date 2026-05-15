@@ -192,13 +192,17 @@ export function createChatWindow(container) {
                     if (att.type === 'image') {
                         const safeName = escapeHTML(att.name);
                         return `
-                        <div class="message-attachment" 
-                             data-src="/api/images/${att.fileId}" 
-                             data-sender="${isMe ? 'You' : senderDisplayName}" 
+                        <div class="message-attachment"
+                             data-src="/api/images/${att.fileId}"
+                             data-sender="${isMe ? 'You' : senderDisplayName}"
                              data-time="${msg.timestamp}">
-                            <img src="/api/images/${att.fileId}" alt="${safeName}" loading="lazy">
-                        </div>
-                        `;
+                            <div class="attachment-placeholder">
+                                <svg class="spinner" viewBox="25 25 50 50">
+                                    <circle cx="50" cy="50" r="20"></circle>
+                                </svg>
+                            </div>
+                            <img src="/api/images/${att.fileId}" alt="${safeName}" loading="lazy" onload="this.parentElement.classList.add('loaded')">
+                        </div>                        `;
                     } else if (att.type === 'file') {
                         const safeName = escapeHTML(att.name);
                         const safeMime = escapeHTML(att.mimeType);

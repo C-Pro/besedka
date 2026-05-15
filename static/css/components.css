@@ -376,19 +376,46 @@
 /* Message Attachments */
 .message-attachment {
     margin-top: 5px;
-    max-width: 300px;
+    width: 300px;
+    max-width: 100%;
+    aspect-ratio: 1 / 1;
     border-radius: 8px;
     overflow: hidden;
     cursor: pointer;
     border: 1px solid var(--border-color);
+    position: relative;
+    background-color: var(--bg-hover);
+}
+
+.attachment-placeholder {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1;
+    color: var(--text-muted);
 }
 
 .message-attachment img {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 2;
     display: block;
     width: 100%;
-    height: auto;
-    max-height: 300px;
+    height: 100%;
     object-fit: contain;
+    background: transparent;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.message-attachment.loaded img {
+    opacity: 1;
     background: #000000;
 }
 
