@@ -276,11 +276,11 @@ func (h *Hub) safeClose(ch chan models.ServerMessage) {
 
 func (h *Hub) Leave(userID string, expectedCh chan models.ServerMessage) {
 	h.mu.Lock()
-	h.leaveLocked(userID, expectedCh)
+	h.leaveLocked(userID, expectedCh, true)
 	h.mu.Unlock()
 }
 
-func (h *Hub) leaveLocked(userID string, expectedCh chan models.ServerMessage) {
+func (h *Hub) leaveLocked(userID string, expectedCh chan models.ServerMessage, broadcastOffline bool) {
 	if expectedCh != nil {
 		if ch, ok := h.connectedUsers[userID]; ok && ch != expectedCh {
 			// A new connection has already taken over.
@@ -304,8 +304,10 @@ func (h *Hub) leaveLocked(userID string, expectedCh chan models.ServerMessage) {
 		}
 	}
 
-	// Notify others that user is offline
-	h.broadcastStatusChange(userID, false)
+	if broadcastOffline {
+		// Notify others that user is offline
+		h.broadcastStatusChange(userID, false)
+	}
 }
 
 func (h *Hub) BroadcastNewUser(user models.User) {
@@ -330,8 +332,9 @@ func (h *Hub) BroadcastNewUser(user models.User) {
 func (h *Hub) RemoveDeletedUser(userID string) {
 	h.mu.Lock()
 
-	// Close deleted user's connection if online and cleanup
-	h.leaveLocked(userID, nil)
+	// Close deleted user's connection if online and cleanup.
+	// We don't broadcast offline because we'll broadcast deleted instead.
+	h.leaveLocked(userID, nil, false)
 
 	// Remove DM chats involving the deleted user
 	for id := range h.chats {
@@ -349,7 +352,9 @@ func (h *Hub) RemoveDeletedUser(userID string) {
 }
 
 func (h *Hub) DisconnectUser(userID string) {
-	h.Leave(userID, nil)
+	h.mu.Lock()
+	h.leaveLocked(userID, nil, true)
+	h.mu.Unlock()
 }
 
 // BroadcastToAll sends a message to all connected users except the excluded one.
