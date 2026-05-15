@@ -87,6 +87,11 @@ export function createChatWindow(container) {
 
     let forceScrollToBottom = false;
     let lastForceScrollSignal = 0;
+    let lastMessages = null;
+    let lastIsLoading = false;
+    let lastUploading = false;
+    let lastFilesCount = 0;
+    let lastMobileTab = null;
     let scrollState = {
         wasAtBottom: true,
         prevScrollHeight: 0,
@@ -95,6 +100,40 @@ export function createChatWindow(container) {
     };
 
     const render = (state) => {
+        const chatChanged = state.activeChatId !== lastChatId;
+        const messages = state.messages[state.activeChatId] || [];
+        const isLoading = state.isLoadingHistory?.[state.activeChatId] || false;
+
+        const mobileTabReturned = lastMobileTab !== state.mobileActiveTab && state.mobileActiveTab === 'chat-window';
+        lastMobileTab = state.mobileActiveTab;
+
+        if (!chatChanged &&
+            lastMessages === messages &&
+            lastIsLoading === isLoading &&
+            lastUploading === isUploading &&
+            lastFilesCount === filesToAttach.length &&
+            state.forceScrollSignal === lastForceScrollSignal) {
+            
+            if (mobileTabReturned) {
+                setTimeout(() => {
+                    const c = container.querySelector('#messages-container');
+                    if (c) {
+                        if (scrollState.wasAtBottom) {
+                            c.scrollTop = c.scrollHeight;
+                        } else if (scrollState.prevScrollHeight > 0) {
+                            c.scrollTop = scrollState.prevScrollTop;
+                        }
+                    }
+                }, 0);
+            }
+            return;
+        }
+
+        lastMessages = messages;
+        lastIsLoading = isLoading;
+        lastUploading = isUploading;
+        lastFilesCount = filesToAttach.length;
+
         const oldInput = container.querySelector('#message-input');
         let currentText = '';
         let selStart = 0;
@@ -107,14 +146,11 @@ export function createChatWindow(container) {
             wasFocused = document.activeElement === oldInput;
         }
 
-        const chatChanged = state.activeChatId !== lastChatId;
-        
         if (state.forceScrollSignal !== lastForceScrollSignal) {
             forceScrollToBottom = true;
             lastForceScrollSignal = state.forceScrollSignal;
         }
 
-        const messages = state.messages[state.activeChatId] || [];
         const currentFirstSeq = messages.length > 0 ? messages[0].seq : -1;
 
         const oldMessagesContainer = container.querySelector('#messages-container');

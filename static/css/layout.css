@@ -58,9 +58,9 @@
     .sidebar.active,
     .chat-area.active,
     .info-panel.active {
+        z-index: 10;
         visibility: visible;
         pointer-events: auto;
-        z-index: 10;
     }
 
     /* Mobile Header */
