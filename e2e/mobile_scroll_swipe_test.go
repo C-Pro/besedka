@@ -109,7 +109,7 @@ func TestE2EMobileScrollSwipe(t *testing.T) {
 		return ok && v
 	}
 
-	require.Eventually(t, isAtBottom, 5*time.Second, 100*time.Millisecond, "Scroll position should be at the bottom after sending 30 messages")
+	require.Eventually(t, isAtBottom, 5*time.Second, 100*time.Millisecond, "Scroll position should be at the bottom after sending 10 messages")
 
 	// Swipe right to the map view (info-panel). Physically, dragging finger left moves view to info-panel.
 	t.Log("Swiping to map view (info-panel)...")

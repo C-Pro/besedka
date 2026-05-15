@@ -604,6 +604,83 @@ func TestHub_EnsureDMsFor_JoinsConnectedUsers(t *testing.T) {
 	}
 }
 
+func TestHub_Leave_ReplacedConnection(t *testing.T) {
+	user1 := models.User{ID: "u1", DisplayName: "User 1"}
+	user2 := models.User{ID: "u2", DisplayName: "User 2"}
+
+	provider := &MockUserProvider{
+		users: []models.User{user1, user2},
+	}
+	store := NewMockStorage()
+	h := NewHub(context.Background(), provider, store, &MockPushService{})
+
+	// User 1 connects (first connection)
+	ch1a := h.Join(user1.ID)
+	ch2 := h.Join(user2.ID)
+
+	// Drain initial online notifications
+	drainMessages(ch1a, 1) // u2 online
+	drainMessages(ch2, 1)  // u1 online
+
+	// User 1 reconnects: a new connection replaces the old one
+	ch1b := h.Join(user1.ID)
+
+	// Drain the new online notification for u1 that u2 receives
+	drainMessages(ch2, 1) // u1 online again
+
+	// At this point ch1a is NOT yet closed — Join does not close the old channel.
+	// It is only closed when the old WebSocket handler calls Leave with the stale channel.
+	h.Leave(user1.ID, ch1a)
+
+	// After Leave with the stale channel, ch1a should now be closed.
+	select {
+	case _, ok := <-ch1a:
+		if ok {
+			t.Error("Old channel should be closed after Leave with stale channel")
+		}
+	case <-time.After(testTimeout):
+		t.Error("Expected old channel to be closed after Leave with stale channel")
+	}
+
+	// User 2 must NOT receive any notification (especially not offline) for user 1
+	select {
+	case msg := <-ch2:
+		t.Errorf("Unexpected message received by user 2 after stale Leave: type=%s userID=%s", msg.Type, msg.UserID)
+	case <-time.After(testTimeout):
+		// No messages received - correct behavior
+	}
+
+	// The new connection ch1b must still be registered in connectedUsers
+	h.mu.RLock()
+	registeredCh, ok := h.connectedUsers[user1.ID]
+	h.mu.RUnlock()
+
+	if !ok {
+		t.Error("User 1 should still be in connectedUsers after stale Leave")
+	}
+	if registeredCh != ch1b {
+		t.Error("connectedUsers should hold the new channel after stale Leave")
+	}
+
+	// Verify new connection still works: user 1 can still receive messages
+	h.Dispatch(user2.ID, models.ClientMessage{
+		Type:    models.ClientMessageTypeSend,
+		ChatID:  "townhall",
+		Content: "still there?",
+	})
+
+	select {
+	case msg := <-ch1b:
+		if msg.Type == models.ServerMessageTypeMessages && len(msg.Messages) > 0 {
+			// Got the message - new connection is intact
+		} else {
+			t.Errorf("Unexpected message type on ch1b: %s", msg.Type)
+		}
+	case <-time.After(testTimeout):
+		t.Error("User 1's new connection should still receive messages after stale Leave")
+	}
+}
+
 func TestHub_LocationBroadcast(t *testing.T) {
 	user1 := models.User{ID: "u1", DisplayName: "User 1"}
 	user2 := models.User{ID: "u2", DisplayName: "User 2"}

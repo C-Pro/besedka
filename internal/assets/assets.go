@@ -26,7 +26,7 @@ var compileTime = func() time.Time {
 }()
 
 // Load returns an fs.FS that substitutes {{CHATNAME}} and {{CACHE_VERSION}} in
-// .html, .js, and .webmanifest files, delegating all other file reads to originalFS.
+// .html, .js, .css, and .webmanifest files, delegating all other file reads to originalFS.
 func Load(chatName string, originalFS fs.FS) (fs.FS, error) {
 	cacheVersion := compileTime.UTC().Format("20060102150405")
 	return &overlayFS{original: originalFS, chatName: chatName, cacheVersion: cacheVersion}, nil

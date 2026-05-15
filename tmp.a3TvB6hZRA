@@ -1,0 +1,23 @@
+go: downloading go1.26.3 (linux/amd64)
+=== RUN   TestHub_Lifecycle
+--- PASS: TestHub_Lifecycle (0.00s)
+=== RUN   TestHub_Broadcasting
+--- PASS: TestHub_Broadcasting (0.00s)
+=== RUN   TestHub_JoinChat_ReturnsHistory
+--- PASS: TestHub_JoinChat_ReturnsHistory (0.00s)
+=== RUN   TestHub_RemoveDeletedUser
+--- PASS: TestHub_RemoveDeletedUser (0.30s)
+=== RUN   TestHub_GetChats_TownHallAvatarURL
+--- PASS: TestHub_GetChats_TownHallAvatarURL (0.00s)
+=== RUN   TestHub_FetchMessages_ReturnsRange
+--- PASS: TestHub_FetchMessages_ReturnsRange (0.00s)
+=== RUN   TestHub_EnsureDMsFor_JoinsConnectedUsers
+--- PASS: TestHub_EnsureDMsFor_JoinsConnectedUsers (0.10s)
+=== RUN   TestHub_Leave_ReplacedConnection
+    hub_test.go:638: Expected old channel to be closed after reconnect
+--- FAIL: TestHub_Leave_ReplacedConnection (0.30s)
+=== RUN   TestHub_LocationBroadcast
+--- PASS: TestHub_LocationBroadcast (0.10s)
+FAIL
+FAIL	besedka/internal/ws	0.810s
+FAIL

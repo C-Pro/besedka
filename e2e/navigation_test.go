@@ -93,7 +93,8 @@ func TestE2ENavigationBack(t *testing.T) {
 		windowVisible, _ := page.Locator("#chat-area").IsVisible()
 		if !windowVisible {
 			t.Log("On chat-list, clicking Town Hall...")
-			_ = page.Locator(".chat-item:has-text(\"Town Hall\")").DispatchEvent("click", nil)
+			err = page.Locator(".chat-item:has-text(\"Town Hall\")").DispatchEvent("click", nil)
+			require.NoError(t, err)
 		} else {
 			t.Log("Already on chat-window (auto-selected).")
 		}
@@ -107,10 +108,12 @@ func TestE2ENavigationBack(t *testing.T) {
 
 		// 4. Switch to Info tab via menu
 		t.Log("Opening mobile menu...")
-		_ = page.Locator("#hamburger-btn").DispatchEvent("click", nil)
+		err = page.Locator("#hamburger-btn").DispatchEvent("click", nil)
+		require.NoError(t, err)
 
 		t.Log("Clicking Info tab...")
-		_ = page.Locator(".mobile-menu-item[data-tab='info-panel']").DispatchEvent("click", nil)
+		err = page.Locator(".mobile-menu-item[data-tab='info-panel']").DispatchEvent("click", nil)
+		require.NoError(t, err)
 
 		// Verify info panel is active
 		t.Log("Verifying info-panel is visible...")

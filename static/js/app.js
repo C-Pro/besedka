@@ -347,6 +347,7 @@ async function setupPushNotifications() {
     }
 
     try {
+        const hadController = !!navigator.serviceWorker.controller;
         const registration = await navigator.serviceWorker.register('/sw.js');
 
         navigator.serviceWorker.addEventListener('message', (event) => {
@@ -366,7 +367,7 @@ async function setupPushNotifications() {
 
         let refreshing = false;
         navigator.serviceWorker.addEventListener('controllerchange', () => {
-            if (!refreshing) {
+            if (!refreshing && hadController) {
                 refreshing = true;
                 showUpdateBanner();
             }
