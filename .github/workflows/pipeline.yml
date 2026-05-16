@@ -30,6 +30,8 @@ jobs:
     runs-on: ubuntu-latest
     container: ghcr.io/google/osv-scanner
     continue-on-error: true
+    env:
+      GOTOOLCHAIN: auto
     steps:
       - name: Check out code
         uses: actions/checkout@v4
