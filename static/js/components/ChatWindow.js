@@ -7,6 +7,7 @@ export function createChatWindow(container) {
     let uploadAbortController = null;
     let firstRenderedSeq = 0;
     let lastRenderedSeq = 0;
+    let forceUsersRefresh = false;
 
     const escapeHTML = (str) => {
         return String(str || '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
@@ -194,12 +195,26 @@ export function createChatWindow(container) {
             }).join('');
         }
 
-        div.innerHTML = `
-            <span class="message-time">[${msg.timestamp}]</span>
-            <span class="message-sender ${isMe ? 'is-me' : ''}">&lt;${senderDisplayName}&gt;</span>
-            <span class="message-content">${msg.text}</span>
-            ${attachmentsHtml}
-        `;
+        const timeSpan = document.createElement('span');
+        timeSpan.className = 'message-time';
+        timeSpan.textContent = `[${msg.timestamp}]`;
+        div.appendChild(timeSpan);
+
+        const senderSpan = document.createElement('span');
+        senderSpan.className = `message-sender ${isMe ? 'is-me' : ''}`;
+        senderSpan.textContent = `<${senderDisplayName}>`;
+        div.appendChild(senderSpan);
+
+        const contentSpan = document.createElement('span');
+        contentSpan.className = 'message-content';
+        contentSpan.textContent = msg.text;
+        div.appendChild(contentSpan);
+
+        if (attachmentsHtml) {
+            const tmp = document.createElement('template');
+            tmp.innerHTML = attachmentsHtml;
+            div.appendChild(tmp.content);
+        }
 
         // Handle Image Clicks
         div.querySelectorAll('.message-attachment').forEach(el => {
@@ -263,6 +278,7 @@ export function createChatWindow(container) {
             const btn = document.createElement('button');
             btn.className = 'copy-code-btn';
             btn.title = 'Copy code';
+            btn.setAttribute('aria-label', 'Copy code');
             btn.innerHTML = `
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
@@ -299,6 +315,8 @@ export function createChatWindow(container) {
     };
 
     const updateUI = (state) => {
+        const usersChanged = forceUsersRefresh;
+        forceUsersRefresh = false;
         const activeChat = state.chats.find(c => c.id === state.activeChatId);
         if (!activeChat) {
             elements.emptyState.style.display = 'flex';
@@ -340,6 +358,30 @@ export function createChatWindow(container) {
             elements.input.value = '';
             elements.input.style.height = '40px';
             scrollState.wasAtBottom = true;
+        } else if (usersChanged) {
+            firstRenderedSeq = 0;
+            lastRenderedSeq = 0;
+            elements.messagesContainer.querySelectorAll('.message-line').forEach(el => el.remove());
+            elements.headerTitle.textContent = activeChat.name;
+
+            let headerAvatarUrl = activeChat.avatarUrl || null;
+            if (!headerAvatarUrl && activeChat.isDm) {
+                const otherUserId = activeChat.id.replace('dm_', '').split('_').find(id => id !== state.currentUser?.id);
+                const fullUser = state.users.find(u => u.id === otherUserId);
+                headerAvatarUrl = fullUser?.avatarUrl || null;
+            }
+
+            elements.headerAvatar.innerHTML = '';
+            if (headerAvatarUrl) {
+                elements.headerAvatar.style.padding = '0';
+                const img = document.createElement('img');
+                img.src = headerAvatarUrl;
+                img.style.cssText = 'width:100%; height:100%; border-radius:50%; object-fit:cover;';
+                elements.headerAvatar.appendChild(img);
+            } else {
+                elements.headerAvatar.style.padding = '';
+                elements.headerAvatar.textContent = activeChat.name.charAt(0);
+            }
         }
 
         // 2. Update Loading State
@@ -487,34 +529,44 @@ export function createChatWindow(container) {
         chatId: store.state.activeChatId,
         msgCount: (store.state.messages[store.state.activeChatId] || []).length,
         loading: store.state.isLoadingHistory?.[store.state.activeChatId],
-        scrollSignal: store.state.forceScrollSignal
+        scrollSignal: store.state.forceScrollSignal,
+        usersHash: store.state.users.map(u => `${u.id}:${u.displayName || ''}:${u.avatarUrl || ''}`).join('|')
+    };
+
+    const getUsersHash = (state) => {
+        return state.users.map(u => `${u.id}:${u.displayName || ''}:${u.avatarUrl || ''}`).join('|');
     };
 
     store.subscribe((state) => {
         const currentMsgs = state.messages[state.activeChatId] || [];
         const currentLoading = state.isLoadingHistory?.[state.activeChatId];
+        const currentUsersHash = getUsersHash(state);
+        const usersChanged = currentUsersHash !== lastProcessedState.usersHash;
         
         const hasRelevantChange = 
             state.activeChatId !== lastProcessedState.chatId ||
             currentMsgs.length !== lastProcessedState.msgCount ||
             currentLoading !== lastProcessedState.loading ||
-            state.forceScrollSignal !== lastProcessedState.scrollSignal;
+            state.forceScrollSignal !== lastProcessedState.scrollSignal ||
+            usersChanged;
 
         if (hasRelevantChange) {
             if (state.forceScrollSignal !== lastProcessedState.scrollSignal) {
                 scrollState.wasAtBottom = true;
+            }
+            if (usersChanged) {
+                forceUsersRefresh = true;
             }
 
             lastProcessedState = {
                 chatId: state.activeChatId,
                 msgCount: currentMsgs.length,
                 loading: currentLoading,
-                scrollSignal: state.forceScrollSignal
+                scrollSignal: state.forceScrollSignal,
+                usersHash: currentUsersHash
             };
             
             updateUI(state);
         }
     });
 }
-
-
