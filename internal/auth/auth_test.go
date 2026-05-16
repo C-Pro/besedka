@@ -222,9 +222,9 @@ func TestAuthService(t *testing.T) {
 		}
 
 		// Verify token is live
-		val, err := svc.liveTokens.Get(svc.hashToken(resp.Token))
-		if err != nil || val != userID {
-			t.Errorf("Token not found in liveTokens: %v, %s", err, val)
+		session, err := svc.liveTokens.Get(svc.hashToken(resp.Token))
+		if err != nil || session.UserID != userID {
+			t.Errorf("Token not found in liveTokens: %v, %+v", err, session)
 		}
 
 		// Advance time and try next code
@@ -601,7 +601,7 @@ func TestAuthService(t *testing.T) {
 		// We can get ID from token if we logged in... CompleteRegistration returns session token.
 		// regResp.Token is session token.
 		sessionToken := regResp.Token
-		userID, _ := svc.GetUserID(sessionToken)
+		userID, _, _ := svc.GetUserID(sessionToken)
 
 		svc.SetOnline(userID)
 
@@ -671,12 +671,12 @@ func TestAuthService(t *testing.T) {
 
 		// Verify token is loaded in liveTokens
 		// svc2 needs to hash it
-		loadedUserID, err := svc2.liveTokens.Get(svc2.hashToken(token))
+		loadedSession, err := svc2.liveTokens.Get(svc2.hashToken(token))
 		if err != nil {
 			t.Fatalf("Token not found in svc2 liveTokens: %v", err)
 		}
-		if loadedUserID != userID {
-			t.Errorf("Loaded token maps to wrong user. Got %s, want %s", loadedUserID, userID)
+		if loadedSession.UserID != userID {
+			t.Errorf("Loaded token maps to wrong user. Got %s, want %s", loadedSession.UserID, userID)
 		}
 
 		// 4. Logoff
@@ -720,7 +720,7 @@ func TestAuthService(t *testing.T) {
 		token, _ := svc.generateToken()
 		tokenHash := svc.hashToken(token)
 		// We should Set the hash in liveTokens, because that's what Login does
-		svc.liveTokens.Set(tokenHash, userID)
+		svc.liveTokens.Set(tokenHash, &tokenSession{UserID: userID, UpdatedAt: svc.now()})
 
 		// Also populate userTokens so DeleteUser knows what to delete
 		userTokensTx := svc.userTokens.Lock()
@@ -826,7 +826,7 @@ func TestAuthService(t *testing.T) {
 		// 2. Assign some tokens to the user
 		token1, _ := svc.generateToken()
 		tokenHash1 := svc.hashToken(token1)
-		svc.liveTokens.Set(tokenHash1, userID)
+		svc.liveTokens.Set(tokenHash1, &tokenSession{UserID: userID, UpdatedAt: svc.now()})
 
 		userTokensTx := svc.userTokens.Lock()
 		userTokensTx.Set(userID, []string{tokenHash1})
