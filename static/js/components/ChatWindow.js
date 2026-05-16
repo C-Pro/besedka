@@ -9,10 +9,6 @@ export function createChatWindow(container) {
     let lastRenderedSeq = 0;
     let forceUsersRefresh = false;
 
-    const escapeHTML = (str) => {
-        return String(str || '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
-    };
-
     // Overlay Elements (created once)
     let overlay = document.getElementById('image-overlay');
     if (!overlay) {
@@ -152,47 +148,55 @@ export function createChatWindow(container) {
         div.className = 'message-line';
         div.setAttribute('data-seq', msg.seq);
 
-        let attachmentsHtml = '';
+        const attachmentsFragment = document.createDocumentFragment();
         if (msg.attachments && msg.attachments.length > 0) {
-            attachmentsHtml = msg.attachments.map(att => {
+            msg.attachments.forEach(att => {
                 if (att.type === 'image') {
-                    const safeName = escapeHTML(att.name);
-                    return `
-                    <div class="message-attachment"
-                         data-src="/api/images/${att.fileId}"
-                         data-sender="${isMe ? 'You' : senderDisplayName}"
-                         data-time="${msg.timestamp}">
-                        <div class="attachment-placeholder">
-                            <svg class="spinner" viewBox="25 25 50 50">
-                                <circle cx="50" cy="50" r="20"></circle>
-                            </svg>
-                        </div>
-                        <img src="/api/images/${att.fileId}" alt="${safeName}" loading="lazy" onload="this.parentElement.classList.add('loaded')">
-                    </div>`;
+                    const imageUrl = `/api/images/${encodeURIComponent(att.fileId || '')}`;
+                    const imageWrap = document.createElement('div');
+                    imageWrap.className = 'message-attachment';
+                    imageWrap.dataset.src = imageUrl;
+                    imageWrap.dataset.sender = isMe ? 'You' : senderDisplayName;
+                    imageWrap.dataset.time = msg.timestamp;
+
+                    const placeholder = document.createElement('div');
+                    placeholder.className = 'attachment-placeholder';
+                    placeholder.innerHTML = '<svg class="spinner" viewBox="25 25 50 50"><circle cx="50" cy="50" r="20"></circle></svg>';
+                    imageWrap.appendChild(placeholder);
+
+                    const img = document.createElement('img');
+                    img.src = imageUrl;
+                    img.alt = att.name || '';
+                    img.loading = 'lazy';
+                    img.addEventListener('load', () => {
+                        imageWrap.classList.add('loaded');
+                    });
+                    imageWrap.appendChild(img);
+                    attachmentsFragment.appendChild(imageWrap);
                 } else if (att.type === 'file') {
-                    const safeName = escapeHTML(att.name);
-                    const safeMime = escapeHTML(att.mimeType);
-                    return `
-                    <div class="message-attachment-file" 
-                         data-file-id="${att.fileId}" 
-                         data-name="${safeName}"
-                         data-mime="${safeMime}">
-                        <div class="file-icon">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                                <polyline points="14 2 14 8 20 8"></polyline>
-                                <line x1="16" y1="13" x2="8" y2="13"></line>
-                                <line x1="16" y1="17" x2="8" y2="17"></line>
-                                <polyline points="10 9 9 9 8 9"></polyline>
-                            </svg>
-                        </div>
-                        <div class="file-info">
-                            <span class="file-name" title="${safeName}">${safeName}</span>
-                        </div>
-                    </div>`;
+                    const fileWrap = document.createElement('div');
+                    fileWrap.className = 'message-attachment-file';
+                    fileWrap.dataset.fileId = att.fileId || '';
+                    fileWrap.dataset.name = att.name || '';
+                    fileWrap.dataset.mime = att.mimeType || '';
+
+                    const icon = document.createElement('div');
+                    icon.className = 'file-icon';
+                    icon.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>';
+                    fileWrap.appendChild(icon);
+
+                    const fileInfo = document.createElement('div');
+                    fileInfo.className = 'file-info';
+                    const fileName = document.createElement('span');
+                    fileName.className = 'file-name';
+                    fileName.title = att.name || '';
+                    fileName.textContent = att.name || '';
+                    fileInfo.appendChild(fileName);
+                    fileWrap.appendChild(fileInfo);
+
+                    attachmentsFragment.appendChild(fileWrap);
                 }
-                return '';
-            }).join('');
+            });
         }
 
         const timeSpan = document.createElement('span');
@@ -210,11 +214,7 @@ export function createChatWindow(container) {
         contentSpan.textContent = msg.text;
         div.appendChild(contentSpan);
 
-        if (attachmentsHtml) {
-            const tmp = document.createElement('template');
-            tmp.innerHTML = attachmentsHtml;
-            div.appendChild(tmp.content);
-        }
+        div.appendChild(attachmentsFragment);
 
         // Handle Image Clicks
         div.querySelectorAll('.message-attachment').forEach(el => {
@@ -525,16 +525,16 @@ export function createChatWindow(container) {
     updateUI(store.state);
 
     // Subscription with Diffing
+    const getUsersHash = (state) => {
+        return state.users.map(u => `${u.id}:${u.displayName || ''}:${u.avatarUrl || ''}`).join('|');
+    };
+
     let lastProcessedState = {
         chatId: store.state.activeChatId,
         msgCount: (store.state.messages[store.state.activeChatId] || []).length,
         loading: store.state.isLoadingHistory?.[store.state.activeChatId],
         scrollSignal: store.state.forceScrollSignal,
-        usersHash: store.state.users.map(u => `${u.id}:${u.displayName || ''}:${u.avatarUrl || ''}`).join('|')
-    };
-
-    const getUsersHash = (state) => {
-        return state.users.map(u => `${u.id}:${u.displayName || ''}:${u.avatarUrl || ''}`).join('|');
+        usersHash: getUsersHash(store.state)
     };
 
     store.subscribe((state) => {
