@@ -103,7 +103,10 @@ func TestE2ERestartRecovery(t *testing.T) {
 	t.Log("Verifying Alice state...")
 	_, err = alicePage.Reload()
 	require.NoError(t, err)
-	err = alicePage.Locator(".app-layout").WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible})
+	err = alicePage.Locator(".app-layout").WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	})
 	require.NoError(t, err, "Alice should be still logged in")
 
 	// Check Alice sees "Town Hall" message
@@ -130,32 +133,46 @@ func TestE2ERestartRecovery(t *testing.T) {
 	carolSecret := registerUser(t, carolPage, carolSetupLink, "Carol White", "password789")
 	require.NotEmpty(t, carolSecret, "Carol should have a secret")
 
-	err = carolPage.Locator(".app-layout").WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible})
+	err = carolPage.Locator(".app-layout").WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	})
 	require.NoError(t, err, "Carol should be logged in")
 
 	// C. Bob logs in using recovered TOTP
 	t.Log("Logging Bob in...")
-	_, err = bobPage.Goto(server.BaseURL + "/login.html")
+	bobRestartContext := createBrowserContext(t, browser)
+	bobRestartPage, err := bobRestartContext.NewPage()
 	require.NoError(t, err)
-	err = bobPage.Locator("#username").Fill("bob")
+
+	_, err = bobRestartPage.Goto(server.BaseURL + "/login.html")
 	require.NoError(t, err)
-	err = bobPage.Locator("#password").Fill("password456")
+	err = bobRestartPage.Locator("#username").Fill("bob")
+	require.NoError(t, err)
+	err = bobRestartPage.Locator("#password").Fill("password456")
 	require.NoError(t, err)
 
 	bobCode := getTOTP(t, bobSecret)
-	err = bobPage.Locator("#otp").Fill(bobCode)
+	err = bobRestartPage.Locator("#otp").Fill(bobCode)
 	require.NoError(t, err)
-	err = bobPage.Locator("button[type='submit']").Click()
+	err = bobRestartPage.Locator("#login-btn").Click()
 	require.NoError(t, err)
 
-	err = bobPage.Locator(".app-layout").WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible})
-	require.NoError(t, err, "Bob should be able to log in")
+	require.Eventually(t, func() bool {
+		errTxt, _ := bobRestartPage.Locator("#error-message").InnerText()
+		isVisible, _ := bobRestartPage.Locator("#error-message").IsVisible()
+		if errTxt != "" && isVisible {
+			t.Logf("Bob login error-message: %s", errTxt)
+		}
+		visible, _ := bobRestartPage.Locator(".app-layout").IsVisible()
+		return visible
+	}, 10*time.Second, 200*time.Millisecond, "Bob should be able to log in")
 
 	// Verify Bob sees DM from Alice
-	err = bobPage.Locator(fmt.Sprintf(".chat-item:has-text(%q)", "Alice Smith")).Click()
+	err = bobRestartPage.Locator(fmt.Sprintf(".chat-item:has-text(%q)", "Alice Smith")).Click()
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
-		content, _ := bobPage.Locator(".messages-container").InnerHTML()
+		content, _ := bobRestartPage.Locator(".messages-container").InnerHTML()
 		return strings.Contains(content, "DM before restart")
 	}, 5*time.Second, 200*time.Millisecond, "Bob missing DM message")
 }

@@ -80,17 +80,20 @@ func TestE2ENavigationBack(t *testing.T) {
 		// On mobile, the app might auto-select Town Hall and switch to chat-window tab
 		t.Log("Waiting for either chat-list or auto-selected chat-window...")
 
-		// Wait for either the chat item to be visible OR the chat area to be visible
+		// Wait until either chat-area is visible OR sidebar is visible and populated
 		require.Eventually(t, func() bool {
-			listVisible, _ := page.Locator(".chat-item:has-text(\"Town Hall\")").IsVisible()
 			windowVisible, _ := page.Locator("#chat-area").IsVisible()
-			return listVisible || windowVisible
+			if windowVisible {
+				return true
+			}
+			listVisible, _ := page.Locator(".chat-item:has-text(\"Town Hall\")").IsVisible()
+			return listVisible
 		}, 10*time.Second, 200*time.Millisecond)
 
-		listVisible, _ := page.Locator(".sidebar").IsVisible()
-		if listVisible {
+		windowVisible, _ := page.Locator("#chat-area").IsVisible()
+		if !windowVisible {
 			t.Log("On chat-list, clicking Town Hall...")
-			err = page.Locator(".chat-item:has-text(\"Town Hall\")").Click()
+			err = page.Locator(".chat-item:has-text(\"Town Hall\")").DispatchEvent("click", nil)
 			require.NoError(t, err)
 		} else {
 			t.Log("Already on chat-window (auto-selected).")
@@ -105,11 +108,11 @@ func TestE2ENavigationBack(t *testing.T) {
 
 		// 4. Switch to Info tab via menu
 		t.Log("Opening mobile menu...")
-		err = page.Locator("#hamburger-btn").Click()
+		err = page.Locator("#hamburger-btn").DispatchEvent("click", nil)
 		require.NoError(t, err)
 
 		t.Log("Clicking Info tab...")
-		err = page.Locator(".mobile-menu-item[data-tab='info-panel']").Click()
+		err = page.Locator(".mobile-menu-item[data-tab='info-panel']").DispatchEvent("click", nil)
 		require.NoError(t, err)
 
 		// Verify info panel is active

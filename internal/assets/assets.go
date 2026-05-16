@@ -25,15 +25,17 @@ var compileTime = func() time.Time {
 	return time.Now()
 }()
 
-// Load returns an fs.FS that substitutes {{CHATNAME}} with chatName in
-// .html, .js, and .webmanifest files, delegating all other file reads to originalFS.
+// Load returns an fs.FS that substitutes {{CHATNAME}} and {{CACHE_VERSION}} in
+// .html, .js, .css, and .webmanifest files, delegating all other file reads to originalFS.
 func Load(chatName string, originalFS fs.FS) (fs.FS, error) {
-	return &overlayFS{original: originalFS, chatName: chatName}, nil
+	cacheVersion := compileTime.UTC().Format("20060102150405")
+	return &overlayFS{original: originalFS, chatName: chatName, cacheVersion: cacheVersion}, nil
 }
 
 type overlayFS struct {
-	original fs.FS
-	chatName string
+	original     fs.FS
+	chatName     string
+	cacheVersion string
 }
 
 func (o *overlayFS) Open(name string) (fs.File, error) {
@@ -69,6 +71,7 @@ func (o *overlayFS) Open(name string) (fs.File, error) {
 			return nil, err
 		}
 		content = bytes.ReplaceAll(content, []byte("{{CHATNAME}}"), []byte(o.chatName))
+		content = bytes.ReplaceAll(content, []byte("{{CACHE_VERSION}}"), []byte(o.cacheVersion))
 		mf.Reader = bytes.NewReader(content)
 		mf.size = int64(len(content))
 	}

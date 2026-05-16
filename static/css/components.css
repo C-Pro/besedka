@@ -376,19 +376,46 @@
 /* Message Attachments */
 .message-attachment {
     margin-top: 5px;
-    max-width: 300px;
+    width: 300px;
+    max-width: 100%;
+    aspect-ratio: 1 / 1;
     border-radius: 8px;
     overflow: hidden;
     cursor: pointer;
     border: 1px solid var(--border-color);
+    position: relative;
+    background-color: var(--bg-hover);
+}
+
+.attachment-placeholder {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1;
+    color: var(--text-muted);
 }
 
 .message-attachment img {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 2;
     display: block;
     width: 100%;
-    height: auto;
-    max-height: 300px;
+    height: 100%;
     object-fit: contain;
+    background: transparent;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.message-attachment.loaded img {
+    opacity: 1;
     background: #000000;
 }
 
@@ -974,4 +1001,33 @@
 
 .file-download-menu a:hover {
     background-color: var(--bg-hover);
+}
+
+/* Update Banner */
+.update-banner {
+    position: fixed;
+    top: -60px;
+    left: 0;
+    right: 0;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-md);
+    padding: var(--space-sm) var(--space-md);
+    background: linear-gradient(135deg, var(--accent-color), var(--accent-hover));
+    color: var(--text-on-accent);
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+    transition: top 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+}
+
+.update-banner.visible {
+    top: 0;
+}
+
+.update-banner:hover {
+    filter: brightness(1.08);
 }

@@ -87,6 +87,11 @@ export function createChatWindow(container) {
 
     let forceScrollToBottom = false;
     let lastForceScrollSignal = 0;
+    let lastMessages = null;
+    let lastIsLoading = false;
+    let lastUploading = false;
+    let lastFilesCount = 0;
+    let lastMobileTab = null;
     let scrollState = {
         wasAtBottom: true,
         prevScrollHeight: 0,
@@ -95,20 +100,57 @@ export function createChatWindow(container) {
     };
 
     const render = (state) => {
-        const oldInput = container.querySelector('#message-input');
-        let currentText = '';
-        if (oldInput && lastChatId === state.activeChatId) {
-            currentText = oldInput.value;
+        const chatChanged = state.activeChatId !== lastChatId;
+        const messages = state.messages[state.activeChatId] || [];
+        const isLoading = state.isLoadingHistory?.[state.activeChatId] || false;
+
+        const mobileTabReturned = lastMobileTab !== state.mobileActiveTab && state.mobileActiveTab === 'chat-window';
+        lastMobileTab = state.mobileActiveTab;
+
+        if (!chatChanged &&
+            lastMessages === messages &&
+            lastIsLoading === isLoading &&
+            lastUploading === isUploading &&
+            lastFilesCount === filesToAttach.length &&
+            state.forceScrollSignal === lastForceScrollSignal) {
+            
+            if (mobileTabReturned) {
+                setTimeout(() => {
+                    const c = container.querySelector('#messages-container');
+                    if (c) {
+                        if (scrollState.wasAtBottom) {
+                            c.scrollTop = c.scrollHeight;
+                        } else if (scrollState.prevScrollHeight > 0) {
+                            c.scrollTop = scrollState.prevScrollTop;
+                        }
+                    }
+                }, 0);
+            }
+            return;
         }
 
-        const chatChanged = state.activeChatId !== lastChatId;
-        
+        lastMessages = messages;
+        lastIsLoading = isLoading;
+        lastUploading = isUploading;
+        lastFilesCount = filesToAttach.length;
+
+        const oldInput = container.querySelector('#message-input');
+        let currentText = '';
+        let selStart = 0;
+        let selEnd = 0;
+        let wasFocused = false;
+        if (oldInput && lastChatId === state.activeChatId) {
+            currentText = oldInput.value;
+            selStart = oldInput.selectionStart;
+            selEnd = oldInput.selectionEnd;
+            wasFocused = document.activeElement === oldInput;
+        }
+
         if (state.forceScrollSignal !== lastForceScrollSignal) {
             forceScrollToBottom = true;
             lastForceScrollSignal = state.forceScrollSignal;
         }
 
-        const messages = state.messages[state.activeChatId] || [];
         const currentFirstSeq = messages.length > 0 ? messages[0].seq : -1;
 
         const oldMessagesContainer = container.querySelector('#messages-container');
@@ -150,13 +192,17 @@ export function createChatWindow(container) {
                     if (att.type === 'image') {
                         const safeName = escapeHTML(att.name);
                         return `
-                        <div class="message-attachment" 
-                             data-src="/api/images/${att.fileId}" 
-                             data-sender="${isMe ? 'You' : senderDisplayName}" 
+                        <div class="message-attachment"
+                             data-src="/api/images/${att.fileId}"
+                             data-sender="${isMe ? 'You' : senderDisplayName}"
                              data-time="${msg.timestamp}">
-                            <img src="/api/images/${att.fileId}" alt="${safeName}" loading="lazy">
-                        </div>
-                        `;
+                            <div class="attachment-placeholder">
+                                <svg class="spinner" viewBox="25 25 50 50">
+                                    <circle cx="50" cy="50" r="20"></circle>
+                                </svg>
+                            </div>
+                            <img src="/api/images/${att.fileId}" alt="${safeName}" loading="lazy" onload="this.parentElement.classList.add('loaded')">
+                        </div>                        `;
                     } else if (att.type === 'file') {
                         const safeName = escapeHTML(att.name);
                         const safeMime = escapeHTML(att.mimeType);
@@ -293,8 +339,10 @@ export function createChatWindow(container) {
                 }
             }
 
-            scrollState.prevScrollHeight = newMessagesContainer.scrollHeight;
-            scrollState.prevScrollTop = newMessagesContainer.scrollTop;
+            if (newMessagesContainer.clientHeight > 0) {
+                scrollState.prevScrollHeight = newMessagesContainer.scrollHeight;
+                scrollState.prevScrollTop = newMessagesContainer.scrollTop;
+            }
             scrollState.firstSeq = currentFirstSeq;
 
             let scrollThrottleTimer = null;
@@ -404,9 +452,15 @@ export function createChatWindow(container) {
         const attachBtn = container.querySelector('#attach-btn');
         const fileInput = container.querySelector('#file-input');
 
+        const isMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
         if (input) {
             input.value = currentText;
-            if (!isUploading) input.focus();
+            if (!isUploading) {
+                if (wasFocused || (!isMobile && currentText === '' && !oldInput)) {
+                    input.focus();
+                    input.setSelectionRange(selStart, selEnd);
+                }
+            }
         }
 
         const handleSend = () => {
@@ -418,7 +472,7 @@ export function createChatWindow(container) {
                 input.style.height = '40px'; // Reset height
                 filesToAttach = []; // Clear attachments
                 render(store.state); // Re-render to remove indicator
-                input.focus();
+                if (!isMobile) input.focus();
             }
         };
 
@@ -427,7 +481,7 @@ export function createChatWindow(container) {
             // Auto resize
             const autoResize = () => {
                 input.style.height = 'auto';
-                input.style.height = `${input.scrollHeight}px`;
+                input.style.height = `${Math.max(40, input.scrollHeight)}px`;
             };
             input.addEventListener('input', autoResize);
 
@@ -480,7 +534,7 @@ export function createChatWindow(container) {
                         isUploading = false;
                         fileInput.value = ''; // Reset input
                         render(store.state); // Update UI
-                        input.focus();
+                        if (!isMobile) input.focus();
                     }
                 }
             });

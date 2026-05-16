@@ -50,15 +50,17 @@
         top: 0;
         left: 0;
         z-index: 1;
-        display: none;
-        /* Hidden by default */
+        display: flex;
+        visibility: hidden;
+        pointer-events: none;
     }
 
     .sidebar.active,
     .chat-area.active,
     .info-panel.active {
-        display: flex;
         z-index: 10;
+        visibility: visible;
+        pointer-events: auto;
     }
 
     /* Mobile Header */

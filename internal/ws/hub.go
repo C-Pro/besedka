@@ -264,13 +264,37 @@ func (h *Hub) Join(userID string) chan models.ServerMessage {
 	return ch
 }
 
-func (h *Hub) Leave(userID string) {
+func (h *Hub) safeClose(ch chan models.ServerMessage) {
+	if ch == nil {
+		return
+	}
+	defer func() {
+		_ = recover()
+	}()
+	close(ch)
+}
+
+func (h *Hub) Leave(userID string, expectedCh chan models.ServerMessage) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
+	h.leaveLocked(userID, expectedCh, true)
+	h.mu.Unlock()
+}
+
+func (h *Hub) leaveLocked(userID string, expectedCh chan models.ServerMessage, broadcastOffline bool) {
+	if expectedCh != nil {
+		if ch, ok := h.connectedUsers[userID]; ok && ch != expectedCh {
+			// A new connection has already taken over.
+			// Just close the old channel and do nothing else.
+			h.safeClose(expectedCh)
+			return
+		}
+	}
 
 	if ch, ok := h.connectedUsers[userID]; ok {
-		close(ch)
+		h.safeClose(ch)
 		delete(h.connectedUsers, userID)
+	} else if expectedCh != nil {
+		h.safeClose(expectedCh)
 	}
 
 	// Leave all relevant chats
@@ -280,8 +304,10 @@ func (h *Hub) Leave(userID string) {
 		}
 	}
 
-	// Notify others that user is offline
-	h.broadcastStatusChange(userID, false)
+	if broadcastOffline {
+		// Notify others that user is offline
+		h.broadcastStatusChange(userID, false)
+	}
 }
 
 func (h *Hub) BroadcastNewUser(user models.User) {
@@ -306,11 +332,9 @@ func (h *Hub) BroadcastNewUser(user models.User) {
 func (h *Hub) RemoveDeletedUser(userID string) {
 	h.mu.Lock()
 
-	// Close deleted user's connection if online
-	if ch, ok := h.connectedUsers[userID]; ok {
-		close(ch)
-		delete(h.connectedUsers, userID)
-	}
+	// Close deleted user's connection if online and cleanup.
+	// We don't broadcast offline because we'll broadcast deleted instead.
+	h.leaveLocked(userID, nil, false)
 
 	// Remove DM chats involving the deleted user
 	for id := range h.chats {
@@ -328,7 +352,9 @@ func (h *Hub) RemoveDeletedUser(userID string) {
 }
 
 func (h *Hub) DisconnectUser(userID string) {
-	h.Leave(userID)
+	h.mu.Lock()
+	h.leaveLocked(userID, nil, true)
+	h.mu.Unlock()
 }
 
 // BroadcastToAll sends a message to all connected users except the excluded one.
