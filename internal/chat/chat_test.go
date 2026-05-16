@@ -209,7 +209,7 @@ func TestChat_Persistence(t *testing.T) {
 	// Ask for 1 to 10.
 	// 1-5 from storage.
 	// 6-10 from memory.
-	recs, err := c.GetRecords(1, 11) // [1, 11) -> 1..10
+	recs, err := c.GetRecords(1, 10) // [1, 10] -> 1..10
 	if err != nil {
 		t.Fatalf("GetRecords failed: %v", err)
 	}
@@ -229,7 +229,7 @@ func TestChat_Persistence(t *testing.T) {
 	}
 
 	// Test GetRecords pure storage
-	recs, err = c.GetRecords(1, 3) // [1, 3) -> 1, 2
+	recs, err = c.GetRecords(1, 2) // [1, 2] -> 1, 2
 	if err != nil {
 		t.Fatalf("GetRecords storage only failed: %v", err)
 	}
