@@ -10,58 +10,127 @@ function resolveChatAvatarUrl(chat, users, currentUserId) {
 }
 
 export function createChatList(container) {
-    const render = (state) => {
-        const avatarUrls = new Map();
-        // nosemgrep
-        container.innerHTML = `
-            <div class="chat-list-header">
-                <h2>Chats</h2>
+    // 1. Initial Shell
+    container.innerHTML = `
+        <div class="chat-list-header">
+            <h2>Chats</h2>
+        </div>
+        <div class="chat-list-items" id="chat-list-items"></div>
+    `;
+    const itemsContainer = container.querySelector('#chat-list-items');
+    const chatElements = new Map(); // chatId -> HTMLElement
+
+    const createChatItem = (chat, state) => {
+        const avatarUrl = resolveChatAvatarUrl(chat, state.users, state.currentUser?.id);
+        const div = document.createElement('div');
+        div.className = `chat-item ${state.activeChatId === chat.id ? 'active' : ''}`;
+        div.setAttribute('data-id', chat.id);
+
+        const avatarHtml = avatarUrl
+            ? `<div class="avatar" style="padding:0;"><img src="${avatarUrl}" alt="Avatar" style="width:100%; height:100%; border-radius:50%; object-fit:cover;"></div>`
+            : `<div class="avatar">${chat.name.charAt(0)}</div>`;
+
+        const unreadCount = state.unreadCounts ? (state.unreadCounts[chat.id] || 0) : 0;
+        const onlineHtml = chat.isDm && chat.online ? '<span style="color: #4caf50; font-size: 0.8em;">● Online</span>' : '';
+
+        div.innerHTML = `
+            ${avatarHtml}
+            <div class="chat-info">
+                <div class="chat-name">${chat.name}</div>
+                <div class="chat-preview">${onlineHtml}</div>
             </div>
-            <div class="chat-list-items">
-                ${state.chats.map(chat => {
-            const avatarUrl = resolveChatAvatarUrl(chat, state.users, state.currentUser?.id);
-            avatarUrls.set(chat.id, avatarUrl);
-            const avatarHtml = avatarUrl
-                ? `<div class="avatar" style="padding:0;"></div>`
-                : `<div class="avatar">${chat.name.charAt(0)}</div>`;
-            const unreadCount = state.unreadCounts ? (state.unreadCounts[chat.id] || 0) : 0;
-            return `
-                    <div class="chat-item ${state.activeChatId === chat.id ? 'active' : ''}" data-id="${chat.id}">
-                        ${avatarHtml}
-                        <div class="chat-info">
-                            <div class="chat-name">${chat.name}</div>
-                            <div class="chat-preview">${chat.isDm && chat.online ? '<span style="color: #4caf50; font-size: 0.8em;">● Online</span>' : ''}</div>
-                        </div>
-                        ${unreadCount > 0 ? `<div class="unread-badge">${unreadCount}</div>` : ''}
-                    </div>
-                    `;
-        }).join('')}
-            </div>
+            ${unreadCount > 0 ? `<div class="unread-badge">${unreadCount}</div>` : ''}
         `;
 
-        // Add event listeners and avatar images
-        container.querySelectorAll('.chat-item').forEach(item => {
-            item.addEventListener('click', () => {
-                store.setActiveChat(item.dataset.id);
-            });
+        div.addEventListener('click', () => {
+            store.setActiveChat(chat.id);
+        });
 
-            const avatarUrl = avatarUrls.get(item.dataset.id);
-            if (avatarUrl) {
-                const avatarEl = item.querySelector('.avatar');
-                if (avatarEl) {
-                    const img = document.createElement('img');
-                    img.src = avatarUrl;
-                    img.alt = 'Avatar';
-                    img.style.cssText = 'width:100%; height:100%; border-radius:50%; object-fit:cover;';
-                    avatarEl.appendChild(img);
+        return div;
+    };
+
+    const updateUI = (state) => {
+        // Handle new or removed chats
+        const currentChatIds = new Set(state.chats.map(c => c.id));
+        
+        // Remove old chats
+        for (const [chatId, el] of chatElements.entries()) {
+            if (!currentChatIds.has(chatId)) {
+                el.remove();
+                chatElements.delete(chatId);
+            }
+        }
+
+        // Add or Update chats
+        state.chats.forEach(chat => {
+            let el = chatElements.get(chat.id);
+            if (!el) {
+                el = createChatItem(chat, state);
+                itemsContainer.appendChild(el);
+                chatElements.set(chat.id, el);
+            } else {
+                // Update existing item
+                el.classList.toggle('active', state.activeChatId === chat.id);
+                
+                // Update unread badge
+                const unreadCount = state.unreadCounts ? (state.unreadCounts[chat.id] || 0) : 0;
+                let badge = el.querySelector('.unread-badge');
+                if (unreadCount > 0) {
+                    if (!badge) {
+                        badge = document.createElement('div');
+                        badge.className = 'unread-badge';
+                        el.appendChild(badge);
+                    }
+                    badge.textContent = unreadCount;
+                } else if (badge) {
+                    badge.remove();
+                }
+
+                // Update online status
+                const preview = el.querySelector('.chat-preview');
+                const onlineHtml = chat.isDm && chat.online ? '<span style="color: #4caf50; font-size: 0.8em;">● Online</span>' : '';
+                if (preview.innerHTML !== onlineHtml) {
+                    preview.innerHTML = onlineHtml;
                 }
             }
         });
     };
 
     // Initial render
-    render(store.state);
+    updateUI(store.state);
 
-    // Subscribe to state changes
-    store.subscribe(render);
+    // Subscription with Diffing
+    let lastProcessedState = {
+        activeChatId: store.state.activeChatId,
+        chatListHash: '',
+        unreadHash: ''
+    };
+
+    const getChatListHash = (state) => {
+        return state.chats.map(c => `${c.id}:${c.online}`).join('|');
+    };
+
+    const getUnreadHash = (state) => {
+        return JSON.stringify(state.unreadCounts || {});
+    };
+
+    store.subscribe((state) => {
+        const currentChatListHash = getChatListHash(state);
+        const currentUnreadHash = getUnreadHash(state);
+
+        const hasRelevantChange = 
+            state.activeChatId !== lastProcessedState.activeChatId ||
+            currentChatListHash !== lastProcessedState.chatListHash ||
+            currentUnreadHash !== lastProcessedState.unreadHash;
+
+        if (hasRelevantChange) {
+            lastProcessedState = {
+                activeChatId: state.activeChatId,
+                chatListHash: currentChatListHash,
+                unreadHash: currentUnreadHash
+            };
+            updateUI(state);
+        }
+    });
 }
+
