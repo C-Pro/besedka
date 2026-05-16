@@ -184,7 +184,8 @@ export function createChatWindow(container) {
         if (msg.attachments && msg.attachments.length > 0) {
             msg.attachments.forEach(att => {
                 if (att.type === 'image') {
-                    const imageUrl = `/api/images/${encodeURIComponent(att.fileId || '')}`;
+                    if (!att.fileId) return;
+                    const imageUrl = `/api/images/${encodeURIComponent(att.fileId)}`;
                     const imageWrap = document.createElement('div');
                     imageWrap.className = 'message-attachment';
                     imageWrap.dataset.src = imageUrl;
@@ -206,9 +207,10 @@ export function createChatWindow(container) {
                     imageWrap.appendChild(img);
                     attachmentsFragment.appendChild(imageWrap);
                 } else if (att.type === 'file') {
+                    if (!att.fileId) return;
                     const fileWrap = document.createElement('div');
                     fileWrap.className = 'message-attachment-file';
-                    fileWrap.dataset.fileId = att.fileId || '';
+                    fileWrap.dataset.fileId = att.fileId;
                     fileWrap.dataset.name = att.name || '';
                     fileWrap.dataset.mime = att.mimeType || '';
 
@@ -279,6 +281,7 @@ export function createChatWindow(container) {
         div.querySelectorAll('.message-attachment-file').forEach(el => {
             el.addEventListener('click', () => {
                 const fileId = el.dataset.fileId;
+                if (!fileId) return;
                 const name = el.dataset.name;
                 let menu = document.getElementById('file-download-menu');
                 if (!menu) {
