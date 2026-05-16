@@ -454,6 +454,72 @@ func TestAuthService(t *testing.T) {
 		}
 	})
 
+	t.Run("GetUserID_RefreshAfterHalfTTL", func(t *testing.T) {
+		svc, now, _ := createService(t)
+		const userID = "user_refresh"
+		const token = "session-token-refresh"
+		tokenHash := svc.hashToken(token)
+
+		tx := svc.users.Lock()
+		tx.Set(userID, &UserCredentials{
+			User: models.User{
+				ID:       userID,
+				UserName: "user_refresh",
+				Status:   models.UserStatusActive,
+			},
+		})
+		svc.usernames.Set("user_refresh", userID)
+		tx.Unlock()
+
+		initial := *now
+		svc.liveTokens.Set(tokenHash, tokenSession{UserID: userID, UpdatedAt: initial})
+
+		*now = initial.Add(svc.TokenExpiry / 2)
+		gotUserID, expiry, err := svc.GetUserID(token)
+		if err != nil {
+			t.Fatalf("GetUserID at half TTL failed: %v", err)
+		}
+		if gotUserID != userID {
+			t.Fatalf("expected userID %q, got %q", userID, gotUserID)
+		}
+		if !expiry.IsZero() {
+			t.Fatalf("expected zero expiry at half TTL boundary, got %v", expiry)
+		}
+
+		sessionAtHalf, err := svc.liveTokens.Get(tokenHash)
+		if err != nil {
+			t.Fatalf("failed to read session at half TTL: %v", err)
+		}
+		if !sessionAtHalf.UpdatedAt.Equal(initial) {
+			t.Fatalf("expected UpdatedAt unchanged at half TTL, got %v want %v", sessionAtHalf.UpdatedAt, initial)
+		}
+
+		*now = initial.Add(svc.TokenExpiry/2 + time.Second)
+		gotUserID, expiry, err = svc.GetUserID(token)
+		if err != nil {
+			t.Fatalf("GetUserID after half TTL failed: %v", err)
+		}
+		if gotUserID != userID {
+			t.Fatalf("expected userID %q, got %q", userID, gotUserID)
+		}
+		if expiry.IsZero() {
+			t.Fatalf("expected non-zero expiry after half TTL")
+		}
+
+		expectedExpiry := (*now).Add(svc.TokenExpiry)
+		if !expiry.Equal(expectedExpiry) {
+			t.Fatalf("unexpected expiry: got %v want %v", expiry, expectedExpiry)
+		}
+
+		refreshedSession, err := svc.liveTokens.Get(tokenHash)
+		if err != nil {
+			t.Fatalf("failed to read refreshed session: %v", err)
+		}
+		if !refreshedSession.UpdatedAt.Equal(*now) {
+			t.Fatalf("expected UpdatedAt to refresh to now, got %v want %v", refreshedSession.UpdatedAt, *now)
+		}
+	})
+
 	t.Run("CompleteRegistration", func(t *testing.T) {
 		svc, now, _ := createService(t)
 		token, err := svc.AddUser("user1", "User 1")
@@ -720,7 +786,7 @@ func TestAuthService(t *testing.T) {
 		token, _ := svc.generateToken()
 		tokenHash := svc.hashToken(token)
 		// We should Set the hash in liveTokens, because that's what Login does
-		svc.liveTokens.Set(tokenHash, &tokenSession{UserID: userID, UpdatedAt: svc.now()})
+		svc.liveTokens.Set(tokenHash, tokenSession{UserID: userID, UpdatedAt: svc.now()})
 
 		// Also populate userTokens so DeleteUser knows what to delete
 		userTokensTx := svc.userTokens.Lock()
@@ -826,7 +892,7 @@ func TestAuthService(t *testing.T) {
 		// 2. Assign some tokens to the user
 		token1, _ := svc.generateToken()
 		tokenHash1 := svc.hashToken(token1)
-		svc.liveTokens.Set(tokenHash1, &tokenSession{UserID: userID, UpdatedAt: svc.now()})
+		svc.liveTokens.Set(tokenHash1, tokenSession{UserID: userID, UpdatedAt: svc.now()})
 
 		userTokensTx := svc.userTokens.Lock()
 		userTokensTx.Set(userID, []string{tokenHash1})

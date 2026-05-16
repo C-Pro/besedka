@@ -141,7 +141,7 @@ func (a *API) RequireAuth(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		if !expiry.IsZero() {
+		if cookie, err := r.Cookie("token"); err == nil && cookie.Value == token && !expiry.IsZero() {
 			http.SetCookie(w, &http.Cookie{
 				Name:     "token",
 				Value:    token,

@@ -125,7 +125,7 @@ type AuthService struct {
 	// Map of username to userID
 	usernames geche.Geche[string, string]
 	// Map of token to user ID
-	liveTokens *geche.MapTTLCache[string, *tokenSession]
+	liveTokens *geche.MapTTLCache[string, tokenSession]
 	// Index of all tokens per user
 	userTokens *geche.Locker[string, []string]
 	// Map of registration token to user ID
@@ -164,7 +164,7 @@ func NewAuthService(ctx context.Context, config Config, storage storage) (*AuthS
 		storage:            storage,
 		users:              geche.NewLocker(geche.NewMapCache[string, *UserCredentials]()),
 		usernames:          geche.NewMapCache[string, string](),
-		liveTokens:         geche.NewMapTTLCache[string, *tokenSession](ctx, config.TokenExpiry, time.Minute),
+		liveTokens:         geche.NewMapTTLCache[string, tokenSession](ctx, config.TokenExpiry, time.Minute),
 		userTokens:         geche.NewLocker(geche.NewMapCache[string, []string]()),
 		registrationTokens: geche.NewMapTTLCache[string, string](ctx, config.RegistrationTokenExpiry, time.Minute),
 		now:                time.Now,
@@ -195,12 +195,12 @@ func NewAuthService(ctx context.Context, config Config, storage storage) (*AuthS
 	defer userTokensTx.Unlock()
 
 	for tokenHash, userID := range tokens {
-		as.liveTokens.Set(tokenHash, &tokenSession{UserID: userID, UpdatedAt: as.now()})
+		as.liveTokens.Set(tokenHash, tokenSession{UserID: userID, UpdatedAt: as.now()})
 		userTokens, _ := userTokensTx.Get(userID)
 		userTokensTx.Set(userID, append(userTokens, tokenHash))
 	}
 
-	as.liveTokens.OnEvict(func(tokenHash string, session *tokenSession) {
+	as.liveTokens.OnEvict(func(tokenHash string, session tokenSession) {
 		userID := session.UserID
 		userTokensTx := as.userTokens.Lock()
 		defer userTokensTx.Unlock()
@@ -580,7 +580,7 @@ func (as *AuthService) Login(req LoginRequest) (LoginResponse, string) {
 	}
 
 	tokenHash := as.hashToken(token)
-	as.liveTokens.Set(tokenHash, &tokenSession{UserID: user.ID, UpdatedAt: now})
+	as.liveTokens.Set(tokenHash, tokenSession{UserID: user.ID, UpdatedAt: now})
 
 	// Add to userTokens
 	userTokensTx := as.userTokens.Lock()
@@ -782,7 +782,7 @@ func (as *AuthService) CompleteRegistration(req RegistrationRequest) (Registrati
 	}
 
 	tokenHash := as.hashToken(token)
-	as.liveTokens.Set(tokenHash, &tokenSession{UserID: user.ID, UpdatedAt: as.now()})
+	as.liveTokens.Set(tokenHash, tokenSession{UserID: user.ID, UpdatedAt: as.now()})
 
 	// Add to userTokens
 	userTokensTx := as.userTokens.Lock()
@@ -870,8 +870,7 @@ func (as *AuthService) GetUserID(token string) (string, time.Time, error) {
 	// token will be extended indefinitely without requiring user to relogin.
 	// To implement "half TTL is good", we refresh only if more than half of TTL has passed.
 	if now.Sub(session.UpdatedAt) > as.TokenExpiry/2 {
-		session.UpdatedAt = now
-		as.liveTokens.Set(tokenHash, session)
+		as.liveTokens.Set(tokenHash, tokenSession{UserID: session.UserID, UpdatedAt: now})
 		expiry = now.Add(as.TokenExpiry)
 	}
 
