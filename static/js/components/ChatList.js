@@ -10,58 +10,160 @@ function resolveChatAvatarUrl(chat, users, currentUserId) {
 }
 
 export function createChatList(container) {
-    const render = (state) => {
-        const avatarUrls = new Map();
-        // nosemgrep
-        container.innerHTML = `
-            <div class="chat-list-header">
-                <h2>Chats</h2>
-            </div>
-            <div class="chat-list-items">
-                ${state.chats.map(chat => {
-            const avatarUrl = resolveChatAvatarUrl(chat, state.users, state.currentUser?.id);
-            avatarUrls.set(chat.id, avatarUrl);
-            const avatarHtml = avatarUrl
-                ? `<div class="avatar" style="padding:0;"></div>`
-                : `<div class="avatar">${chat.name.charAt(0)}</div>`;
-            const unreadCount = state.unreadCounts ? (state.unreadCounts[chat.id] || 0) : 0;
-            return `
-                    <div class="chat-item ${state.activeChatId === chat.id ? 'active' : ''}" data-id="${chat.id}">
-                        ${avatarHtml}
-                        <div class="chat-info">
-                            <div class="chat-name">${chat.name}</div>
-                            <div class="chat-preview">${chat.isDm && chat.online ? '<span style="color: #4caf50; font-size: 0.8em;">● Online</span>' : ''}</div>
-                        </div>
-                        ${unreadCount > 0 ? `<div class="unread-badge">${unreadCount}</div>` : ''}
-                    </div>
-                    `;
-        }).join('')}
-            </div>
-        `;
+    // 1. Initial Shell
+    container.innerHTML = `
+        <div class="chat-list-header">
+            <h2>Chats</h2>
+        </div>
+        <div class="chat-list-items" id="chat-list-items"></div>
+    `;
+    const itemsContainer = container.querySelector('#chat-list-items');
+    const chatElements = new Map(); // chatId -> HTMLElement
 
-        // Add event listeners and avatar images
-        container.querySelectorAll('.chat-item').forEach(item => {
-            item.addEventListener('click', () => {
-                store.setActiveChat(item.dataset.id);
-            });
+    const renderAvatar = (avatarContainer, chat, state) => {
+        const avatarUrl = resolveChatAvatarUrl(chat, state.users, state.currentUser?.id);
+        avatarContainer.replaceChildren();
+        if (avatarUrl) {
+            avatarContainer.style.padding = '0';
+            const img = document.createElement('img');
+            img.src = avatarUrl;
+            img.alt = 'Avatar';
+            img.style.width = '100%';
+            img.style.height = '100%';
+            img.style.borderRadius = '50%';
+            img.style.objectFit = 'cover';
+            avatarContainer.appendChild(img);
+        } else {
+            avatarContainer.style.padding = '';
+            avatarContainer.textContent = (chat.name || '?').charAt(0);
+        }
+    };
 
-            const avatarUrl = avatarUrls.get(item.dataset.id);
-            if (avatarUrl) {
-                const avatarEl = item.querySelector('.avatar');
-                if (avatarEl) {
-                    const img = document.createElement('img');
-                    img.src = avatarUrl;
-                    img.alt = 'Avatar';
-                    img.style.cssText = 'width:100%; height:100%; border-radius:50%; object-fit:cover;';
-                    avatarEl.appendChild(img);
-                }
+    const updateChatItem = (el, chat, state) => {
+        el.classList.toggle('active', state.activeChatId === chat.id);
+
+        const avatar = el.querySelector('.avatar');
+        renderAvatar(avatar, chat, state);
+
+        const nameEl = el.querySelector('.chat-name');
+        nameEl.textContent = chat.name;
+
+        const preview = el.querySelector('.chat-preview');
+        preview.replaceChildren();
+        if (chat.isDm && chat.online) {
+            const online = document.createElement('span');
+            online.style.color = '#4caf50';
+            online.style.fontSize = '0.8em';
+            online.textContent = '● Online';
+            preview.appendChild(online);
+        }
+
+        const unreadCount = state.unreadCounts ? (state.unreadCounts[chat.id] || 0) : 0;
+        let badge = el.querySelector('.unread-badge');
+        if (unreadCount > 0) {
+            if (!badge) {
+                badge = document.createElement('div');
+                badge.className = 'unread-badge';
+                el.appendChild(badge);
+            }
+            badge.textContent = unreadCount;
+        } else if (badge) {
+            badge.remove();
+        }
+    };
+
+    const createChatItem = (chat, state) => {
+        const div = document.createElement('div');
+        div.className = `chat-item ${state.activeChatId === chat.id ? 'active' : ''}`;
+        div.setAttribute('data-id', chat.id);
+        const avatar = document.createElement('div');
+        avatar.className = 'avatar';
+        const info = document.createElement('div');
+        info.className = 'chat-info';
+        const name = document.createElement('div');
+        name.className = 'chat-name';
+        const preview = document.createElement('div');
+        preview.className = 'chat-preview';
+        info.appendChild(name);
+        info.appendChild(preview);
+        div.appendChild(avatar);
+        div.appendChild(info);
+
+        div.addEventListener('click', () => {
+            store.setActiveChat(chat.id);
+        });
+
+        updateChatItem(div, chat, state);
+        return div;
+    };
+
+    const updateUI = (state) => {
+        // Handle new or removed chats
+        const currentChatIds = new Set(state.chats.map(c => c.id));
+        
+        // Remove old chats
+        for (const [chatId, el] of chatElements.entries()) {
+            if (!currentChatIds.has(chatId)) {
+                el.remove();
+                chatElements.delete(chatId);
+            }
+        }
+
+        // Add or Update chats
+        state.chats.forEach(chat => {
+            let el = chatElements.get(chat.id);
+            if (!el) {
+                el = createChatItem(chat, state);
+                itemsContainer.appendChild(el);
+                chatElements.set(chat.id, el);
+            } else {
+                updateChatItem(el, chat, state);
             }
         });
     };
 
     // Initial render
-    render(store.state);
+    updateUI(store.state);
 
-    // Subscribe to state changes
-    store.subscribe(render);
+    // Subscription with Diffing
+    let lastProcessedState = {
+        activeChatId: store.state.activeChatId,
+        chatListHash: '',
+        unreadHash: '',
+        usersHash: store.state.users.map(u => `${u.id}:${u.displayName || ''}:${u.avatarUrl || ''}`).join('|')
+    };
+
+    const getChatListHash = (state) => {
+        return state.chats.map(c => `${c.id}:${c.online}`).join('|');
+    };
+
+    const getUnreadHash = (state) => {
+        return JSON.stringify(state.unreadCounts || {});
+    };
+
+    const getUsersHash = (state) => {
+        return state.users.map(u => `${u.id}:${u.displayName || ''}:${u.avatarUrl || ''}`).join('|');
+    };
+
+    store.subscribe((state) => {
+        const currentChatListHash = getChatListHash(state);
+        const currentUnreadHash = getUnreadHash(state);
+        const currentUsersHash = getUsersHash(state);
+
+        const hasRelevantChange = 
+            state.activeChatId !== lastProcessedState.activeChatId ||
+            currentChatListHash !== lastProcessedState.chatListHash ||
+            currentUnreadHash !== lastProcessedState.unreadHash ||
+            currentUsersHash !== lastProcessedState.usersHash;
+
+        if (hasRelevantChange) {
+            lastProcessedState = {
+                activeChatId: state.activeChatId,
+                chatListHash: currentChatListHash,
+                unreadHash: currentUnreadHash,
+                usersHash: currentUsersHash
+            };
+            updateUI(state);
+        }
+    });
 }
