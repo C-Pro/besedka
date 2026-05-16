@@ -21,9 +21,21 @@ func NewFileServerHandler(authService *auth.AuthService, assets fs.FS) http.Hand
 			}
 
 			// Validate token
-			if _, err := authService.GetUserID(cookie.Value); err != nil {
+			_, expiry, err := authService.GetUserID(cookie.Value)
+			if err != nil {
 				http.Redirect(w, r, "/login.html", http.StatusFound)
 				return
+			}
+
+			if !expiry.IsZero() {
+				http.SetCookie(w, &http.Cookie{
+					Name:     "token",
+					Value:    cookie.Value,
+					HttpOnly: true,
+					Secure:   true,
+					Path:     "/",
+					Expires:  expiry,
+				})
 			}
 		}
 

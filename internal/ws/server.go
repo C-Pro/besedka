@@ -33,7 +33,7 @@ func (s *Server) HandleConnections(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	userID, err := s.auth.GetUserID(token)
+	userID, _, err := s.auth.GetUserID(token)
 	if err != nil {
 		slog.Warn("unauthorized websocket connection attempt")
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)

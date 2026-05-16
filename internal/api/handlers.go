@@ -135,10 +135,21 @@ func (a *API) RequireAuth(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		userID, err := a.auth.GetUserID(token)
+		userID, expiry, err := a.auth.GetUserID(token)
 		if err != nil {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
+		}
+
+		if cookie, err := r.Cookie("token"); err == nil && cookie.Value == token && !expiry.IsZero() {
+			http.SetCookie(w, &http.Cookie{
+				Name:     "token",
+				Value:    token,
+				HttpOnly: true,
+				Secure:   true,
+				Path:     "/",
+				Expires:  expiry,
+			})
 		}
 
 		ctx := context.WithValue(r.Context(), userIDKey, userID)
@@ -198,7 +209,7 @@ func (a *API) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		HttpOnly: true,
 		Secure:   true,
 		Path:     "/",
-		Expires:  time.Now().Add(auth.DefaultTokenExpiry), // Or use configured expiry
+		Expires:  time.Now().Add(a.auth.TokenExpiry),
 	})
 
 	w.Header().Set("Content-Type", "application/json")
