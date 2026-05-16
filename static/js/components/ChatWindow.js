@@ -245,7 +245,7 @@ export function createChatWindow(container) {
 
         const contentSpan = document.createElement('span');
         contentSpan.className = 'message-content';
-        contentSpan.textContent = msg.text;
+        contentSpan.innerHTML = msg.text;
         div.appendChild(contentSpan);
 
         div.appendChild(attachmentsFragment);

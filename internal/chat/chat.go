@@ -138,11 +138,11 @@ func (c *Chat) GetRecords(from, to Seq) ([]ChatRecord, error) {
 	// 2. Fetch from storage if 'from' is before what we have in memory
 	if from < memFrom && c.storage != nil {
 		storeTo := to
-		if storeTo > memFrom {
-			storeTo = memFrom
+		if storeTo >= memFrom {
+			storeTo = memFrom - 1
 		}
 
-		msgs, err := c.storage.ListMessages(c.ID, int64(from), int64(storeTo-1))
+		msgs, err := c.storage.ListMessages(c.ID, int64(from), int64(storeTo))
 		if err != nil {
 			return nil, fmt.Errorf("storage error: %w", err)
 		}
@@ -160,7 +160,7 @@ func (c *Chat) GetRecords(from, to Seq) ([]ChatRecord, error) {
 
 	// 3. Fetch from memory
 	// If the request extends into memory range
-	if to > memFrom {
+	if to >= memFrom {
 		// Adjust 'from' for memory fetch if we already fetched some from storage
 		mFrom := from
 		if mFrom < memFrom {
