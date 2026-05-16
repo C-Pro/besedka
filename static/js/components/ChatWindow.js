@@ -1,6 +1,7 @@
 import { store } from '../state.js';
 
 export function createChatWindow(container) {
+    const SVG_NS = 'http://www.w3.org/2000/svg';
     let lastChatId = null;
     let filesToAttach = [];
     let isUploading = false;
@@ -8,6 +9,37 @@ export function createChatWindow(container) {
     let firstRenderedSeq = 0;
     let lastRenderedSeq = 0;
     let forceUsersRefresh = false;
+
+    const createSvgElement = (name, attrs = {}) => {
+        const el = document.createElementNS(SVG_NS, name);
+        Object.entries(attrs).forEach(([key, value]) => el.setAttribute(key, value));
+        return el;
+    };
+
+    const createAttachmentSpinner = () => {
+        const svg = createSvgElement('svg', { class: 'spinner', viewBox: '25 25 50 50' });
+        svg.appendChild(createSvgElement('circle', { cx: '50', cy: '50', r: '20' }));
+        return svg;
+    };
+
+    const createFileIcon = () => {
+        const svg = createSvgElement('svg', {
+            width: '24',
+            height: '24',
+            viewBox: '0 0 24 24',
+            fill: 'none',
+            stroke: 'currentColor',
+            'stroke-width': '2',
+            'stroke-linecap': 'round',
+            'stroke-linejoin': 'round'
+        });
+        svg.appendChild(createSvgElement('path', { d: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z' }));
+        svg.appendChild(createSvgElement('polyline', { points: '14 2 14 8 20 8' }));
+        svg.appendChild(createSvgElement('line', { x1: '16', y1: '13', x2: '8', y2: '13' }));
+        svg.appendChild(createSvgElement('line', { x1: '16', y1: '17', x2: '8', y2: '17' }));
+        svg.appendChild(createSvgElement('polyline', { points: '10 9 9 9 8 9' }));
+        return svg;
+    };
 
     // Overlay Elements (created once)
     let overlay = document.getElementById('image-overlay');
@@ -161,7 +193,7 @@ export function createChatWindow(container) {
 
                     const placeholder = document.createElement('div');
                     placeholder.className = 'attachment-placeholder';
-                    placeholder.innerHTML = '<svg class="spinner" viewBox="25 25 50 50"><circle cx="50" cy="50" r="20"></circle></svg>';
+                    placeholder.appendChild(createAttachmentSpinner());
                     imageWrap.appendChild(placeholder);
 
                     const img = document.createElement('img');
@@ -182,7 +214,7 @@ export function createChatWindow(container) {
 
                     const icon = document.createElement('div');
                     icon.className = 'file-icon';
-                    icon.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>';
+                    icon.appendChild(createFileIcon());
                     fileWrap.appendChild(icon);
 
                     const fileInfo = document.createElement('div');

@@ -130,7 +130,7 @@ export function createChatList(container) {
         activeChatId: store.state.activeChatId,
         chatListHash: '',
         unreadHash: '',
-        usersHash: store.state.users.map(u => `${u.id}:${u.avatarUrl || ''}`).join('|')
+        usersHash: store.state.users.map(u => `${u.id}:${u.displayName || ''}:${u.avatarUrl || ''}`).join('|')
     };
 
     const getChatListHash = (state) => {
@@ -142,7 +142,7 @@ export function createChatList(container) {
     };
 
     const getUsersHash = (state) => {
-        return state.users.map(u => `${u.id}:${u.avatarUrl || ''}`).join('|');
+        return state.users.map(u => `${u.id}:${u.displayName || ''}:${u.avatarUrl || ''}`).join('|');
     };
 
     store.subscribe((state) => {
