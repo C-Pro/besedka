@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -237,4 +238,81 @@ func createBrowserContext(t *testing.T, browser playwright.Browser) playwright.B
 	require.NoError(t, err)
 	context.SetDefaultTimeout(3000)
 	return context
+}
+
+func registerUser(t *testing.T, page playwright.Page, setupLink string, displayName string, password string) string {
+	return registerUserWithReplace(t, page, setupLink, displayName, password, false)
+}
+
+func registerUserWithReplace(t *testing.T, page playwright.Page, setupLink string, displayName string, password string, replace bool) string {
+	var err error
+	if replace {
+		_, err = page.Evaluate("window.location.replace('" + setupLink + "')")
+	} else {
+		_, err = page.Goto(setupLink)
+	}
+	require.NoError(t, err)
+
+	// Wait for form to appear
+	err = page.Locator("#register-form").WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	})
+	require.NoError(t, err)
+
+	// Extract TOTP secret from the page
+	secretText, err := page.Locator("#totp-secret").InnerText()
+	require.NoError(t, err)
+	// format is "Secret: ABCDEFGHIJKLMNOP"
+	secret := strings.TrimPrefix(secretText, "Secret: ")
+
+	// Fill form
+	err = page.Locator("#displayName").Fill(displayName)
+	require.NoError(t, err)
+	err = page.Locator("#password").Fill(password)
+	require.NoError(t, err)
+
+	// Generate TOTP
+	code := getTOTP(t, secret)
+	err = page.Locator("#totp").Fill(code)
+	require.NoError(t, err)
+
+	// Submit
+	err = page.Locator("button[type='submit']").Click()
+	require.NoError(t, err)
+
+	// Should be redirected to / or index.html and see the app
+	require.Eventually(t, func() bool {
+		url := page.URL()
+		return !strings.Contains(url, "register.html")
+	}, 5*time.Second, 200*time.Millisecond)
+
+	// Check if we are on the main page (contains #app)
+	err = page.Locator("#app").WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	})
+	require.NoError(t, err)
+	return secret
+}
+
+func loginViaForm(t *testing.T, page playwright.Page, baseURL, username, password, secret string) {
+	t.Helper()
+	_, err := page.Goto(baseURL + "/login.html")
+	require.NoError(t, err)
+
+	err = page.Locator("#username").Fill(username)
+	require.NoError(t, err)
+	err = page.Locator("#password").Fill(password)
+	require.NoError(t, err)
+
+	code := getTOTP(t, secret)
+	err = page.Locator("#otp").Fill(code)
+	require.NoError(t, err)
+	err = page.Locator("#login-btn").Click()
+	require.NoError(t, err)
+
+	err = page.Locator("#app").WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	})
+	require.NoError(t, err)
+	time.Sleep(1 * time.Second)
 }

@@ -276,60 +276,6 @@ func TestE2ELogoff(t *testing.T) {
 	}, 5*time.Second, 200*time.Millisecond, "User should be redirected back to login page if token is cleared")
 }
 
-func registerUser(t *testing.T, page playwright.Page, setupLink string, displayName string, password string) string {
-	return registerUserWithReplace(t, page, setupLink, displayName, password, false)
-}
-
-func registerUserWithReplace(t *testing.T, page playwright.Page, setupLink string, displayName string, password string, replace bool) string {
-	var err error
-	if replace {
-		_, err = page.Evaluate("window.location.replace('" + setupLink + "')")
-	} else {
-		_, err = page.Goto(setupLink)
-	}
-	require.NoError(t, err)
-
-	// Wait for form to appear
-	err = page.Locator("#register-form").WaitFor(playwright.LocatorWaitForOptions{
-		State: playwright.WaitForSelectorStateVisible,
-	})
-	require.NoError(t, err)
-
-	// Extract TOTP secret from the page
-	secretText, err := page.Locator("#totp-secret").InnerText()
-	require.NoError(t, err)
-	// format is "Secret: ABCDEFGHIJKLMNOP"
-	secret := strings.TrimPrefix(secretText, "Secret: ")
-
-	// Fill form
-	err = page.Locator("#displayName").Fill(displayName)
-	require.NoError(t, err)
-	err = page.Locator("#password").Fill(password)
-	require.NoError(t, err)
-
-	// Generate TOTP
-	code := getTOTP(t, secret)
-	err = page.Locator("#totp").Fill(code)
-	require.NoError(t, err)
-
-	// Submit
-	err = page.Locator("button[type='submit']").Click()
-	require.NoError(t, err)
-
-	// Should be redirected to / or index.html and see the app
-	require.Eventually(t, func() bool {
-		url := page.URL()
-		return !strings.Contains(url, "register.html")
-	}, 5*time.Second, 200*time.Millisecond)
-
-	// Check if we are on the main page (contains #app)
-	err = page.Locator("#app").WaitFor(playwright.LocatorWaitForOptions{
-		State: playwright.WaitForSelectorStateVisible,
-	})
-	require.NoError(t, err)
-	return secret
-}
-
 func TestE2EProfileEdit(t *testing.T) {
 	server := startServer(t)
 	defer server.Stop()
@@ -642,4 +588,55 @@ func TestE2EFileUpload(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, "test_document.txt", download.SuggestedFilename())
+}
+
+func TestE2EMultipleConnections(t *testing.T) {
+	server := startServer(t)
+	defer server.Stop()
+
+	pw, browser := setupPlaywright(t)
+	defer func() { _ = pw.Stop() }()
+	defer func() { _ = browser.Close() }()
+
+	// 1. Create and register Alice
+	t.Log("Creating Alice...")
+	aliceSetupLink := server.CreateUser(t, "alice")
+	aliceContext1 := createBrowserContext(t, browser)
+	alicePage1, err := aliceContext1.NewPage()
+	require.NoError(t, err)
+	aliceSecret := registerUser(t, alicePage1, aliceSetupLink, "Alice Smith", "password123")
+
+	// 2. Open second context for Alice and log in
+	t.Log("Logging in Alice on second context...")
+	aliceContext2 := createBrowserContext(t, browser)
+	alicePage2, err := aliceContext2.NewPage()
+	require.NoError(t, err)
+	loginViaForm(t, alicePage2, server.BaseURL, "alice", "password123", aliceSecret)
+
+	// 3. Both pages should be on the app. Alice sends a message from Page 1 to Town Hall.
+	t.Log("Alice sends message from Page 1...")
+	err = alicePage1.Locator(".chat-item:has-text(\"Town Hall\")").Click()
+	require.NoError(t, err)
+
+	msgContent := "Synchronized message from device 1"
+	err = alicePage1.Locator("#message-input").Fill(msgContent)
+	require.NoError(t, err)
+	err = alicePage1.Locator("#send-btn").Click()
+	require.NoError(t, err)
+
+	// 4. Verify message appears on Page 2
+	t.Log("Verifying message on Page 2...")
+	err = alicePage2.Locator(".chat-item:has-text(\"Town Hall\")").Click()
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		content, _ := alicePage2.Locator(".messages-container").InnerHTML()
+		return strings.Contains(content, msgContent)
+	}, 10*time.Second, 200*time.Millisecond, "Message should be synchronized to the second connection")
+
+	// 5. Verify Page 1 also shows the message (it should, as it was sent from there and echoed)
+	require.Eventually(t, func() bool {
+		content, _ := alicePage1.Locator(".messages-container").InnerHTML()
+		return strings.Contains(content, msgContent)
+	}, 5*time.Second, 200*time.Millisecond, "Message should be visible on the first connection")
 }

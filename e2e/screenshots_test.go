@@ -179,26 +179,3 @@ func TestScreenshots(t *testing.T) {
 		t.Log("Mobile screenshot saved.")
 	}
 }
-
-func loginViaForm(t *testing.T, page playwright.Page, baseURL, username, password, secret string) {
-	t.Helper()
-	_, err := page.Goto(baseURL + "/login.html")
-	require.NoError(t, err)
-
-	err = page.Locator("#username").Fill(username)
-	require.NoError(t, err)
-	err = page.Locator("#password").Fill(password)
-	require.NoError(t, err)
-
-	code := getTOTP(t, secret)
-	err = page.Locator("#otp").Fill(code)
-	require.NoError(t, err)
-	err = page.Locator("#login-btn").Click()
-	require.NoError(t, err)
-
-	err = page.Locator("#app").WaitFor(playwright.LocatorWaitForOptions{
-		State: playwright.WaitForSelectorStateVisible,
-	})
-	require.NoError(t, err)
-	time.Sleep(1 * time.Second)
-}
