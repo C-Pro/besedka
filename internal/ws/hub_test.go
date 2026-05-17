@@ -88,6 +88,65 @@ func drainMessages(ch <-chan models.ServerMessage, count int) {
 	}
 }
 
+func TestHub_MultipleConnections(t *testing.T) {
+	user1 := models.User{ID: "u1", DisplayName: "User 1"}
+	provider := &MockUserProvider{
+		users: []models.User{user1},
+	}
+	store := NewMockStorage()
+	h := NewHub(context.Background(), provider, store, &MockPushService{})
+
+	// Two connections for the same user
+	ch1 := h.Join(user1.ID)
+	ch2 := h.Join(user1.ID)
+
+	// Dispatch message to townhall
+	msgContent := "hello everyone"
+	h.Dispatch(user1.ID, models.ClientMessage{
+		Type:    models.ClientMessageTypeSend,
+		ChatID:  "townhall",
+		Content: msgContent,
+	})
+
+	expectedHTML := fmt.Sprintf("<p>%s</p>\n", msgContent)
+
+	// Check receiving on ch1
+	select {
+	case msg := <-ch1:
+		if msg.Type == models.ServerMessageTypeOnline {
+			// Skip online notification, try again
+			select {
+			case msg = <-ch1:
+			case <-time.After(testTimeout):
+				t.Error("Timeout waiting for message on ch1 after online notification")
+			}
+		}
+		if len(msg.Messages) == 0 || msg.Messages[0].Content != expectedHTML {
+			t.Errorf("ch1: expected content %s, got %+v", expectedHTML, msg.Messages)
+		}
+	case <-time.After(testTimeout):
+		t.Error("Timeout waiting for message on ch1")
+	}
+
+	// Check receiving on ch2
+	select {
+	case msg := <-ch2:
+		if msg.Type == models.ServerMessageTypeOnline {
+			// Skip online notification, try again
+			select {
+			case msg = <-ch2:
+			case <-time.After(testTimeout):
+				t.Error("Timeout waiting for message on ch2 after online notification")
+			}
+		}
+		if len(msg.Messages) == 0 || msg.Messages[0].Content != expectedHTML {
+			t.Errorf("ch2: expected content %s, got %+v", expectedHTML, msg.Messages)
+		}
+	case <-time.After(testTimeout):
+		t.Error("Timeout waiting for message on ch2")
+	}
+}
+
 func TestHub_Lifecycle(t *testing.T) {
 	user1 := models.User{ID: "u1", DisplayName: "User 1"}
 	user2 := models.User{ID: "u2", DisplayName: "User 2"}
@@ -658,8 +717,8 @@ func TestHub_Leave_ReplacedConnection(t *testing.T) {
 	if !ok {
 		t.Error("User 1 should still be in connectedUsers after stale Leave")
 	}
-	if registeredCh != ch1b {
-		t.Error("connectedUsers should hold the new channel after stale Leave")
+	if len(registeredCh) != 1 || registeredCh[0] != ch1b {
+		t.Error("connectedUsers should hold only the new channel after stale Leave")
 	}
 
 	// Verify new connection still works: user 1 can still receive messages

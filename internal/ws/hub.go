@@ -32,7 +32,7 @@ type pushTask struct {
 
 type Hub struct {
 	chats          map[string]*chat.Chat
-	connectedUsers map[string]chan models.ServerMessage
+	connectedUsers map[string][]chan models.ServerMessage
 	userLocations  *geche.MapTTLCache[string, models.Location]
 
 	userProvider userProvider
@@ -62,7 +62,7 @@ type PushService interface {
 func NewHub(ctx context.Context, userProvider userProvider, storage storage, pushService PushService) *Hub {
 	h := &Hub{
 		chats:          make(map[string]*chat.Chat),
-		connectedUsers: make(map[string]chan models.ServerMessage),
+		connectedUsers: make(map[string][]chan models.ServerMessage),
 		userLocations:  geche.NewMapTTLCache[string, models.Location](ctx, locationTTL, locationCleanup),
 		userProvider:   userProvider,
 		storage:        storage,
@@ -232,7 +232,7 @@ func (h *Hub) Join(userID string) chan models.ServerMessage {
 	defer h.mu.Unlock()
 
 	ch := make(chan models.ServerMessage, 100)
-	h.connectedUsers[userID] = ch
+	h.connectedUsers[userID] = append(h.connectedUsers[userID], ch)
 
 	// Join all relevant chats
 	// Logic: A user should be part of Townhall and all their DMs
@@ -242,8 +242,10 @@ func (h *Hub) Join(userID string) chan models.ServerMessage {
 		}
 	}
 
-	// Notify others that user is online
-	h.broadcastStatusChange(userID, true)
+	// Notify others that user is online if this is their first connection
+	if len(h.connectedUsers[userID]) == 1 {
+		h.broadcastStatusChange(userID, true)
+	}
 
 	// Send active user locations to the newly connected user
 	go func() {
@@ -281,20 +283,46 @@ func (h *Hub) Leave(userID string, expectedCh chan models.ServerMessage) {
 }
 
 func (h *Hub) leaveLocked(userID string, expectedCh chan models.ServerMessage, broadcastOffline bool) {
-	if expectedCh != nil {
-		if ch, ok := h.connectedUsers[userID]; ok && ch != expectedCh {
-			// A new connection has already taken over.
-			// Just close the old channel and do nothing else.
+	channels, ok := h.connectedUsers[userID]
+	if !ok {
+		if expectedCh != nil {
+			h.safeClose(expectedCh)
+		}
+		return
+	}
+
+	// If expectedCh is nil, remove all channels.
+	if expectedCh == nil {
+		for _, ch := range channels {
+			h.safeClose(ch)
+		}
+		delete(h.connectedUsers, userID)
+	} else {
+		// Find and remove the expected channel
+		found := false
+		newChannels := make([]chan models.ServerMessage, 0, len(channels))
+		for _, ch := range channels {
+			if ch == expectedCh {
+				found = true
+				h.safeClose(ch)
+				continue
+			}
+			newChannels = append(newChannels, ch)
+		}
+
+		if !found {
+			// If expectedCh was provided but not found in the list, just close it.
 			h.safeClose(expectedCh)
 			return
 		}
-	}
 
-	if ch, ok := h.connectedUsers[userID]; ok {
-		h.safeClose(ch)
-		delete(h.connectedUsers, userID)
-	} else if expectedCh != nil {
-		h.safeClose(expectedCh)
+		if len(newChannels) == 0 {
+			delete(h.connectedUsers, userID)
+		} else {
+			h.connectedUsers[userID] = newChannels
+			// If there are still connections, we don't need to leave chats or broadcast offline.
+			return
+		}
 	}
 
 	// Leave all relevant chats
@@ -362,7 +390,7 @@ func (h *Hub) BroadcastToAll(msg models.ServerMessage, excludeUserID string) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	for userID, ch := range h.connectedUsers {
+	for userID, channels := range h.connectedUsers {
 		if userID == excludeUserID {
 			continue
 		}
@@ -378,9 +406,9 @@ func (h *Hub) BroadcastToAll(msg models.ServerMessage, excludeUserID string) {
 				IsDM:   true,
 				Online: msg.User.Presence.Online,
 			}
-			h.sendToChannel(ch, userMsg, userID)
+			h.sendToChannels(channels, userMsg, userID)
 		default:
-			h.sendToChannel(ch, msg, userID)
+			h.sendToChannels(channels, msg, userID)
 		}
 	}
 }
@@ -397,19 +425,21 @@ func (h *Hub) broadcastStatusChange(userID string, online bool) {
 		Online: online,
 	}
 
-	for id, ch := range h.connectedUsers {
+	for id, channels := range h.connectedUsers {
 		if id == userID {
 			continue
 		}
-		h.sendToChannel(ch, msg, id)
+		h.sendToChannels(channels, msg, id)
 	}
 }
 
-func (h *Hub) sendToChannel(ch chan models.ServerMessage, msg models.ServerMessage, userID string) {
-	select {
-	case ch <- msg:
-	default:
-		slog.Warn("Message channel full, dropping message", "userID", userID)
+func (h *Hub) sendToChannels(channels []chan models.ServerMessage, msg models.ServerMessage, userID string) {
+	for _, ch := range channels {
+		select {
+		case ch <- msg:
+		default:
+			slog.Warn("Message channel full, dropping message", "userID", userID)
+		}
 	}
 }
 
@@ -500,17 +530,19 @@ func (h *Hub) handleLocation(userID string, msg models.ClientMessage) {
 
 func (h *Hub) sendToUser(userID string, msg models.ServerMessage) {
 	h.mu.RLock()
-	ch, online := h.connectedUsers[userID]
+	channels, online := h.connectedUsers[userID]
 	h.mu.RUnlock()
 
 	if !online {
 		return
 	}
 
-	select {
-	case ch <- msg:
-	default:
-		slog.Warn("Message channel full, dropping message", "userID", userID)
+	for _, ch := range channels {
+		select {
+		case ch <- msg:
+		default:
+			slog.Warn("Message channel full, dropping message", "userID", userID)
+		}
 	}
 }
 
@@ -609,7 +641,7 @@ func (h *Hub) GetUser(userID string) (models.User, error) {
 
 func (h *Hub) handleRecordCallback(receiverID string, chatID string, record chat.ChatRecord) {
 	h.mu.RLock()
-	ch, online := h.connectedUsers[receiverID]
+	channels, online := h.connectedUsers[receiverID]
 	h.mu.RUnlock()
 
 	if online {
@@ -619,12 +651,14 @@ func (h *Hub) handleRecordCallback(receiverID string, chatID string, record chat
 			Messages: mapRecordsToMessages([]chat.ChatRecord{record}),
 		}
 
-		select {
-		case ch <- msg:
-		default:
-			// TODO: disconnect user? Channel has size 100 so if the client
-			// is 100 messages behind, there's something off with it.
-			slog.Warn("Message channel full, dropping message", "chatID", chatID, "userID", receiverID)
+		for _, ch := range channels {
+			select {
+			case ch <- msg:
+			default:
+				// TODO: disconnect user? Channel has size 100 so if the client
+				// is 100 messages behind, there's something off with it.
+				slog.Warn("Message channel full, dropping message", "chatID", chatID, "userID", receiverID)
+			}
 		}
 	} else if receiverID != record.UserID {
 		// Send push notification if user is offline AND is not the sender

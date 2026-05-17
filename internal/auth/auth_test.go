@@ -239,6 +239,74 @@ func TestAuthService(t *testing.T) {
 		}
 	})
 
+	t.Run("Login_MultipleDevices", func(t *testing.T) {
+		svc, now, _ := createService(t)
+
+		// Setup user
+		tx := svc.users.Lock()
+		userID := "user-id-1"
+		tx.Set(userID, &UserCredentials{
+			User: models.User{
+				ID:       userID,
+				UserName: "user1",
+				Status:   models.UserStatusActive,
+			},
+			PasswordHash: svc.hashPassword("user1", "pass1"),
+			TOTPSecret:   rawSecret,
+			LastTOTP:     0,
+		})
+		svc.usernames.Set("user1", userID)
+		tx.Unlock()
+
+		// First login
+		resp1, token1UserID := svc.Login(LoginRequest{
+			Username: "user1",
+			Password: "pass1",
+			TOTP:     validCodes[0],
+		})
+		if !resp1.Success {
+			t.Fatalf("First login failed: %s", resp1.Message)
+		}
+		if token1UserID != userID {
+			t.Errorf("Expected userID %s, got %s", userID, token1UserID)
+		}
+
+		// Advance time for second login
+		*now = now.Add(30 * time.Second)
+		resp2, token2UserID := svc.Login(LoginRequest{
+			Username: "user1",
+			Password: "pass1",
+			TOTP:     validCodes[1],
+		})
+		if !resp2.Success {
+			t.Fatalf("Second login failed: %s", resp2.Message)
+		}
+		if token2UserID != userID {
+			t.Errorf("Expected userID %s, got %s", userID, token2UserID)
+		}
+
+		if resp1.Token == resp2.Token {
+			t.Error("Expected different tokens for different logins")
+		}
+
+		// Verify both tokens are valid
+		uid1, _, err := svc.GetUserID(resp1.Token)
+		if err != nil {
+			t.Errorf("Token 1 should be valid: %v", err)
+		}
+		if uid1 != userID {
+			t.Errorf("Token 1: expected userID %s, got %s", userID, uid1)
+		}
+
+		uid2, _, err := svc.GetUserID(resp2.Token)
+		if err != nil {
+			t.Errorf("Token 2 should be valid: %v", err)
+		}
+		if uid2 != userID {
+			t.Errorf("Token 2: expected userID %s, got %s", userID, uid2)
+		}
+	})
+
 	t.Run("Login_Failures", func(t *testing.T) {
 		svc, _, _ := createService(t)
 
