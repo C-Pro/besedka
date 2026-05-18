@@ -177,7 +177,7 @@ export function createChatWindow(container) {
         }
 
         const div = document.createElement('div');
-        div.className = 'message-line';
+        div.className = `message-line ${isMe ? 'is-me' : ''}`;
         div.setAttribute('data-seq', msg.seq);
 
         const attachmentsFragment = document.createDocumentFragment();
@@ -239,7 +239,8 @@ export function createChatWindow(container) {
         div.appendChild(timeSpan);
 
         const senderSpan = document.createElement('span');
-        senderSpan.className = `message-sender ${isMe ? 'is-me' : ''}`;
+        const colorIdx = msg.userId ? (msg.userId.charCodeAt(0) % 8) : 0;
+        senderSpan.className = `message-sender ${isMe ? 'is-me' : ''} user-color-${colorIdx}`;
         senderSpan.textContent = `<${senderDisplayName}>`;
         div.appendChild(senderSpan);
 
