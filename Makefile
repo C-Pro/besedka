@@ -7,7 +7,15 @@ check: lint test semgrep osv-scanner e2e
 lint: lint-go lint-js
 
 lint-go:
-	golangci-lint run
+	docker run --rm \
+		-v $(PWD):/app \
+		-v $(shell go env GOCACHE):/root/.cache/go-build \
+		-v $(shell go env GOMODCACHE):/go/pkg/mod \
+		-v $(HOME)/.cache/golangci-lint:/root/.cache/golangci-lint \
+		-w /app \
+		-e GOFLAGS="-mod=vendor" \
+		golangci/golangci-lint:v2.12.2 \
+		golangci-lint run
 
 
 lint-js:

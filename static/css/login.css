@@ -18,11 +18,25 @@
     gap: 1rem;
 }
 
-.login-card h2 {
-    margin-bottom: 1rem;
-    text-align: center;
+.login-header {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 0.5rem;
+}
+
+.login-logo {
+    width: 80px;
+    height: 80px;
+    border-radius: var(--radius-full);
+    object-fit: cover;
+    border: 2px solid var(--border-color);
+}
+
+.login-header h1 {
+    font-size: 1.5rem;
     color: var(--text-primary);
-    border: 1px solid var(--border-color);
     text-shadow: 0 0 10px var(--text-glow-shadow);
 }
 
