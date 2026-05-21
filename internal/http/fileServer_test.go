@@ -7,12 +7,13 @@ import (
 	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"besedka/internal/auth"
 	"besedka/internal/models"
-	"testing/fstest"
 )
 
 type mockStorage struct {
@@ -108,22 +109,26 @@ func createTestAuthService(t *testing.T) (*auth.AuthService, *mockStorage) {
 
 func TestFileServerHeaders(t *testing.T) {
 	authService, _ := createTestAuthService(t)
-	mockFS := fstest.MapFS{
-		"index.html": &fstest.MapFile{
-			Data: []byte("index page"),
-		},
-		"login.html": &fstest.MapFile{
-			Data: []byte("login page"),
-		},
-		"sw.js": &fstest.MapFile{
-			Data: []byte("sw content"),
-		},
-		"js/app.js": &fstest.MapFile{
-			Data: []byte("console.log('hello');"),
-		},
+	tmpDir := t.TempDir()
+
+	// Helper to write file into the temp directory structure
+	writeTestFile := func(path string, content []byte) {
+		fullPath := filepath.Join(tmpDir, path)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+			t.Fatalf("failed to create directory: %v", err)
+		}
+		if err := os.WriteFile(fullPath, content, 0644); err != nil {
+			t.Fatalf("failed to write file: %v", err)
+		}
 	}
 
-	handler := NewFileServerHandler(authService, mockFS)
+	writeTestFile("index.html", []byte("index page"))
+	writeTestFile("login.html", []byte("login page"))
+	writeTestFile("sw.js", []byte("sw content"))
+	writeTestFile("js/app.js", []byte("console.log('hello');"))
+	writeTestFile("besedka.png", []byte("image bytes"))
+
+	handler := NewFileServerHandler(authService, os.DirFS(tmpDir))
 
 	tests := []struct {
 		name             string
@@ -146,8 +151,14 @@ func TestFileServerHeaders(t *testing.T) {
 			expectedCache:  "no-cache",
 		},
 		{
-			name:           "Static asset cached",
+			name:           "JS asset no cache",
 			path:           "/js/app.js",
+			expectedStatus: http.StatusOK,
+			expectedCache:  "no-cache",
+		},
+		{
+			name:           "PNG asset cached 1y",
+			path:           "/besedka.png",
 			expectedStatus: http.StatusOK,
 			expectedCache:  "public, max-age=31536000",
 		},

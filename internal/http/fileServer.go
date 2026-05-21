@@ -49,7 +49,7 @@ func NewFileServerHandler(authService *auth.AuthService, assets fs.FS) http.Hand
 		path := r.URL.Path
 		if path == "/" || path == "/index.html" || path == "/login.html" || path == "/register.html" || path == "/admin.html" || strings.HasSuffix(path, ".html") {
 			w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
-		} else if path == "/sw.js" {
+		} else if path == "/sw.js" || strings.HasSuffix(path, ".js") || strings.HasSuffix(path, ".css") {
 			w.Header().Set("Cache-Control", "no-cache")
 		} else {
 			w.Header().Set("Cache-Control", "public, max-age=31536000")
