@@ -1,3 +1,5 @@
+let d3LoadPromise = null;
+
 export class LocationMap {
     constructor(container, store) {
         this.container = container;
@@ -6,51 +8,91 @@ export class LocationMap {
         this.width = container.clientWidth || 300;
         this.height = container.clientHeight || 200;
         
-        this.svg = d3.select(container).append("svg")
-            .attr("width", "100%")
-            .attr("height", "100%")
-            .attr("viewBox", `0 0 ${this.width} ${this.height}`)
-            .attr("preserveAspectRatio", "xMidYMid meet");
+        this.init();
+    }
+
+    async init() {
+        try {
+            await this.loadD3();
             
-        this.projection = d3.geoOrthographic()
-            .scale(this.height / 2.1)
-            .translate([this.width / 2, this.height / 2])
-            .clipAngle(90);
+            this.svg = d3.select(this.container).append("svg")
+                .attr("width", "100%")
+                .attr("height", "100%")
+                .attr("viewBox", `0 0 ${this.width} ${this.height}`)
+                .attr("preserveAspectRatio", "xMidYMid meet");
+                
+            this.projection = d3.geoOrthographic()
+                .scale(this.height / 2.1)
+                .translate([this.width / 2, this.height / 2])
+                .clipAngle(90);
 
-        this.path = d3.geoPath().projection(this.projection);
+            this.path = d3.geoPath().projection(this.projection);
 
-        this.mapLayer = this.svg.append("g").attr("class", "map-layer");
-        this.markerLayer = this.svg.append("g").attr("class", "marker-layer");
+            this.mapLayer = this.svg.append("g").attr("class", "map-layer");
+            this.markerLayer = this.svg.append("g").attr("class", "marker-layer");
 
-        // Sphere background
-        this.mapLayer.append("path")
-            .datum({type: "Sphere"})
-            .attr("class", "sphere")
-            .attr("d", this.path)
-            .attr("fill", "#0f172a") // ocean
-            .attr("stroke", "rgba(255, 255, 255, 0.1)");
+            // Sphere background
+            this.mapLayer.append("path")
+                .datum({type: "Sphere"})
+                .attr("class", "sphere")
+                .attr("d", this.path)
+                .attr("fill", "#0f172a") // ocean
+                .attr("stroke", "rgba(255, 255, 255, 0.1)");
+                
+            this.worldData = null;
+
+            // Resize observer
+            this.resizeObserver = new ResizeObserver(entries => {
+                for (let entry of entries) {
+                    this.width = entry.contentRect.width || 300;
+                    this.height = entry.contentRect.height || 200;
+                    this.svg.attr("viewBox", `0 0 ${this.width} ${this.height}`);
+                    this.updateProjection();
+                }
+            });
+            this.resizeObserver.observe(this.container);
+
+            await this.loadMapData();
+
+            this.store.subscribe((state) => {
+                this.updateMarkers(state);
+            });
             
-        this.worldData = null;
+            // Initial render
+            this.updateMarkers(this.store.state);
+        } catch (error) {
+            console.error("Map initialization failed:", error);
+        }
+    }
 
-        // Resize observer
-        this.resizeObserver = new ResizeObserver(entries => {
-            for (let entry of entries) {
-                this.width = entry.contentRect.width || 300;
-                this.height = entry.contentRect.height || 200;
-                this.svg.attr("viewBox", `0 0 ${this.width} ${this.height}`);
-                this.updateProjection();
+    loadD3() {
+        if (window.d3) return Promise.resolve();
+        if (d3LoadPromise) return d3LoadPromise;
+
+        d3LoadPromise = new Promise((resolve, reject) => {
+            if (window.d3) {
+                resolve();
+                return;
             }
-        });
-        this.resizeObserver.observe(this.container);
 
-        this.loadMapData();
+            // Remove any existing failed/stuck script tag
+            const existingScript = document.querySelector('script[src="/js/d3.min.js"]');
+            if (existingScript) {
+                existingScript.remove();
+            }
 
-        this.store.subscribe((state) => {
-            this.updateMarkers(state);
+            const script = document.createElement('script');
+            script.src = '/js/d3.min.js';
+            script.onload = () => resolve();
+            script.onerror = () => {
+                d3LoadPromise = null;
+                script.remove();
+                reject(new Error('D3 load failed'));
+            };
+            document.head.appendChild(script);
         });
-        
-        // Initial render
-        this.updateMarkers(this.store.state);
+
+        return d3LoadPromise;
     }
 
     async loadMapData() {

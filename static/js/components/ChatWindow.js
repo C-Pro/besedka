@@ -129,15 +129,15 @@ export function createChatWindow(container) {
             </div>
         </div>
         <div class="input-area">
-            <input type="file" id="file-input" style="display:none">
-            <button class="attach-btn" id="attach-btn">
+            <input type="file" id="file-input" style="display:none" aria-label="Upload file">
+            <button class="attach-btn" id="attach-btn" aria-label="Attach files">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
                 </svg>
             </button>
             <div id="attachments-indicator-container"></div>
-            <textarea class="message-input" placeholder="Type a message..." id="message-input" rows="1"></textarea>
-            <button class="send-btn" id="send-btn">
+            <textarea class="message-input" placeholder="Type a message..." id="message-input" rows="1" aria-label="Chat message input"></textarea>
+            <button class="send-btn" id="send-btn" aria-label="Send message">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <line x1="22" y1="2" x2="11" y2="13"></line>
                     <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
@@ -384,6 +384,7 @@ export function createChatWindow(container) {
                 elements.headerAvatar.style.padding = '0';
                 const img = document.createElement('img');
                 img.src = headerAvatarUrl;
+                img.alt = `${activeChat.name} avatar`;
                 img.style.cssText = 'width:100%; height:100%; border-radius:50%; object-fit:cover;';
                 elements.headerAvatar.appendChild(img);
             } else {
@@ -412,6 +413,7 @@ export function createChatWindow(container) {
                 elements.headerAvatar.style.padding = '0';
                 const img = document.createElement('img');
                 img.src = headerAvatarUrl;
+                img.alt = `${activeChat.name} avatar`;
                 img.style.cssText = 'width:100%; height:100%; border-radius:50%; object-fit:cover;';
                 elements.headerAvatar.appendChild(img);
             } else {
