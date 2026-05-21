@@ -45,6 +45,16 @@ func NewFileServerHandler(authService *auth.AuthService, assets fs.FS) http.Hand
 			return
 		}
 
+		// Set Cache-Control headers based on path
+		path := r.URL.Path
+		if path == "/" || path == "/index.html" || path == "/login.html" || path == "/register.html" || path == "/admin.html" || strings.HasSuffix(path, ".html") {
+			w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+		} else if path == "/sw.js" {
+			w.Header().Set("Cache-Control", "no-cache")
+		} else {
+			w.Header().Set("Cache-Control", "public, max-age=31536000")
+		}
+
 		// Default to file server
 		fileServer.ServeHTTP(w, r)
 	}

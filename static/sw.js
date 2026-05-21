@@ -21,7 +21,10 @@ const CACHE_FILES = [
 self.addEventListener('install', (event) => {
     event.waitUntil(
         caches.open(CACHE_VERSION)
-            .then((cache) => cache.addAll(CACHE_FILES))
+            .then((cache) => {
+                const requests = CACHE_FILES.map(file => new Request(file, { cache: 'reload' }));
+                return cache.addAll(requests);
+            })
             .then(() => self.skipWaiting())
     );
 });

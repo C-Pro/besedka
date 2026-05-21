@@ -53,16 +53,3 @@ When you need to create a temporary file, create it in the project directory:
 
 Delete temporary files and directories when not needed anymore.
 
-# Running commands
-
-When executing shell commands that can produce large output, always save it to a temporary file.
-
-```bash
-export _TMPFILE=$(mktemp -p .)
-echo $_TMPFILE
-# do your work
-go test -v ./... | tee $_TMPFILE 2>&1
-unset _TMPFILE
-```
-
-Later do `rm <tmpfile>` to remove the temporary file (we echoed its name before).

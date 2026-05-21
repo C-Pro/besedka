@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - {{CHATNAME}}</title>
+    <meta name="description" content="Log in to your Besedka chat account.">
 
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/layout.css">
@@ -20,10 +21,10 @@
 
 <body>
     <div id="login-app">
-        <div class="login-container">
+        <main class="login-container">
             <div class="login-card">
                 <div class="login-header">
-                    <img src="/besedka.png" alt="Logo" class="login-logo">
+                    <img src="/besedka.png" alt="Logo" class="login-logo" width="80" height="80">
                     <h1>Login - {{CHATNAME}}</h1>
                 </div>
                 <div id="error-message" class="error-message" style="display: none;"></div>
@@ -36,7 +37,7 @@
                     <button type="submit" id="login-btn">Login</button>
                 </form>
             </div>
-        </div>
+        </main>
     </div>
     <script type="module" src="js/login.js"></script>
 </body>

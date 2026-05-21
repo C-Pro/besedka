@@ -28,6 +28,8 @@ export function createChatList(container) {
             const img = document.createElement('img');
             img.src = avatarUrl;
             img.alt = 'Avatar';
+            img.width = 40;
+            img.height = 40;
             img.style.width = '100%';
             img.style.height = '100%';
             img.style.borderRadius = '50%';
