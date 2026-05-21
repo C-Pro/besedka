@@ -83,6 +83,8 @@ export function createProfileModal(store) {
             const img = document.createElement('img');
             img.src = fullUser.avatarUrl;
             img.alt = 'Avatar';
+            img.width = 64;
+            img.height = 64;
             img.className = 'avatar-image-full';
             avatarPreview.appendChild(img);
         } else {
@@ -163,6 +165,8 @@ export function createProfileModal(store) {
                 const img = document.createElement('img');
                 img.src = re.target.result;
                 img.alt = 'Preview';
+                img.width = 64;
+                img.height = 64;
                 img.className = 'avatar-image-full';
                 avatarPreview.appendChild(img);
             };

@@ -33,7 +33,7 @@ semgrep:
 	docker run --rm -v $(PWD):/src returntocorp/semgrep:1.106.0 semgrep scan --config=p/default
 
 osv-scanner:
-	docker run --rm -v $(PWD):/src -w /src ghcr.io/google/osv-scanner:latest -r .
+	docker run --rm -e GOTOOLCHAIN=auto -v $(PWD):/src -w /src ghcr.io/google/osv-scanner:latest -r .
 
 docker-build:
 	docker build -t ghcr.io/c-pro/besedka:latest .

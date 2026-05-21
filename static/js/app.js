@@ -9,7 +9,7 @@ const app = document.getElementById('app');
 function renderApp() {
     // Create layout structure
     app.innerHTML = `
-        <div class="app-layout">
+        <main class="app-layout">
             <div class="mobile-header">
                 <button class="hamburger-btn" id="hamburger-btn" aria-label="Open sidebar menu">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -39,7 +39,7 @@ function renderApp() {
             <div id="sidebar" class="sidebar"></div>
             <div id="chat-area" class="chat-area"></div>
             <div id="info-panel" class="info-panel"></div>
-        </div>
+        </main>
     `;
 
     // Delay component initialization until after store.subscribe so visibility is handled first
@@ -277,6 +277,8 @@ function renderApp() {
                     const img = document.createElement('img');
                     img.src = avatarUrl;
                     img.alt = 'Profile';
+                    img.width = 40;
+                    img.height = 40;
                     img.style.width = '100%';
                     img.style.height = '100%';
                     img.style.borderRadius = '50%';
@@ -348,7 +350,8 @@ async function setupPushNotifications() {
 
     try {
         const hadController = !!navigator.serviceWorker.controller;
-        const registration = await navigator.serviceWorker.register('/sw.js');
+        await navigator.serviceWorker.register('/sw.js');
+        const registration = await navigator.serviceWorker.ready;
 
         navigator.serviceWorker.addEventListener('message', (event) => {
             if (event.data && event.data.type === 'open_chat') {

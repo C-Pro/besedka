@@ -385,6 +385,8 @@ export function createChatWindow(container) {
                 const img = document.createElement('img');
                 img.src = headerAvatarUrl;
                 img.alt = `${activeChat.name} avatar`;
+                img.width = 40;
+                img.height = 40;
                 img.style.cssText = 'width:100%; height:100%; border-radius:50%; object-fit:cover;';
                 elements.headerAvatar.appendChild(img);
             } else {
@@ -414,6 +416,8 @@ export function createChatWindow(container) {
                 const img = document.createElement('img');
                 img.src = headerAvatarUrl;
                 img.alt = `${activeChat.name} avatar`;
+                img.width = 40;
+                img.height = 40;
                 img.style.cssText = 'width:100%; height:100%; border-radius:50%; object-fit:cover;';
                 elements.headerAvatar.appendChild(img);
             } else {
