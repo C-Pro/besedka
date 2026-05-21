@@ -40,7 +40,34 @@ export function createInfoPanel(container, store) {
     });
 
     const mapContainer = container.querySelector('#location-map');
-    new LocationMap(mapContainer, store);
     
-    // Listen for state changes to update markers if needed, or LocationMap can listen inside.
+    let mapInitialized = false;
+    let unsubscribe = null;
+
+    const initMap = () => {
+        if (mapInitialized) return;
+        mapInitialized = true;
+        new LocationMap(mapContainer, store);
+        window.removeEventListener('resize', handleResize);
+        if (unsubscribe) {
+            unsubscribe();
+        }
+    };
+
+    const handleResize = () => {
+        if (window.innerWidth > 768) {
+            initMap();
+        }
+    };
+
+    if (window.innerWidth > 768 || store.state.mobileActiveTab === 'info-panel') {
+        initMap();
+    } else {
+        window.addEventListener('resize', handleResize);
+        unsubscribe = store.subscribe((state) => {
+            if (state.mobileActiveTab === 'info-panel') {
+                initMap();
+            }
+        });
+    }
 }

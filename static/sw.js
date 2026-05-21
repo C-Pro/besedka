@@ -15,6 +15,7 @@ const CACHE_FILES = [
     '/favicon-32x32.png',
     '/favicon.ico',
     '/site.webmanifest',
+    '/world.geojson',
 ];
 
 self.addEventListener('install', (event) => {
