@@ -126,7 +126,7 @@ func TestE2EPasteImage(t *testing.T) {
 		textarea.dispatchEvent(ev);
 	}`
 
-	_, err = alicePage.Evaluate(pasteJs, nil)
+	_, err = alicePage.Evaluate(pasteJs)
 	require.NoError(t, err)
 
 	// Verify attachment indicator appears
@@ -192,7 +192,7 @@ func TestE2EPasteFile(t *testing.T) {
 		textarea.dispatchEvent(ev);
 	}`
 
-	_, err = alicePage.Evaluate(pasteJs, nil)
+	_, err = alicePage.Evaluate(pasteJs)
 	require.NoError(t, err)
 
 	// Verify attachment indicator appears
