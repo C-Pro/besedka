@@ -533,6 +533,41 @@ export function createChatWindow(container) {
         }
     });
 
+    elements.input.addEventListener('paste', async (e) => {
+        const files = e.clipboardData?.files;
+        if (files && files.length > 0) {
+            e.preventDefault();
+            if (isUploading) {
+                alert('An upload is already in progress.');
+                return;
+            }
+            const file = files[0];
+            isUploading = true;
+            uploadAbortController = new AbortController();
+            updateUI(store.state);
+            try {
+                const isImage = file.type.startsWith('image/');
+                const result = isImage 
+                    ? await store.uploadImage(file, uploadAbortController.signal)
+                    : await store.uploadFile(file, uploadAbortController.signal);
+                if (!uploadAbortController.signal.aborted) {
+                    let fileName = file.name;
+                    if (!fileName || fileName === 'image.png' || fileName === 'blob') {
+                        const ext = isImage ? 'png' : (file.name ? file.name.split('.').pop() : 'bin');
+                        fileName = `pasted-file-${Date.now()}.${ext}`;
+                    }
+                    filesToAttach.push({ type: isImage ? 'image' : 'file', name: fileName, mimeType: file.type || 'application/octet-stream', fileId: result.id });
+                }
+            } catch (err) {
+                if (!uploadAbortController?.signal.aborted) alert(`Failed to upload ${file.name}: ${err.message}`);
+            } finally {
+                uploadAbortController = null;
+                isUploading = false;
+                updateUI(store.state);
+            }
+        }
+    });
+
     elements.attachBtn.addEventListener('click', () => elements.fileInput.click());
     elements.fileInput.addEventListener('change', async (e) => {
         if (e.target.files.length > 0) {
