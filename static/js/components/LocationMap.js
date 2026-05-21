@@ -1,3 +1,5 @@
+let d3LoadPromise = null;
+
 export class LocationMap {
     constructor(container, store) {
         this.container = container;
@@ -64,23 +66,33 @@ export class LocationMap {
     }
 
     loadD3() {
-        return new Promise((resolve, reject) => {
-            if (window.d3) return resolve();
-            
-            // Check if there is already a script loading d3
-            let script = document.querySelector('script[src="/js/d3.min.js"]');
-            if (script) {
-                script.addEventListener('load', () => resolve());
-                script.addEventListener('error', () => reject(new Error('D3 load failed')));
+        if (window.d3) return Promise.resolve();
+        if (d3LoadPromise) return d3LoadPromise;
+
+        d3LoadPromise = new Promise((resolve, reject) => {
+            if (window.d3) {
+                resolve();
                 return;
             }
-            
-            script = document.createElement('script');
+
+            // Remove any existing failed/stuck script tag
+            const existingScript = document.querySelector('script[src="/js/d3.min.js"]');
+            if (existingScript) {
+                existingScript.remove();
+            }
+
+            const script = document.createElement('script');
             script.src = '/js/d3.min.js';
             script.onload = () => resolve();
-            script.onerror = () => reject(new Error('D3 load failed'));
+            script.onerror = () => {
+                d3LoadPromise = null;
+                script.remove();
+                reject(new Error('D3 load failed'));
+            };
             document.head.appendChild(script);
         });
+
+        return d3LoadPromise;
     }
 
     async loadMapData() {
