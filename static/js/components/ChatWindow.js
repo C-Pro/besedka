@@ -371,14 +371,14 @@ export function createChatWindow(container) {
             lastRenderedSeq = 0;
             elements.messagesContainer.querySelectorAll('.message-line').forEach(el => el.remove());
             elements.headerTitle.textContent = activeChat.name;
-            
+
             let headerAvatarUrl = activeChat.avatarUrl || null;
             if (!headerAvatarUrl && activeChat.isDm) {
                 const otherUserId = activeChat.id.replace('dm_', '').split('_').find(id => id !== state.currentUser?.id);
                 const fullUser = state.users.find(u => u.id === otherUserId);
                 headerAvatarUrl = fullUser?.avatarUrl || null;
             }
-            
+
             elements.headerAvatar.innerHTML = '';
             if (headerAvatarUrl) {
                 elements.headerAvatar.style.padding = '0';
@@ -391,7 +391,7 @@ export function createChatWindow(container) {
                 elements.headerAvatar.style.padding = '';
                 elements.headerAvatar.textContent = activeChat.name.charAt(0);
             }
-            
+
             elements.input.value = '';
             elements.input.style.height = '40px';
             scrollState.wasAtBottom = true;
@@ -443,17 +443,17 @@ export function createChatWindow(container) {
                 if (historyMessages.length > 0) {
                     const fragment = document.createDocumentFragment();
                     historyMessages.forEach(msg => fragment.appendChild(createMessageElement(msg, state)));
-                    
+
                     const firstMsg = elements.messagesContainer.querySelector('.message-line');
                     const oldHeight = elements.messagesContainer.scrollHeight;
                     const oldScrollTop = elements.messagesContainer.scrollTop;
-                    
+
                     if (firstMsg) {
                         elements.messagesContainer.insertBefore(fragment, firstMsg);
                     } else {
                         elements.messagesContainer.appendChild(fragment);
                     }
-                    
+
                     const newHeight = elements.messagesContainer.scrollHeight;
                     elements.messagesContainer.scrollTop = oldScrollTop + (newHeight - oldHeight);
                     firstRenderedSeq = messages[0].seq;
@@ -476,7 +476,7 @@ export function createChatWindow(container) {
         // 4. Update Attachments & Upload State
         elements.attachBtn.disabled = isUploading;
         elements.sendBtn.disabled = isUploading;
-        
+
         if (isUploading) {
             elements.attachBtn.innerHTML = `<svg class="spinner" width="20" height="20" viewBox="0 0 50 50"><circle cx="25" cy="25" r="20"></circle></svg>`;
         } else {
@@ -495,7 +495,7 @@ export function createChatWindow(container) {
     elements.messagesContainer.addEventListener('scroll', () => {
         const c = elements.messagesContainer;
         scrollState.wasAtBottom = (c.scrollHeight - c.scrollTop - c.clientHeight) < 50;
-        
+
         if (scrollThrottleTimer) return;
         scrollThrottleTimer = setTimeout(() => {
             scrollThrottleTimer = null;
@@ -521,6 +521,87 @@ export function createChatWindow(container) {
         }
     };
 
+    const getExtensionFromMimeType = (mimeType, defaultExt = 'bin') => {
+        if (!mimeType) return defaultExt;
+        const parts = mimeType.split('/');
+        if (parts.length < 2) return defaultExt;
+        const cleanSub = parts[1].split(';')[0].trim().toLowerCase();
+
+        const mimeMap = {
+            'jpeg': 'jpg',
+            'png': 'png',
+            'gif': 'gif',
+            'webp': 'webp',
+            'svg+xml': 'svg',
+            'plain': 'txt',
+            'html': 'html',
+            'css': 'css',
+            'javascript': 'js',
+            'json': 'json',
+            'xml': 'xml',
+            'pdf': 'pdf',
+            'zip': 'zip',
+            'x-zip-compressed': 'zip',
+            'quicktime': 'mov',
+            'mpeg': 'mp3',
+            'mp4': 'mp4',
+            'ogg': 'ogg',
+            'wav': 'wav',
+            'webm': 'webm',
+            'octet-stream': 'bin'
+        };
+
+        return mimeMap[cleanSub] || cleanSub || defaultExt;
+    };
+
+    const handleUpload = async (file, isPasted = false) => {
+        if (isUploading) {
+            alert('An upload is already in progress.');
+            return;
+        }
+
+        isUploading = true;
+        uploadAbortController = new AbortController();
+        const currentSignal = uploadAbortController.signal;
+        updateUI(store.state);
+
+        try {
+            const isImage = file.type?.startsWith('image/');
+            const result = isImage
+                ? await store.uploadImage(file, currentSignal)
+                : await store.uploadFile(file, currentSignal);
+
+            if (!currentSignal.aborted) {
+                let fileName = file.name;
+                if (isPasted && (!fileName || fileName === 'image.png' || fileName === 'blob')) {
+                    let ext = 'bin';
+                    if (isImage) {
+                        ext = getExtensionFromMimeType(file.type, 'png');
+                    } else {
+                        const hasExt = file.name?.includes('.') && file.name.split('.').pop() !== 'blob';
+                        ext = hasExt ? file.name.split('.').pop() : getExtensionFromMimeType(file.type, 'bin');
+                    }
+                    fileName = `pasted-file-${Date.now()}.${ext}`;
+                }
+                filesToAttach.push({
+                    type: isImage ? 'image' : 'file',
+                    name: fileName || 'file',
+                    mimeType: file.type || 'application/octet-stream',
+                    fileId: result.id
+                });
+            }
+        } catch (err) {
+            if (err.name !== 'AbortError') {
+                alert(`Failed to upload ${file.name || 'file'}: ${err.message}`);
+            }
+        } finally {
+            uploadAbortController = null;
+            isUploading = false;
+            elements.fileInput.value = '';
+            updateUI(store.state);
+        }
+    };
+
     elements.sendBtn.addEventListener('click', handleSend);
     elements.input.addEventListener('input', () => {
         elements.input.style.height = 'auto';
@@ -533,29 +614,18 @@ export function createChatWindow(container) {
         }
     });
 
+    elements.input.addEventListener('paste', async (e) => {
+        const files = e.clipboardData?.files;
+        if (files && files.length > 0) {
+            e.preventDefault();
+            await handleUpload(files[0], true);
+        }
+    });
+
     elements.attachBtn.addEventListener('click', () => elements.fileInput.click());
     elements.fileInput.addEventListener('change', async (e) => {
         if (e.target.files.length > 0) {
-            const file = e.target.files[0];
-            isUploading = true;
-            uploadAbortController = new AbortController();
-            updateUI(store.state);
-            try {
-                const isImage = file.type.startsWith('image/');
-                const result = isImage 
-                    ? await store.uploadImage(file, uploadAbortController.signal)
-                    : await store.uploadFile(file, uploadAbortController.signal);
-                if (!uploadAbortController.signal.aborted) {
-                    filesToAttach.push({ type: isImage ? 'image' : 'file', name: file.name, mimeType: file.type || 'application/octet-stream', fileId: result.id });
-                }
-            } catch (err) {
-                if (!uploadAbortController?.signal.aborted) alert(`Failed to upload ${file.name}: ${err.message}`);
-            } finally {
-                uploadAbortController = null;
-                isUploading = false;
-                elements.fileInput.value = '';
-                updateUI(store.state);
-            }
+            await handleUpload(e.target.files[0], false);
         }
     });
 
@@ -580,8 +650,8 @@ export function createChatWindow(container) {
         const currentLoading = state.isLoadingHistory?.[state.activeChatId];
         const currentUsersHash = getUsersHash(state);
         const usersChanged = currentUsersHash !== lastProcessedState.usersHash;
-        
-        const hasRelevantChange = 
+
+        const hasRelevantChange =
             state.activeChatId !== lastProcessedState.chatId ||
             currentMsgs.length !== lastProcessedState.msgCount ||
             currentLoading !== lastProcessedState.loading ||
@@ -603,7 +673,7 @@ export function createChatWindow(container) {
                 scrollSignal: state.forceScrollSignal,
                 usersHash: currentUsersHash
             };
-            
+
             updateUI(state);
         }
     });
