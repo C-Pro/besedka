@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"besedka/internal/auth"
@@ -26,6 +27,7 @@ var (
 	bucketSettings           = []byte("settings")
 	bucketVAPIDKeys          = []byte("vapid_keys")
 	bucketPushSubscriptions  = []byte("push_subscriptions")
+	bucketLastSeen           = []byte("last_seen")
 )
 
 type BboltStorage struct {
@@ -67,6 +69,9 @@ func NewBboltStorage(path string, key []byte, fs filestore.FileStore) (*BboltSto
 			return err
 		}
 		if _, err := tx.CreateBucketIfNotExists(bucketPushSubscriptions); err != nil {
+			return err
+		}
+		if _, err := tx.CreateBucketIfNotExists(bucketLastSeen); err != nil {
 			return err
 		}
 		return nil
@@ -671,4 +676,45 @@ func (s *BboltStorage) DeletePushSubscription(userID string, endpoint string) er
 		}
 		return userBucket.Delete([]byte(endpoint))
 	})
+}
+
+// SaveLastSeenBatch stores a batch of last seen entries.
+func (s *BboltStorage) SaveLastSeenBatch(batch []models.LastSeenEntry) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketLastSeen)
+		for _, entry := range batch {
+			key := []byte(entry.UserID + ":" + entry.ChatID)
+			val := make([]byte, 8)
+			binary.BigEndian.PutUint64(val, uint64(entry.Seq))
+			if err := b.Put(key, val); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// ListLastSeen returns all stored last seen entries.
+func (s *BboltStorage) ListLastSeen() ([]models.LastSeenEntry, error) {
+	var result []models.LastSeenEntry
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketLastSeen)
+		return b.ForEach(func(k, v []byte) error {
+			parts := strings.SplitN(string(k), ":", 2)
+			if len(parts) != 2 {
+				return nil
+			}
+			if len(v) < 8 {
+				return nil
+			}
+			seq := binary.BigEndian.Uint64(v)
+			result = append(result, models.LastSeenEntry{
+				UserID: parts[0],
+				ChatID: parts[1],
+				Seq:    int64(seq),
+			})
+			return nil
+		})
+	})
+	return result, err
 }

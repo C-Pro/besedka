@@ -12,6 +12,7 @@ class Store {
             isLoadingHistory: {}, // chatId -> boolean
             userLocations: new Map(), // userId -> { lat, lng, timestamp }
             unreadCounts: {}, // chatId -> count
+            lastSeenSeqs: {}, // chatId -> sequence number
             forceScrollSignal: 0
         };
         this.listeners = [];
@@ -22,6 +23,7 @@ class Store {
         this.heartbeatInterval = null;
         this.locationInterval = null;
         this.locationSharingEnabled = localStorage.getItem('locationSharing') === 'true';
+        this.readReceiptsSent = new Set();
     }
 
     subscribe(listener) {
@@ -114,6 +116,8 @@ class Store {
                     activeChatId: null,
                     unreadCounts: {}
                 });
+
+                this.readReceiptsSent.clear();
 
                 this.updateAppBadge();
 
@@ -287,7 +291,20 @@ class Store {
                 return;
             }
             const chats = await response.json();
-            this.setState({ chats });
+            
+            const lastSeenSeqs = { ...this.state.lastSeenSeqs };
+            const unreadCounts = { ...this.state.unreadCounts };
+            chats.forEach(c => {
+                lastSeenSeqs[c.id] = c.lastSeenSeq !== undefined && c.lastSeenSeq !== null ? c.lastSeenSeq : 0;
+                if (c.id === this.state.activeChatId) {
+                    unreadCounts[c.id] = 0;
+                } else {
+                    unreadCounts[c.id] = Math.max(0, (c.lastSeq || 0) - (c.lastSeenSeq || 0));
+                }
+            });
+
+            this.setState({ chats, lastSeenSeqs, unreadCounts });
+            this.updateAppBadge();
 
             // Set active chat from URL or default to Townhall if none selected
             if (!this.state.activeChatId) {
@@ -335,6 +352,7 @@ class Store {
             if (this.isReconnecting) {
                 this.fetchUsers();
                 this.fetchChats();
+                this.readReceiptsSent.clear();
                 this.isReconnecting = false;
             }
 
@@ -507,7 +525,19 @@ class Store {
         const mergedMessages = Array.from(mergedMap.values());
         mergedMessages.sort((a, b) => a.seq - b.seq);
 
+        const maxSeq = mergedMessages.length > 0 ? mergedMessages[mergedMessages.length - 1].seq : 0;
+        
+        // Update lastSeq for this chat in state
+        const chats = this.state.chats.map(c => {
+            if (c.id === chatId) {
+                const updatedLastSeq = Math.max(c.lastSeq || 0, maxSeq);
+                return { ...c, lastSeq: updatedLastSeq };
+            }
+            return c;
+        });
+
         this.setState({
+            chats,
             messages: {
                 ...this.state.messages,
                 [chatId]: mergedMessages
@@ -518,11 +548,21 @@ class Store {
             }
         });
 
+        if (chatId === this.state.activeChatId && maxSeq > 0) {
+            this.progressLastSeen(chatId, maxSeq);
+        } else {
+            const lastSeen = this.state.lastSeenSeqs[chatId] || 0;
+            const newUnreadCounts = {
+                ...this.state.unreadCounts,
+                [chatId]: Math.max(0, maxSeq - lastSeen)
+            };
+            this.setState({ unreadCounts: newUnreadCounts });
+            this.updateAppBadge();
+        }
+
         // Show local notification if message is from a different chat or tab is hidden
         const isHistoryFetch = currentMessages.length === 0 && newMessages.length > 1;
         if (!wasLoadingHistory && !isHistoryFetch) {
-            let hasNewUnread = false;
-            let newUnreadCount = 0;
             const now = Date.now();
             const lastSeq = currentMessages.length > 0 ? currentMessages[currentMessages.length - 1].seq : 0;
             
@@ -537,22 +577,7 @@ class Store {
                     if (isDifferentChat || isTabHidden) {
                         this.showLocalNotification(chatId, m);
                     }
-                    if (isDifferentChat) {
-                        hasNewUnread = true;
-                        newUnreadCount++;
-                    }
                 }
-            }
-
-            if (hasNewUnread) {
-                const currentUnread = this.state.unreadCounts[chatId] || 0;
-                this.setState({
-                    unreadCounts: {
-                        ...this.state.unreadCounts,
-                        [chatId]: currentUnread + newUnreadCount
-                    }
-                });
-                this.updateAppBadge();
             }
         }
     }
@@ -595,8 +620,8 @@ class Store {
         }
 
         const newUnreadCounts = { ...this.state.unreadCounts };
-        if (chatId && newUnreadCounts[chatId]) {
-            delete newUnreadCounts[chatId];
+        if (chatId) {
+            newUnreadCounts[chatId] = 0;
         }
 
         this.setState({
@@ -606,9 +631,54 @@ class Store {
         });
         this.updateAppBadge();
 
+        // Progress last seen to the chat's lastSeq
+        if (chatId) {
+            const chat = this.state.chats.find(c => c.id === chatId);
+            if (chat && chat.lastSeq !== undefined && chat.lastSeq !== null) {
+                this.progressLastSeen(chatId, chat.lastSeq);
+            }
+        }
+
         // Join new chat
         if (chatId) {
             this.sendWebSocketMessage({ type: 'join', chatId: chatId });
+        }
+    }
+
+    progressLastSeen(chatId, seq) {
+        if (!chatId || seq === undefined || seq === null) return;
+        const currentSeen = this.state.lastSeenSeqs[chatId] !== undefined ? this.state.lastSeenSeqs[chatId] : -1;
+        const alreadySent = this.readReceiptsSent.has(chatId);
+        if (seq > currentSeen || (!alreadySent && seq === currentSeen)) {
+            const newLastSeenSeqs = {
+                ...this.state.lastSeenSeqs,
+                [chatId]: seq
+            };
+            
+            // Recalculate unread counts
+            const newUnreadCounts = { ...this.state.unreadCounts };
+            if (chatId === this.state.activeChatId) {
+                newUnreadCounts[chatId] = 0;
+            } else {
+                const chat = this.state.chats.find(c => c.id === chatId);
+                const lastSeq = chat ? (chat.lastSeq || 0) : 0;
+                newUnreadCounts[chatId] = Math.max(0, lastSeq - seq);
+            }
+            
+            this.setState({
+                lastSeenSeqs: newLastSeenSeqs,
+                unreadCounts: newUnreadCounts
+            });
+            this.updateAppBadge();
+            
+            this.readReceiptsSent.add(chatId);
+            
+            // Send read receipt to the server
+            this.sendWebSocketMessage({
+                type: 'read',
+                chatId: chatId,
+                seq: seq
+            });
         }
     }
 

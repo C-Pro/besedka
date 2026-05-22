@@ -134,7 +134,7 @@ func (c *Connection) mainLoop(ctx context.Context) error {
 
 func (c *Connection) processClientMessage(msg models.ClientMessage) error {
 	switch msg.Type {
-	case models.ClientMessageTypeJoin, models.ClientMessageTypeSend, models.ClientMessageTypeFetch:
+	case models.ClientMessageTypeJoin, models.ClientMessageTypeSend, models.ClientMessageTypeFetch, models.ClientMessageTypeRead:
 		c.hub.Dispatch(c.userID, msg)
 	case models.ClientMessageTypeLocation:
 		c.hub.Dispatch(c.userID, msg)

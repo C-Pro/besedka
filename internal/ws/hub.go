@@ -30,6 +30,11 @@ type pushTask struct {
 	payload []byte
 }
 
+type userChatKey struct {
+	UserID string
+	ChatID string
+}
+
 type Hub struct {
 	chats          map[string]*chat.Chat
 	connectedUsers map[string][]chan models.ServerMessage
@@ -40,6 +45,10 @@ type Hub struct {
 	pushService  PushService
 	pushQueue    chan pushTask
 
+	lastSeenSeq   map[userChatKey]int64
+	changedSeq    []models.LastSeenEntry
+	changedSeqMux sync.Mutex
+
 	mu sync.RWMutex
 }
 
@@ -48,6 +57,8 @@ type storage interface {
 	ListMessages(chatID string, from, to int64) ([]models.Message, error)
 	ListChats() ([]models.Chat, error)
 	UpsertChat(chat models.Chat) error
+	SaveLastSeenBatch(batch []models.LastSeenEntry) error
+	ListLastSeen() ([]models.LastSeenEntry, error)
 }
 
 type userProvider interface {
@@ -68,11 +79,25 @@ func NewHub(ctx context.Context, userProvider userProvider, storage storage, pus
 		storage:        storage,
 		pushService:    pushService,
 		pushQueue:      make(chan pushTask, pushQueueSize),
+		lastSeenSeq:    make(map[userChatKey]int64),
 	}
 
 	for i := 0; i < pushWorkers; i++ {
 		go h.pushWorker(ctx)
 	}
+
+	// Load last seen sequence numbers
+	lastSeen, err := storage.ListLastSeen()
+	if err != nil {
+		slog.Error("failed to load last seen from storage", "error", err)
+	} else {
+		for _, entry := range lastSeen {
+			h.lastSeenSeq[userChatKey{UserID: entry.UserID, ChatID: entry.ChatID}] = entry.Seq
+		}
+	}
+
+	// Start writer goroutine
+	go h.startLastSeenWriter(ctx)
 
 	chats, err := storage.ListChats()
 	if err != nil {
@@ -139,6 +164,7 @@ func (h *Hub) restoreChat(modelChat models.Chat) {
 	}
 
 	if modelChat.LastSeq > 0 {
+		c.LastSeq = chat.Seq(modelChat.LastSeq)
 		from := int64(modelChat.LastSeq) - chatMaxRecords + 1
 		if from < 1 {
 			from = 1
@@ -510,6 +536,8 @@ func (h *Hub) Dispatch(userID string, msg models.ClientMessage) {
 			ChatID:   c.ID,
 			Messages: mapRecordsToMessages(records),
 		})
+	case models.ClientMessageTypeRead:
+		h.UpdateLastSeen(userID, msg.ChatID, msg.Seq)
 	}
 }
 
@@ -554,47 +582,71 @@ func (h *Hub) IsUserOnline(userID string) bool {
 }
 
 func (h *Hub) GetChats(userID string) []models.Chat {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
+	h.mu.Lock()
+	defer h.mu.Unlock()
 
 	var result []models.Chat
+	var newEntries []models.LastSeenEntry
 
 	for id, c := range h.chats {
+		inChat := (id == "townhall") || isUserInDM(userID, id)
+		if !inChat {
+			continue
+		}
+
+		lastSeen, exists := h.lastSeenSeq[userChatKey{UserID: userID, ChatID: c.ID}]
+		if !exists {
+			lastSeen = int64(c.LastSeq)
+			h.lastSeenSeq[userChatKey{UserID: userID, ChatID: c.ID}] = lastSeen
+			newEntries = append(newEntries, models.LastSeenEntry{
+				UserID: userID,
+				ChatID: c.ID,
+				Seq:    lastSeen,
+			})
+		}
+
 		if id == "townhall" {
 			result = append(result, models.Chat{
-				ID:        c.ID,
-				Name:      "Town Hall",
-				AvatarURL: "/besedka.png",
-				LastSeq:   int(c.LastSeq),
+				ID:          c.ID,
+				Name:        "Town Hall",
+				AvatarURL:   "/besedka.png",
+				LastSeq:     int(c.LastSeq),
+				LastSeenSeq: lastSeen,
 			})
 			continue
 		}
 
-		if isUserInDM(userID, id) {
-			parts := strings.Split(id[3:], "_")
-			otherID := parts[0]
-			if otherID == userID {
-				otherID = parts[1]
-			}
-
-			u, err := h.userProvider.GetUser(otherID)
-			if err != nil || u.Status == models.UserStatusDeleted {
-				continue
-			}
-
-			name := u.DisplayName
-			if name == "" {
-				name = "Unknown User"
-			}
-
-			_, online := h.connectedUsers[otherID]
-			result = append(result, models.Chat{
-				ID:     c.ID,
-				Name:   name,
-				IsDM:   true,
-				Online: online,
-			})
+		parts := strings.Split(id[3:], "_")
+		otherID := parts[0]
+		if otherID == userID {
+			otherID = parts[1]
 		}
+
+		u, err := h.userProvider.GetUser(otherID)
+		if err != nil || u.Status == models.UserStatusDeleted {
+			continue
+		}
+
+		name := u.DisplayName
+		if name == "" {
+			name = "Unknown User"
+		}
+
+		_, online := h.connectedUsers[otherID]
+		result = append(result, models.Chat{
+			ID:          c.ID,
+			Name:        name,
+			IsDM:        true,
+			Online:      online,
+			LastSeq:     int(c.LastSeq),
+			LastSeenSeq: lastSeen,
+		})
+	}
+
+	if len(newEntries) > 0 {
+		h.changedSeqMux.Lock()
+		h.changedSeq = append(h.changedSeq, newEntries...)
+		h.changedSeqMux.Unlock()
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -606,8 +658,6 @@ func (h *Hub) GetChats(userID string) []models.Chat {
 			return false
 		}
 		// Everything else is sorted alphabetically.
-		// TODO: order by last message time.
-		// TODO: support pinned (favorite) chats.
 		return result[i].Name < result[j].Name
 	})
 
@@ -722,4 +772,55 @@ func isUserInDM(userID, chatID string) bool {
 		return false
 	}
 	return parts[0] == userID || parts[1] == userID
+}
+
+func (h *Hub) startLastSeenWriter(ctx context.Context) {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			h.flushLastSeen()
+			return
+		case <-ticker.C:
+			h.flushLastSeen()
+		}
+	}
+}
+
+func (h *Hub) flushLastSeen() {
+	h.changedSeqMux.Lock()
+	if len(h.changedSeq) == 0 {
+		h.changedSeqMux.Unlock()
+		return
+	}
+
+	batch := make([]models.LastSeenEntry, len(h.changedSeq))
+	copy(batch, h.changedSeq)
+	h.changedSeq = h.changedSeq[:0]
+	h.changedSeqMux.Unlock()
+
+	if err := h.storage.SaveLastSeenBatch(batch); err != nil {
+		slog.Error("failed to save last seen batch to storage", "error", err)
+	}
+}
+
+func (h *Hub) UpdateLastSeen(userID string, chatID string, seq int64) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	key := userChatKey{UserID: userID, ChatID: chatID}
+	current, exists := h.lastSeenSeq[key]
+	if !exists || seq > current {
+		h.lastSeenSeq[key] = seq
+
+		h.changedSeqMux.Lock()
+		h.changedSeq = append(h.changedSeq, models.LastSeenEntry{
+			UserID: userID,
+			ChatID: chatID,
+			Seq:    seq,
+		})
+		h.changedSeqMux.Unlock()
+	}
 }

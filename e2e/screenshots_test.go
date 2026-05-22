@@ -22,7 +22,7 @@ func TestScreenshots(t *testing.T) {
 	defer func() { _ = browser.Close() }()
 
 	users := []string{"alice", "charlie", "chad", "ivan", "bob"}
-	displayNames := []string{"Alice", "Charlie", "Chad", "Ivan", "Bob"}
+	displayNames := []string{"Alice", "Charlie", "Chad", "Ivan", "Bob Jones"}
 	avatarFiles := []string{
 		"alice.png",
 		"charlie.png",
@@ -40,6 +40,7 @@ func TestScreenshots(t *testing.T) {
 
 	secrets := make(map[string]string)
 
+	// Phase 1: Create and register all users, upload avatars
 	for i, u := range users {
 		t.Logf("Registering user %s", u)
 		setupLink := server.CreateUser(t, u)
@@ -74,6 +75,19 @@ func TestScreenshots(t *testing.T) {
 		err = page.Locator("#profile-modal-close").Click()
 		require.NoError(t, err)
 
+		err = ctx.Close()
+		require.NoError(t, err)
+	}
+
+	// Phase 2: Send messages in Town Hall and DMs
+	for i, u := range users {
+		t.Logf("User %s sending messages...", u)
+		ctx := createBrowserContext(t, browser)
+		page, err := ctx.NewPage()
+		require.NoError(t, err)
+
+		loginViaForm(t, page, server.BaseURL, u, "password123", secrets[u])
+
 		// Send message in Town Hall
 		err = page.Locator(".chat-item:has-text(\"Town Hall\")").Click()
 		require.NoError(t, err)
@@ -86,19 +100,14 @@ func TestScreenshots(t *testing.T) {
 
 		// Alice and Charlie send a DM to Bob for unread badges
 		if u == "alice" || u == "charlie" {
-			err = page.Locator(fmt.Sprintf(".chat-item:has-text(\"%s\")", "Bob")).Click()
-			if err != nil {
-				time.Sleep(500 * time.Millisecond)
-				err = page.Locator(".chat-item:has-text(\"Bob\")").Click()
-			}
-			if err == nil {
-				msg := fmt.Sprintf("Hey Bob! It's %s — you should try the new PWA install! 🚀", displayNames[i])
-				err = page.Locator("#message-input").Fill(msg)
-				require.NoError(t, err)
-				err = page.Locator("#send-btn").Click()
-				require.NoError(t, err)
-				time.Sleep(300 * time.Millisecond)
-			}
+			err = page.Locator(".chat-item:has-text(\"Bob Jones\")").Click()
+			require.NoError(t, err)
+			msg := fmt.Sprintf("Hey Bob! It's %s — you should try the new PWA install! 🚀", displayNames[i])
+			err = page.Locator("#message-input").Fill(msg)
+			require.NoError(t, err)
+			err = page.Locator("#send-btn").Click()
+			require.NoError(t, err)
+			time.Sleep(300 * time.Millisecond)
 		}
 
 		err = ctx.Close()
@@ -116,6 +125,12 @@ func TestScreenshots(t *testing.T) {
 
 	desktopPage, err := desktopCtx.NewPage()
 	require.NoError(t, err)
+
+	// Wait for TOTP to rotate so the desktop login doesn't hit replay protection
+	prevCode := getTOTP(t, secrets["bob"])
+	for getTOTP(t, secrets["bob"]) == prevCode {
+		time.Sleep(1 * time.Second)
+	}
 
 	loginViaForm(t, desktopPage, server.BaseURL, "bob", "password123", secrets["bob"])
 

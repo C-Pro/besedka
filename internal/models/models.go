@@ -54,12 +54,20 @@ type Presence struct {
 
 // Chat represents a chat conversation.
 type Chat struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	AvatarURL string `json:"avatarUrl,omitempty"`
-	LastSeq   int    `json:"lastSeq"` // Last message sequence number (used to backfill messages and show unread count)
-	IsDM      bool   `json:"isDm"`
-	Online    bool   `json:"online,omitempty"` // Optional, for DMs
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	AvatarURL   string `json:"avatarUrl,omitempty"`
+	LastSeq     int    `json:"lastSeq"` // Last message sequence number (used to backfill messages and show unread count)
+	IsDM        bool   `json:"isDm"`
+	Online      bool   `json:"online,omitempty"` // Optional, for DMs
+	LastSeenSeq int64  `json:"lastSeenSeq"`      // Persistent last seen sequence number
+}
+
+// LastSeenEntry represents a persisted last seen sequence number.
+type LastSeenEntry struct {
+	UserID string `json:"userId"`
+	ChatID string `json:"chatId"`
+	Seq    int64  `json:"seq"`
 }
 
 // Message represents a chat message.
@@ -94,6 +102,7 @@ type ClientMessage struct {
 	FromSeq     int64             `json:"fromSeq,omitempty"`
 	ToSeq       int64             `json:"toSeq,omitempty"`
 	Location    *Location         `json:"location,omitempty"`
+	Seq         int64             `json:"seq,omitempty"` // Sequence number for read receipts
 }
 
 // ServerMessage represents a message to the client.
@@ -131,6 +140,7 @@ const (
 	ClientMessageTypeFetch    ClientMessageType = "fetch"
 	ClientMessageTypePong     ClientMessageType = "pong"
 	ClientMessageTypeLocation ClientMessageType = "location"
+	ClientMessageTypeRead     ClientMessageType = "read"
 )
 
 type ServerMessageType string

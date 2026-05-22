@@ -4,6 +4,7 @@ import (
 	"besedka/internal/models"
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 )
@@ -30,6 +31,8 @@ func (m *MockUserProvider) GetUser(id string) (models.User, error) {
 type MockStorage struct {
 	messages map[string][]models.Message
 	chats    map[string]models.Chat
+	lastSeen []models.LastSeenEntry
+	mu       sync.Mutex
 }
 
 func NewMockStorage() *MockStorage {
@@ -67,6 +70,33 @@ func (m *MockStorage) ListChats() ([]models.Chat, error) {
 func (m *MockStorage) UpsertChat(chat models.Chat) error {
 	m.chats[chat.ID] = chat
 	return nil
+}
+
+func (m *MockStorage) SaveLastSeenBatch(batch []models.LastSeenEntry) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, entry := range batch {
+		found := false
+		for i, existing := range m.lastSeen {
+			if existing.UserID == entry.UserID && existing.ChatID == entry.ChatID {
+				m.lastSeen[i].Seq = entry.Seq
+				found = true
+				break
+			}
+		}
+		if !found {
+			m.lastSeen = append(m.lastSeen, entry)
+		}
+	}
+	return nil
+}
+
+func (m *MockStorage) ListLastSeen() ([]models.LastSeenEntry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	copied := make([]models.LastSeenEntry, len(m.lastSeen))
+	copy(copied, m.lastSeen)
+	return copied, nil
 }
 
 type MockPushService struct{}
@@ -837,5 +867,114 @@ func TestHub_LocationBroadcast(t *testing.T) {
 		case <-timeout:
 			t.Fatal("Timeout waiting for bulk location on new user join")
 		}
+	}
+}
+
+func TestHub_ReadReceipts(t *testing.T) {
+	provider := &MockUserProvider{
+		users: []models.User{
+			{ID: "u1", DisplayName: "User 1"},
+			{ID: "u2", DisplayName: "User 2"},
+		},
+	}
+	store := NewMockStorage()
+
+	// 1. Setup pre-existing read receipt in database
+	preLastSeen := []models.LastSeenEntry{
+		{UserID: "u1", ChatID: "townhall", Seq: 5},
+	}
+	_ = store.SaveLastSeenBatch(preLastSeen)
+
+	// Setup townhall chat in store
+	_ = store.UpsertChat(models.Chat{
+		ID:      "townhall",
+		Name:    "Town Hall",
+		LastSeq: 10,
+	})
+
+	h := NewHub(context.Background(), provider, store, &MockPushService{})
+
+	// Verify loaded last seen
+	h.mu.RLock()
+	val, exists := h.lastSeenSeq[userChatKey{UserID: "u1", ChatID: "townhall"}]
+	h.mu.RUnlock()
+	if !exists || val != 5 {
+		t.Fatalf("expected last seen seq to be loaded as 5, got: exists=%v, val=%d", exists, val)
+	}
+
+	// 2. Test GetChats returning LastSeenSeq
+	chats := h.GetChats("u1")
+	var townhallChat *models.Chat
+	for i := range chats {
+		if chats[i].ID == "townhall" {
+			townhallChat = &chats[i]
+		}
+	}
+	if townhallChat == nil {
+		t.Fatal("townhall chat not found in GetChats")
+	}
+	if townhallChat.LastSeenSeq != 5 {
+		t.Errorf("expected LastSeenSeq 5, got %d", townhallChat.LastSeenSeq)
+	}
+
+	// Verify default to LastSeq when no last seen exists (e.g. for User 2)
+	chats2 := h.GetChats("u2")
+	var townhallChat2 *models.Chat
+	for i := range chats2 {
+		if chats2[i].ID == "townhall" {
+			townhallChat2 = &chats2[i]
+		}
+	}
+	if townhallChat2 == nil {
+		t.Fatal("townhall chat not found in GetChats for u2")
+	}
+	if townhallChat2.LastSeenSeq != 10 {
+		t.Errorf("expected LastSeenSeq to default to LastSeq 10 for u2, got %d", townhallChat2.LastSeenSeq)
+	}
+
+	// 3. Test progress of last seen via Dispatch
+	h.Dispatch("u1", models.ClientMessage{
+		Type:   models.ClientMessageTypeRead,
+		ChatID: "townhall",
+		Seq:    8,
+	})
+
+	h.mu.RLock()
+	val, exists = h.lastSeenSeq[userChatKey{UserID: "u1", ChatID: "townhall"}]
+	h.mu.RUnlock()
+	if !exists || val != 8 {
+		t.Fatalf("expected progressed last seen seq to be 8, got %d", val)
+	}
+
+	// Test that we cannot regress it
+	h.Dispatch("u1", models.ClientMessage{
+		Type:   models.ClientMessageTypeRead,
+		ChatID: "townhall",
+		Seq:    4,
+	})
+
+	h.mu.RLock()
+	val, exists = h.lastSeenSeq[userChatKey{UserID: "u1", ChatID: "townhall"}]
+	h.mu.RUnlock()
+	if !exists || val != 8 {
+		t.Fatalf("expected last seen seq to stay 8, got %d", val)
+	}
+
+	// 4. Test database write on flush
+	h.flushLastSeen()
+
+	dbList, err := store.ListLastSeen()
+	if err != nil {
+		t.Fatalf("ListLastSeen failed: %v", err)
+	}
+
+	var updatedEntry *models.LastSeenEntry
+	for i := range dbList {
+		if dbList[i].UserID == "u1" && dbList[i].ChatID == "townhall" {
+			updatedEntry = &dbList[i]
+		}
+	}
+	if updatedEntry == nil || updatedEntry.Seq != 8 {
+		t.Errorf("expected database to have been updated to seq 8 on flush, got: %+v", updatedEntry)
 	}
 }
