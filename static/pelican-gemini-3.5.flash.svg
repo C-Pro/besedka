@@ -1,0 +1,251 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="100%" height="100%">
+  <!-- Definitions for Gradients and Filters -->
+  <defs>
+    <!-- Background Gradient: soft sky-like pastel radial gradient -->
+    <radialGradient id="bgGrad" cx="50%" cy="50%" r="75%">
+      <stop offset="0%" stop-color="#F5F7FB" />
+      <stop offset="60%" stop-color="#E4ECF5" />
+      <stop offset="100%" stop-color="#D5E0EC" />
+    </radialGradient>
+
+    <!-- Beak Gradient: warm bright orange -->
+    <linearGradient id="beakGrad" x1="0%" y1="0%" x2="100%" y2="50%">
+      <stop offset="0%" stop-color="#FF9F43" />
+      <stop offset="100%" stop-color="#FF5252" />
+    </linearGradient>
+
+    <!-- Pouch Gradient: lighter semi-translucent warm orange -->
+    <linearGradient id="pouchGrad" x1="0%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#FFEAA7" />
+      <stop offset="100%" stop-color="#FFB142" />
+    </linearGradient>
+
+    <!-- Pelican Body Gradient: clean whites and cool shadows -->
+    <linearGradient id="bodyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="80%" stop-color="#F1F2F6" />
+      <stop offset="100%" stop-color="#DFE4EA" />
+    </linearGradient>
+
+    <!-- Pelican Shadow Gradient -->
+    <linearGradient id="bodyShadow" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#DFE4EA" stop-opacity="1" />
+      <stop offset="100%" stop-color="#CED6E0" stop-opacity="1" />
+    </linearGradient>
+
+    <!-- Bike Frame Gradient: premium gradient from bright neon teal to deep purple-blue -->
+    <linearGradient id="frameGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00D2D3" />
+      <stop offset="50%" stop-color="#00A8FF" />
+      <stop offset="100%" stop-color="#5F27CD" />
+    </linearGradient>
+
+    <!-- Helmet Gradient: sporty coral pink/red -->
+    <linearGradient id="helmetGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#FF4757" />
+      <stop offset="100%" stop-color="#FF6B81" />
+    </linearGradient>
+
+    <!-- Wheel Rim Gradient: dark metallic chrome -->
+    <linearGradient id="rimGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#747D8C" />
+      <stop offset="100%" stop-color="#2F3542" />
+    </linearGradient>
+
+    <!-- Drop Shadow Filter for depth -->
+    <filter id="dropShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="4" dy="8" stdDeviation="6" flood-color="#2C3E50" flood-opacity="0.12" />
+    </filter>
+    
+    <filter id="bikeShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="10" stdDeviation="5" flood-color="#1E272E" flood-opacity="0.15" />
+    </filter>
+  </defs>
+
+  <!-- Background Card -->
+  <rect width="100%" height="100%" fill="url(#bgGrad)" rx="24" />
+
+  <!-- Speed and Motion Lines in the sky/background -->
+  <g stroke="#FFFFFF" stroke-linecap="round" stroke-width="4" opacity="0.6">
+    <line x1="80" y1="120" x2="240" y2="120" stroke-dasharray="15 15 35 15" />
+    <line x1="50" y1="180" x2="170" y2="180" stroke-dasharray="20 15 5" />
+    <line x1="120" y1="80" x2="210" y2="80" stroke-dasharray="25 15" />
+    <line x1="600" y1="100" x2="740" y2="100" stroke-dasharray="30 20 10" />
+    <line x1="640" y1="160" x2="750" y2="160" stroke-dasharray="15 25" />
+    <line x1="70" y1="360" x2="190" y2="360" stroke-dasharray="40 25" opacity="0.3" />
+  </g>
+
+  <!-- Ground Shadows -->
+  <ellipse cx="400" cy="530" rx="300" ry="18" fill="#2C3E50" opacity="0.1" />
+  <ellipse cx="250" cy="520" rx="95" ry="10" fill="#2C3E50" opacity="0.18" />
+  <ellipse cx="550" cy="520" rx="95" ry="10" fill="#2C3E50" opacity="0.18" />
+
+  <!-- Road Line -->
+  <line x1="80" y1="520" x2="720" y2="520" stroke="#747D8C" stroke-width="4" stroke-dasharray="25 20" stroke-linecap="round" opacity="0.4" />
+
+  <!-- ================= BICYCLE PARTS ================= -->
+  
+  <!-- Rear Wheel -->
+  <g id="rear-wheel" filter="url(#bikeShadow)">
+    <!-- Outer Tire -->
+    <circle cx="250" cy="450" r="70" fill="none" stroke="#2F3542" stroke-width="12" />
+    <!-- Rim -->
+    <circle cx="250" cy="450" r="62" fill="none" stroke="url(#rimGrad)" stroke-width="4" />
+    <!-- Inner Rim Detail -->
+    <circle cx="250" cy="450" r="58" fill="none" stroke="#747D8C" stroke-width="1" opacity="0.4" />
+    <!-- Spokes -->
+    <path d="M 250 380 L 250 520 M 180 450 L 320 450 M 200 400 L 300 500 M 200 500 L 300 400" stroke="#A4B0BE" stroke-width="1.5" opacity="0.6" />
+    <path d="M 250 380 L 250 520 M 180 450 L 320 450 M 200 400 L 300 500 M 200 500 L 300 400" stroke="#A4B0BE" stroke-width="1.5" opacity="0.6" transform="rotate(22.5 250 450)" />
+    <!-- Hub -->
+    <circle cx="250" cy="450" r="14" fill="#747D8C" stroke="#2F3542" stroke-width="3" />
+  </g>
+
+  <!-- Front Wheel -->
+  <g id="front-wheel" filter="url(#bikeShadow)">
+    <!-- Outer Tire -->
+    <circle cx="550" cy="450" r="70" fill="none" stroke="#2F3542" stroke-width="12" />
+    <!-- Rim -->
+    <circle cx="550" cy="450" r="62" fill="none" stroke="url(#rimGrad)" stroke-width="4" />
+    <!-- Inner Rim Detail -->
+    <circle cx="550" cy="450" r="58" fill="none" stroke="#747D8C" stroke-width="1" opacity="0.4" />
+    <!-- Spokes -->
+    <path d="M 550 380 L 550 520 M 480 450 L 620 450 M 500 400 L 600 500 M 500 500 L 600 400" stroke="#A4B0BE" stroke-width="1.5" opacity="0.6" />
+    <path d="M 550 380 L 550 520 M 480 450 L 620 450 M 500 400 L 600 500 M 500 500 L 600 400" stroke="#A4B0BE" stroke-width="1.5" opacity="0.6" transform="rotate(22.5 550 450)" />
+    <!-- Hub -->
+    <circle cx="550" cy="450" r="14" fill="#747D8C" stroke="#2F3542" stroke-width="3" />
+  </g>
+
+  <!-- Bicycle Frame & Mechanicals -->
+  <g id="bike-frame">
+    <!-- Chain / Chainring / Chainstay -->
+    <!-- Chainring -->
+    <circle cx="400" cy="450" r="24" fill="none" stroke="#747D8C" stroke-width="4" />
+    <circle cx="400" cy="450" r="18" fill="none" stroke="#2F3542" stroke-width="2" />
+    <!-- Chain -->
+    <path d="M 250 442 L 400 426 A 24 24 0 0 1 400 474 L 250 458 A 10 10 0 0 1 250 442" fill="none" stroke="#57606F" stroke-width="4" stroke-linejoin="round" opacity="0.8" />
+
+    <!-- Main Frame Tubes (Gradient styled thick lines) -->
+    <!-- Chain stay: Rear Hub (250,450) to BB (400,450) -->
+    <line x1="250" y1="450" x2="400" y2="450" stroke="url(#frameGrad)" stroke-width="10" stroke-linecap="round" />
+    <!-- Seat stay: Rear Hub (250,450) to Seat clamp (350,330) -->
+    <line x1="250" y1="450" x2="350" y2="330" stroke="url(#frameGrad)" stroke-width="8" stroke-linecap="round" />
+    <!-- Seat tube: BB (400,450) to Seat clamp (350,330) -->
+    <line x1="400" y1="450" x2="350" y2="330" stroke="url(#frameGrad)" stroke-width="10" stroke-linecap="round" />
+    <!-- Down tube: BB (400,450) to Head tube (500,310) -->
+    <line x1="400" y1="450" x2="500" y2="310" stroke="url(#frameGrad)" stroke-width="12" stroke-linecap="round" />
+    <!-- Top tube: Seat clamp (350,330) to Head tube (500,310) -->
+    <line x1="350" y1="330" x2="500" y2="310" stroke="url(#frameGrad)" stroke-width="10" stroke-linecap="round" />
+    <!-- Head tube: (500,310) to (510,280) -->
+    <line x1="500" y1="310" x2="510" y2="280" stroke="url(#frameGrad)" stroke-width="12" stroke-linecap="round" />
+
+    <!-- Front Fork: Head tube (510,280) to Front Hub (550,450) -->
+    <line x1="510" y1="280" x2="550" y2="450" stroke="url(#frameGrad)" stroke-width="10" stroke-linecap="round" />
+
+    <!-- Seat Post & Saddle -->
+    <line x1="350" y1="330" x2="345" y2="305" stroke="#747D8C" stroke-width="6" stroke-linecap="round" />
+    <!-- Saddle / Seat -->
+    <path d="M 310 305 C 310 295, 330 295, 365 295 C 375 295, 385 300, 380 307 C 375 312, 350 310, 340 310 C 330 310, 310 310, 310 305 Z" fill="#2F3542" />
+
+    <!-- Stem & Handlebars -->
+    <!-- Stem: Head tube (510,280) to Handlebar clamp (515,240) -->
+    <line x1="510" y1="280" x2="515" y2="240" stroke="#747D8C" stroke-width="8" stroke-linecap="round" />
+    <!-- Handlebar curve -->
+    <path d="M 515 240 Q 525 240, 535 245 T 550 255" fill="none" stroke="#2F3542" stroke-width="8" stroke-linecap="round" />
+    <!-- Grip -->
+    <path d="M 545 255 L 555 260" stroke="#747D8C" stroke-width="10" stroke-linecap="round" />
+  </g>
+
+  <!-- ================= RIDER BACK LEG ================= -->
+  <!-- Leg positioned behind the bicycle frame -->
+  <g id="back-leg" opacity="0.85">
+    <!-- Upper Leg -->
+    <line x1="370" y1="290" x2="350" y2="380" stroke="#FFA801" stroke-width="13" stroke-linecap="round" />
+    <!-- Lower Leg -->
+    <line x1="350" y1="380" x2="370" y2="425" stroke="#FFA801" stroke-width="10" stroke-linecap="round" />
+    <!-- Webbed Foot -->
+    <path d="M 350 425 Q 370 425, 390 432 L 385 440 Q 360 435, 350 430 Z" fill="#E67E22" />
+    <!-- Back Pedal Crank (connects BB at 400,450 to 370,425) -->
+    <line x1="400" y1="450" x2="370" y2="425" stroke="#747D8C" stroke-width="4" stroke-linecap="round" />
+    <rect x="355" y="422" width="28" height="6" rx="2" fill="#2F3542" transform="rotate(-15 370 425)" />
+  </g>
+
+  <!-- ================= THE PELICAN ================= -->
+  <g id="pelican" filter="url(#dropShadow)">
+    <!-- Tail Feathers -->
+    <path d="M 250 260 C 230 260, 220 230, 240 220 C 250 215, 270 230, 280 245 Z" fill="url(#bodyGrad)" />
+    <path d="M 240 270 C 220 275, 215 250, 230 240 C 240 235, 260 250, 270 260 Z" fill="#DFE4EA" />
+
+    <!-- Body Oval (Tilted & curvy) -->
+    <path d="M 270 280 C 250 230, 310 180, 380 190 C 430 197, 435 240, 420 280 C 400 320, 300 320, 270 280 Z" fill="url(#bodyGrad)" />
+    <!-- Belly Shadow Layer -->
+    <path d="M 285 295 C 310 325, 390 325, 415 285 C 418 280, 420 275, 420 280 C 400 320, 300 320, 270 280 C 270 285, 280 290, 285 295 Z" fill="url(#bodyShadow)" opacity="0.75" />
+
+    <!-- Neck: S-curve up from body -->
+    <path d="M 375 200 C 375 140, 400 110, 420 110 C 435 110, 445 125, 435 150 C 425 170, 410 190, 395 202 Z" fill="url(#bodyGrad)" />
+
+    <!-- Head -->
+    <circle cx="430" cy="115" r="30" fill="url(#bodyGrad)" />
+
+    <!-- Huge Pelican Gular Pouch -->
+    <path d="M 445 128 C 445 160, 470 210, 520 205 C 550 202, 575 165, 585 145 C 590 138, 590 135, 580 135 C 530 135, 465 130, 445 128 Z" fill="url(#pouchGrad)" />
+    <!-- Upper Beak (Solid Orange with curved tip) -->
+    <path d="M 440 105 C 470 102, 530 110, 585 130 C 595 133, 595 137, 590 140 Q 582 142, 578 136 C 530 123, 470 118, 442 120 Z" fill="url(#beakGrad)" />
+    <!-- Beak Detail Separation Line -->
+    <path d="M 452 120 Q 510 120, 576 133" fill="none" stroke="#D35400" stroke-width="2.5" stroke-linecap="round" opacity="0.5" />
+
+    <!-- Friendly Pelican Eye -->
+    <circle cx="440" cy="100" r="7" fill="#2C3E50" />
+    <circle cx="442" cy="98" r="2.5" fill="#FFFFFF" />
+
+    <!-- Sporty Retro Helmet -->
+    <!-- Helmet Outer Shell -->
+    <path d="M 405 105 C 402 82, 425 70, 452 75 C 465 77, 470 90, 465 102 L 405 105 Z" fill="url(#helmetGrad)" />
+    <!-- Helmet Stripe -->
+    <path d="M 425 72 C 430 73, 435 85, 435 104" fill="none" stroke="#FFFFFF" stroke-width="5" opacity="0.9" />
+    <!-- Helmet Strap -->
+    <path d="M 412 104 Q 420 125, 435 124" fill="none" stroke="#2F3542" stroke-width="3" stroke-linecap="round" />
+    <!-- Helmet Visor / Bill -->
+    <path d="M 458 90 Q 468 92, 472 98" fill="none" stroke="#2C3E50" stroke-width="4" stroke-linecap="round" />
+
+    <!-- Front Leg & Foot (In foreground) -->
+    <g id="front-leg">
+      <!-- Upper Leg -->
+      <line x1="385" y1="300" x2="430" y2="370" stroke="#FF9F43" stroke-width="15" stroke-linecap="round" />
+      <!-- Lower Leg -->
+      <line x1="430" y1="370" x2="430" y2="475" stroke="#FF9F43" stroke-width="11" stroke-linecap="round" />
+      <!-- Knee Joint Cap -->
+      <circle cx="430" cy="370" r="8" fill="#FF8F13" />
+      <!-- Webbed Foot flat on pedal -->
+      <path d="M 410 472 C 420 472, 445 474, 455 477 C 452 483, 420 481, 410 477 Z" fill="#FF5722" />
+      <!-- Front Pedal Crank (connects BB at 400,450 to 430,475) -->
+      <line x1="400" y1="450" x2="430" y2="475" stroke="#747D8C" stroke-width="4" stroke-linecap="round" />
+      <!-- Front Pedal -->
+      <rect x="415" y="472" width="30" height="6" rx="2" fill="#2F3542" transform="rotate(15 430 475)" />
+    </g>
+
+    <!-- Foreground Wing (Extended holding the handlebar) -->
+    <g id="foreground-wing">
+      <!-- Main Wing shape -->
+      <path d="M 330 220 C 370 215, 440 220, 520 235 C 530 237, 535 248, 520 255 C 470 270, 360 275, 320 250 C 310 240, 315 220, 330 220 Z" fill="url(#bodyGrad)" />
+      <!-- Wing feather layers -->
+      <path d="M 350 235 C 380 236, 420 242, 485 248" fill="none" stroke="#DFE4EA" stroke-width="3" stroke-linecap="round" />
+      <path d="M 360 250 C 390 252, 420 256, 460 260" fill="none" stroke="#DFE4EA" stroke-width="3" stroke-linecap="round" />
+      <!-- Wing Tip curved around handlebar grip -->
+      <path d="M 520 235 C 528 237, 535 245, 530 252 C 525 258, 517 255, 515 248" fill="none" stroke="url(#bodyGrad)" stroke-width="8" stroke-linecap="round" />
+    </g>
+  </g>
+
+  <!-- ================= FOREGROUND SPEED & ACTION EFFECTS ================= -->
+  <g stroke="#FFFFFF" stroke-linecap="round" stroke-width="3" opacity="0.8">
+    <!-- Effort sparkles near the helmet -->
+    <path d="M 400 65 L 405 50 M 415 60 L 428 55" stroke="#FFA801" stroke-width="2.5" />
+    
+    <!-- Action/Wind lines below bike -->
+    <line x1="200" y1="500" x2="350" y2="500" stroke-dasharray="15 15" opacity="0.4" />
+    <line x1="450" y1="505" x2="580" y2="505" stroke-dasharray="10 20" opacity="0.4" />
+
+    <!-- Cute cartoon dust puffs kicked up by the rear wheel -->
+    <path d="M 160 515 C 150 515, 145 505, 155 498 C 160 495, 170 500, 172 505 C 178 503, 185 508, 182 513 C 180 516, 170 515, 160 515 Z" fill="#FFFFFF" opacity="0.6" />
+    <path d="M 135 520 C 130 520, 127 512, 134 507 C 138 505, 145 508, 145 512 C 150 511, 154 515, 151 519 C 150 521, 140 520, 135 520 Z" fill="#FFFFFF" opacity="0.4" />
+  </g>
+</svg>

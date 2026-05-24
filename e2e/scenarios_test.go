@@ -32,6 +32,27 @@ func TestE2EMainFlow(t *testing.T) {
 	aliceContext := createBrowserContext(t, browser)
 	alicePage, err := aliceContext.NewPage()
 	require.NoError(t, err)
+
+	// Mock navigator.setAppBadge / navigator.clearAppBadge to test PWA badge updates
+	err = alicePage.AddInitScript(playwright.Script{
+		Content: playwright.String(`
+			window.__appBadgeCount = 0;
+			navigator.setAppBadge = async (count) => {
+				console.log("MOCK setAppBadge called with:", count);
+				window.__appBadgeCount = count;
+			};
+			navigator.clearAppBadge = async () => {
+				console.log("MOCK clearAppBadge called");
+				window.__appBadgeCount = 0;
+			};
+		`),
+	})
+	require.NoError(t, err)
+
+	alicePage.On("console", func(msg playwright.ConsoleMessage) {
+		t.Logf("BROWSER CONSOLE: %s", msg.Text())
+	})
+
 	registerUser(t, alicePage, aliceSetupLink, "Alice Smith", "password123")
 
 	// 3. Register Bob
@@ -117,6 +138,29 @@ func TestE2EMainFlow(t *testing.T) {
 		return err == nil && strings.TrimSpace(badge) == "1"
 	}, 5*time.Second, 200*time.Millisecond)
 
+	// Helper to safely get the badge count as int from window.__appBadgeCount
+	getIntVal := func(page playwright.Page, expr string) int {
+		val, err := page.Evaluate(expr)
+		if err != nil {
+			return -1
+		}
+		if f, ok := val.(float64); ok {
+			return int(f)
+		}
+		if i, ok := val.(int); ok {
+			return i
+		}
+		if i64, ok := val.(int64); ok {
+			return int(i64)
+		}
+		return -1
+	}
+
+	// Verify navigator.setAppBadge was called with 1
+	require.Eventually(t, func() bool {
+		return getIntVal(alicePage, "window.__appBadgeCount") == 1
+	}, 5*time.Second, 200*time.Millisecond)
+
 	t.Log("Bob sends a third message...")
 	bobMsg3 := "Hellooo?"
 	err = bobPage.Locator("#message-input").Fill(bobMsg3)
@@ -130,6 +174,11 @@ func TestE2EMainFlow(t *testing.T) {
 		return err == nil && strings.TrimSpace(badge) == "2"
 	}, 5*time.Second, 200*time.Millisecond)
 
+	// Verify navigator.setAppBadge was called with 2
+	require.Eventually(t, func() bool {
+		return getIntVal(alicePage, "window.__appBadgeCount") == 2
+	}, 5*time.Second, 200*time.Millisecond)
+
 	t.Log("Alice switches back to Bob's chat...")
 	err = bobChatLocator.Click()
 	require.NoError(t, err)
@@ -138,6 +187,54 @@ func TestE2EMainFlow(t *testing.T) {
 	require.Eventually(t, func() bool {
 		count, _ := bobChatLocator.Locator(".unread-badge").Count()
 		return count == 0
+	}, 5*time.Second, 200*time.Millisecond)
+
+	// Verify navigator.clearAppBadge cleared the badge count (0)
+	require.Eventually(t, func() bool {
+		return getIntVal(alicePage, "window.__appBadgeCount") == 0
+	}, 5*time.Second, 200*time.Millisecond)
+
+	// 5. Test unread count > 99 displaying as 99+
+	t.Log("Alice switches back to Town Hall to test 99+ badges...")
+	err = alicePage.Locator(".chat-item:has-text(\"Town Hall\")").Click()
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		content, _ := alicePage.Locator(".chat-header h3").InnerHTML()
+		return strings.Contains(content, "Town Hall")
+	}, 5*time.Second, 200*time.Millisecond)
+
+	t.Log("Bob sends 100 messages to test 99+ display...")
+	for idx := 1; idx <= 100; idx++ {
+		err = bobPage.Locator("#message-input").Fill(fmt.Sprintf("Spam message %d", idx))
+		require.NoError(t, err)
+		err = bobPage.Locator("#send-btn").Click()
+		require.NoError(t, err)
+	}
+
+	t.Log("Alice should see an unread badge with '99+'...")
+	require.Eventually(t, func() bool {
+		badge, err := bobChatLocator.Locator(".unread-badge").InnerText()
+		return err == nil && strings.TrimSpace(badge) == "99+"
+	}, 10*time.Second, 200*time.Millisecond)
+
+	t.Log("Alice's AppBadge count should be 100...")
+	require.Eventually(t, func() bool {
+		return getIntVal(alicePage, "window.__appBadgeCount") == 100
+	}, 5*time.Second, 200*time.Millisecond)
+
+	t.Log("Alice switches back to Bob's chat to clear the 99+ badge...")
+	err = bobChatLocator.Click()
+	require.NoError(t, err)
+
+	t.Log("Unread badge should disappear...")
+	require.Eventually(t, func() bool {
+		count, _ := bobChatLocator.Locator(".unread-badge").Count()
+		return count == 0
+	}, 5*time.Second, 200*time.Millisecond)
+
+	require.Eventually(t, func() bool {
+		return getIntVal(alicePage, "window.__appBadgeCount") == 0
 	}, 5*time.Second, 200*time.Millisecond)
 }
 

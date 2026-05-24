@@ -292,8 +292,8 @@ class Store {
             }
             const chats = await response.json();
             
-            const lastSeenSeqs = { ...this.state.lastSeenSeqs };
-            const unreadCounts = { ...this.state.unreadCounts };
+            const lastSeenSeqs = {};
+            const unreadCounts = {};
             chats.forEach(c => {
                 lastSeenSeqs[c.id] = c.lastSeenSeq !== undefined && c.lastSeenSeq !== null ? c.lastSeenSeq : 0;
                 if (c.id === this.state.activeChatId) {

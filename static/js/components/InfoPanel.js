@@ -28,7 +28,7 @@ export function createInfoPanel(container, store) {
                         <span class="ios-toggle-slider"></span>
                     </label>
                 </div>
-                <div id="location-map" class="location-map-container" style="width: 100%; height: 200px; background: var(--bg-secondary); border-radius: 8px; overflow: hidden; position: relative;">
+                <div id="location-map" class="location-map-container" style="width: 100%; height: 200px; background: #0f172a; border-radius: 8px; overflow: hidden; position: relative;">
                 </div>
             </div>
         </div>

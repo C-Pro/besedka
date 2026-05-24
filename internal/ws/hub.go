@@ -581,11 +581,18 @@ func (h *Hub) IsUserOnline(userID string) bool {
 	return ok
 }
 
+type chatSnapshot struct {
+	ID          string
+	LastSeq     int64
+	LastSeenSeq int64
+	IsDM        bool
+	OtherID     string
+}
+
 func (h *Hub) GetChats(userID string) []models.Chat {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 
-	var result []models.Chat
+	var snapshots []chatSnapshot
 	var newEntries []models.LastSeenEntry
 
 	for id, c := range h.chats {
@@ -605,24 +612,48 @@ func (h *Hub) GetChats(userID string) []models.Chat {
 			})
 		}
 
-		if id == "townhall" {
+		snap := chatSnapshot{
+			ID:          c.ID,
+			LastSeq:     int64(c.LastSeq),
+			LastSeenSeq: lastSeen,
+			IsDM:        id != "townhall",
+		}
+
+		if snap.IsDM {
+			parts := strings.Split(id[3:], "_")
+			otherID := parts[0]
+			if otherID == userID {
+				otherID = parts[1]
+			}
+			snap.OtherID = otherID
+		}
+
+		snapshots = append(snapshots, snap)
+	}
+
+	if len(newEntries) > 0 {
+		h.changedSeqMux.Lock()
+		h.changedSeq = append(h.changedSeq, newEntries...)
+		h.changedSeqMux.Unlock()
+	}
+
+	h.mu.Unlock()
+
+	var result []models.Chat
+
+	for _, snap := range snapshots {
+		if !snap.IsDM {
 			result = append(result, models.Chat{
-				ID:          c.ID,
+				ID:          snap.ID,
 				Name:        "Town Hall",
 				AvatarURL:   "/besedka.png",
-				LastSeq:     int(c.LastSeq),
-				LastSeenSeq: lastSeen,
+				LastSeq:     int(snap.LastSeq),
+				LastSeenSeq: snap.LastSeenSeq,
 			})
 			continue
 		}
 
-		parts := strings.Split(id[3:], "_")
-		otherID := parts[0]
-		if otherID == userID {
-			otherID = parts[1]
-		}
-
-		u, err := h.userProvider.GetUser(otherID)
+		u, err := h.userProvider.GetUser(snap.OtherID)
 		if err != nil || u.Status == models.UserStatusDeleted {
 			continue
 		}
@@ -632,21 +663,18 @@ func (h *Hub) GetChats(userID string) []models.Chat {
 			name = "Unknown User"
 		}
 
-		_, online := h.connectedUsers[otherID]
+		h.mu.Lock()
+		_, online := h.connectedUsers[snap.OtherID]
+		h.mu.Unlock()
+
 		result = append(result, models.Chat{
-			ID:          c.ID,
+			ID:          snap.ID,
 			Name:        name,
 			IsDM:        true,
 			Online:      online,
-			LastSeq:     int(c.LastSeq),
-			LastSeenSeq: lastSeen,
+			LastSeq:     int(snap.LastSeq),
+			LastSeenSeq: snap.LastSeenSeq,
 		})
-	}
-
-	if len(newEntries) > 0 {
-		h.changedSeqMux.Lock()
-		h.changedSeq = append(h.changedSeq, newEntries...)
-		h.changedSeqMux.Unlock()
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -802,13 +830,25 @@ func (h *Hub) flushLastSeen() {
 	h.changedSeqMux.Unlock()
 
 	if err := h.storage.SaveLastSeenBatch(batch); err != nil {
-		slog.Error("failed to save last seen batch to storage", "error", err)
+		slog.Error("failed to save last seen batch to storage, re-queuing", "error", err)
+		h.changedSeqMux.Lock()
+		h.changedSeq = append(h.changedSeq, batch...)
+		h.changedSeqMux.Unlock()
 	}
 }
 
 func (h *Hub) UpdateLastSeen(userID string, chatID string, seq int64) {
+	if seq < 0 {
+		return
+	}
+
 	h.mu.Lock()
 	defer h.mu.Unlock()
+
+	c, ok := h.chats[chatID]
+	if ok && seq > int64(c.LastSeq) {
+		seq = int64(c.LastSeq)
+	}
 
 	key := userChatKey{UserID: userID, ChatID: chatID}
 	current, exists := h.lastSeenSeq[key]

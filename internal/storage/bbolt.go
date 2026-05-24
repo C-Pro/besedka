@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"besedka/internal/auth"
@@ -683,10 +682,19 @@ func (s *BboltStorage) SaveLastSeenBatch(batch []models.LastSeenEntry) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketLastSeen)
 		for _, entry := range batch {
-			key := []byte(entry.UserID + ":" + entry.ChatID)
-			val := make([]byte, 8)
-			binary.BigEndian.PutUint64(val, uint64(entry.Seq))
-			if err := b.Put(key, val); err != nil {
+			if entry.Seq < 0 {
+				continue
+			}
+			dbLS := DBLastSeen{
+				UserID: entry.UserID,
+				ChatID: entry.ChatID,
+				Seq:    entry.Seq,
+			}
+			val, err := dbLS.MarshalBinary()
+			if err != nil {
+				return err
+			}
+			if err := b.Put(dbLS.Key(), val); err != nil {
 				return err
 			}
 		}
@@ -700,18 +708,14 @@ func (s *BboltStorage) ListLastSeen() ([]models.LastSeenEntry, error) {
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketLastSeen)
 		return b.ForEach(func(k, v []byte) error {
-			parts := strings.SplitN(string(k), ":", 2)
-			if len(parts) != 2 {
-				return nil
+			var dbLS DBLastSeen
+			if err := dbLS.UnmarshalBinary(v); err != nil {
+				return err
 			}
-			if len(v) < 8 {
-				return nil
-			}
-			seq := binary.BigEndian.Uint64(v)
 			result = append(result, models.LastSeenEntry{
-				UserID: parts[0],
-				ChatID: parts[1],
-				Seq:    int64(seq),
+				UserID: dbLS.UserID,
+				ChatID: dbLS.ChatID,
+				Seq:    dbLS.Seq,
 			})
 			return nil
 		})
