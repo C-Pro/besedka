@@ -136,7 +136,7 @@ func TestHub_MultipleConnections(t *testing.T) {
 		Type:    models.ClientMessageTypeSend,
 		ChatID:  "townhall",
 		Content: msgContent,
-	})
+	}, ch1)
 
 	expectedHTML := fmt.Sprintf("<p>%s</p>\n", msgContent)
 
@@ -224,7 +224,7 @@ func TestHub_Lifecycle(t *testing.T) {
 		Type:    models.ClientMessageTypeSend,
 		ChatID:  "townhall",
 		Content: msgContent,
-	})
+	}, nil)
 
 	// Check receiving on user2
 	select {
@@ -271,7 +271,7 @@ func TestHub_Lifecycle(t *testing.T) {
 		Type:    models.ClientMessageTypeSend,
 		ChatID:  dmID,
 		Content: dmContent,
-	})
+	}, nil)
 
 	select {
 	case msg := <-ch1:
@@ -292,7 +292,7 @@ func TestHub_Lifecycle(t *testing.T) {
 	h.Dispatch(user2.ID, models.ClientMessage{
 		ChatID:  dmID,
 		Content: "are you there?",
-	})
+	}, nil)
 
 	select {
 	case _, ok := <-ch1:
@@ -399,7 +399,7 @@ func TestHub_JoinChat_ReturnsHistory(t *testing.T) {
 			Type:    models.ClientMessageTypeSend,
 			ChatID:  "townhall",
 			Content: fmt.Sprintf("msg %d", i),
-		})
+		}, ch1)
 		// Consume own message to empty channel
 		<-ch1
 	}
@@ -414,7 +414,7 @@ func TestHub_JoinChat_ReturnsHistory(t *testing.T) {
 	h.Dispatch(user2.ID, models.ClientMessage{
 		Type:   models.ClientMessageTypeJoin,
 		ChatID: "townhall",
-	})
+	}, nil)
 
 	// User 2 should receive history
 	select {
@@ -608,7 +608,7 @@ func TestHub_FetchMessages_ReturnsRange(t *testing.T) {
 			Type:    models.ClientMessageTypeSend,
 			ChatID:  "townhall",
 			Content: fmt.Sprintf("msg %d", i),
-		})
+		}, ch1)
 		<-ch1 // Consume own message
 	}
 
@@ -618,7 +618,7 @@ func TestHub_FetchMessages_ReturnsRange(t *testing.T) {
 		ChatID:  "townhall",
 		FromSeq: 3,
 		ToSeq:   6,
-	})
+	}, nil)
 
 	timeout := time.After(1 * time.Second)
 	var found bool
@@ -674,7 +674,7 @@ func TestHub_EnsureDMsFor_JoinsConnectedUsers(t *testing.T) {
 		Type:    models.ClientMessageTypeSend,
 		ChatID:  dmID,
 		Content: "hello from new user",
-	})
+	}, nil)
 
 	// User 1 should receive it because EnsureDMsFor added them to the chat
 	timeout := time.After(testTimeout)
@@ -756,7 +756,7 @@ func TestHub_Leave_ReplacedConnection(t *testing.T) {
 		Type:    models.ClientMessageTypeSend,
 		ChatID:  "townhall",
 		Content: "still there?",
-	})
+	}, nil)
 
 	select {
 	case msg := <-ch1b:
@@ -791,7 +791,7 @@ func TestHub_LocationBroadcast(t *testing.T) {
 	h.Dispatch(user1.ID, models.ClientMessage{
 		Type:     models.ClientMessageTypeLocation,
 		Location: &loc,
-	})
+	}, nil)
 
 	// User 1 should also receive its own location broadcast
 	timeout := time.After(time.Second)
@@ -937,7 +937,7 @@ func TestHub_ReadReceipts(t *testing.T) {
 		Type:   models.ClientMessageTypeRead,
 		ChatID: "townhall",
 		Seq:    8,
-	})
+	}, nil)
 
 	h.mu.RLock()
 	val, exists = h.lastSeenSeq[userChatKey{UserID: "u1", ChatID: "townhall"}]
@@ -951,7 +951,7 @@ func TestHub_ReadReceipts(t *testing.T) {
 		Type:   models.ClientMessageTypeRead,
 		ChatID: "townhall",
 		Seq:    4,
-	})
+	}, nil)
 
 	h.mu.RLock()
 	val, exists = h.lastSeenSeq[userChatKey{UserID: "u1", ChatID: "townhall"}]
@@ -978,3 +978,68 @@ func TestHub_ReadReceipts(t *testing.T) {
 		t.Errorf("expected database to have been updated to seq 8 on flush, got: %+v", updatedEntry)
 	}
 }
+
+func TestHub_MultipleConnections_ReadReceipt(t *testing.T) {
+	user1 := models.User{ID: "u1", DisplayName: "User 1"}
+	provider := &MockUserProvider{
+		users: []models.User{user1},
+	}
+	store := NewMockStorage()
+
+	// Setup townhall chat in store with LastSeq 10
+	_ = store.UpsertChat(models.Chat{
+		ID:      "townhall",
+		Name:    "Town Hall",
+		LastSeq: 10,
+	})
+
+	h := NewHub(context.Background(), provider, store, &MockPushService{})
+
+	// Two connections for the same user
+	ch1 := h.Join(user1.ID)
+	ch2 := h.Join(user1.ID)
+
+	// User 1 has read up to seq 10 in townhall
+	h.Dispatch(user1.ID, models.ClientMessage{
+		Type:   models.ClientMessageTypeRead,
+		ChatID: "townhall",
+		Seq:    10,
+	}, ch1)
+
+	// Connection ch2 (another device of the same user) should receive the read receipt
+	var readMsgReceived bool
+	timeout := time.After(testTimeout)
+Loop2:
+	for {
+		select {
+		case msg := <-ch2:
+			if msg.Type == models.ServerMessageTypeRead {
+				if msg.ChatID != "townhall" || msg.Seq != 10 {
+					t.Errorf("expected ServerMessageTypeRead with townhall and seq 10, got ChatID: %s, Seq: %d", msg.ChatID, msg.Seq)
+				}
+				readMsgReceived = true
+				break Loop2
+			}
+		case <-timeout:
+			break Loop2
+		}
+	}
+	if !readMsgReceived {
+		t.Fatalf("expected to receive ServerMessageTypeRead on ch2, but did not")
+	}
+
+	// Connection ch1 (the sender of the read receipt) should NOT receive the read receipt broadcast
+	timeout = time.After(10 * time.Millisecond)
+Loop1:
+	for {
+		select {
+		case msg := <-ch1:
+			if msg.Type == models.ServerMessageTypeRead {
+				t.Errorf("sender connection ch1 should not receive its own read receipt broadcast")
+			}
+		case <-timeout:
+			break Loop1
+		}
+	}
+}
+

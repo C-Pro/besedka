@@ -12,6 +12,7 @@ import (
 )
 
 func TestE2ETypingDisruption(t *testing.T) {
+	t.Parallel()
 	server := startServer(t)
 	defer server.Stop()
 

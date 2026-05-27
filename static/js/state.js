@@ -415,6 +415,9 @@ class Store {
             case 'location':
                 this.handleLocationUpdate(msg);
                 break;
+            case 'read':
+                this.handleReadReceipt(msg);
+                break;
         }
     }
 
@@ -456,6 +459,35 @@ class Store {
         // If active chat was with this user, switch to townhall
         if (this.state.activeChatId?.includes(userId) && this.state.chats.find(c => c.id === this.state.activeChatId)?.isDm) {
             this.setActiveChat('townhall');
+        }
+    }
+
+    handleReadReceipt(msg) {
+        const chatId = msg.chatId;
+        const seq = msg.seq;
+        if (!chatId || seq === undefined || seq === null) return;
+
+        const currentSeen = this.state.lastSeenSeqs[chatId] !== undefined ? this.state.lastSeenSeqs[chatId] : -1;
+        if (seq > currentSeen) {
+            const newLastSeenSeqs = {
+                ...this.state.lastSeenSeqs,
+                [chatId]: seq
+            };
+
+            const newUnreadCounts = { ...this.state.unreadCounts };
+            if (chatId === this.state.activeChatId) {
+                newUnreadCounts[chatId] = 0;
+            } else {
+                const chat = this.state.chats.find(c => c.id === chatId);
+                const lastSeq = chat ? (chat.lastSeq || 0) : 0;
+                newUnreadCounts[chatId] = Math.max(0, lastSeq - seq);
+            }
+
+            this.setState({
+                lastSeenSeqs: newLastSeenSeqs,
+                unreadCounts: newUnreadCounts
+            });
+            this.updateAppBadge();
         }
     }
 
@@ -548,6 +580,23 @@ class Store {
             }
         });
 
+        // Intercept current user's own sent messages to advance seen sequence immediately
+        let maxUserSentSeq = 0;
+        for (const m of newMessages) {
+            if (m.userId === this.state.currentUser?.id) {
+                if (m.seq > maxUserSentSeq) {
+                    maxUserSentSeq = m.seq;
+                }
+            }
+        }
+
+        if (maxUserSentSeq > 0) {
+            const currentSeen = this.state.lastSeenSeqs[chatId] !== undefined ? this.state.lastSeenSeqs[chatId] : -1;
+            if (maxUserSentSeq > currentSeen) {
+                this.state.lastSeenSeqs[chatId] = maxUserSentSeq;
+            }
+        }
+
         if (chatId === this.state.activeChatId && maxSeq > 0) {
             this.progressLastSeen(chatId, maxSeq);
         } else {
@@ -612,7 +661,12 @@ class Store {
 
     // UI Actions
     setActiveChat(chatId) {
-        if (this.state.activeChatId === chatId) return;
+        if (this.state.activeChatId === chatId) {
+            if (this.state.mobileActiveTab !== 'chat-window') {
+                this.setState({ mobileActiveTab: 'chat-window' });
+            }
+            return;
+        }
 
         // Leave previous chat
         if (this.state.activeChatId) {

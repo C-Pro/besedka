@@ -23,7 +23,7 @@ type wsConnection interface {
 type messageHub interface {
 	Join(userID string) chan models.ServerMessage
 	Leave(userID string, expectedCh chan models.ServerMessage)
-	Dispatch(userID string, msg models.ClientMessage)
+	Dispatch(userID string, msg models.ClientMessage, senderCh chan models.ServerMessage)
 }
 
 type Connection struct {
@@ -135,9 +135,9 @@ func (c *Connection) mainLoop(ctx context.Context) error {
 func (c *Connection) processClientMessage(msg models.ClientMessage) error {
 	switch msg.Type {
 	case models.ClientMessageTypeJoin, models.ClientMessageTypeSend, models.ClientMessageTypeFetch, models.ClientMessageTypeRead:
-		c.hub.Dispatch(c.userID, msg)
+		c.hub.Dispatch(c.userID, msg, c.fromServer)
 	case models.ClientMessageTypeLocation:
-		c.hub.Dispatch(c.userID, msg)
+		c.hub.Dispatch(c.userID, msg, c.fromServer)
 	}
 
 	return nil

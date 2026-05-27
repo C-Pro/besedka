@@ -118,6 +118,12 @@ func (c *Chat) AddRecord(record ChatRecord) error {
 	return nil
 }
 
+func (c *Chat) GetLastSeq() int64 {
+	c.mux.RLock()
+	defer c.mux.RUnlock()
+	return int64(c.LastSeq)
+}
+
 func (c *Chat) GetRecords(from, to Seq) ([]ChatRecord, error) {
 	c.mux.RLock()
 	defer c.mux.RUnlock()

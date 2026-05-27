@@ -14,6 +14,7 @@ import (
 )
 
 func TestScreenshots(t *testing.T) {
+	t.Parallel()
 	server := startServer(t)
 	defer server.Stop()
 

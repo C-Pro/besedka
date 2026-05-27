@@ -11,6 +11,7 @@ import (
 )
 
 func TestE2EPushNotifications(t *testing.T) {
+	t.Parallel()
 	server := startServer(t)
 	defer server.Stop()
 

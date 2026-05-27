@@ -73,6 +73,7 @@ type mockPushService struct{}
 func (m *mockPushService) SendNotification(userID string, payload []byte) error { return nil }
 
 func TestAdminUI(t *testing.T) {
+	t.Parallel()
 	// Setup dependencies
 	cfg := &config.Config{
 		AdminUser:     "admin",

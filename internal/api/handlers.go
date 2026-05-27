@@ -361,7 +361,7 @@ func (a *API) SendMessageHandler(w http.ResponseWriter, r *http.Request) {
 		Type:    models.ClientMessageTypeSend,
 		ChatID:  chatID,
 		Content: req.Content,
-	})
+	}, nil)
 
 	w.WriteHeader(http.StatusOK)
 }

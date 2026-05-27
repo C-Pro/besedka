@@ -115,6 +115,7 @@ type ServerMessage struct {
 	User          User              `json:"user,omitempty"`
 	Chat          Chat              `json:"chat,omitempty"`
 	UserLocations []UserLocation    `json:"userLocations,omitempty"`
+	Seq           int64             `json:"seq,omitempty"`
 }
 
 type AttachmentType string
@@ -155,4 +156,5 @@ const (
 	ServerMessageTypeDeleted  ServerMessageType = "deleted"
 	ServerMessageTypePing     ServerMessageType = "ping"
 	ServerMessageTypeLocation ServerMessageType = "location"
+	ServerMessageTypeRead     ServerMessageType = "read"
 )

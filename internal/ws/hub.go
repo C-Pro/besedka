@@ -469,7 +469,7 @@ func (h *Hub) sendToChannels(channels []chan models.ServerMessage, msg models.Se
 	}
 }
 
-func (h *Hub) Dispatch(userID string, msg models.ClientMessage) {
+func (h *Hub) Dispatch(userID string, msg models.ClientMessage, senderCh chan models.ServerMessage) {
 	// Location messages do not belong to any chatID, so handle them separately.
 	if msg.Type == models.ClientMessageTypeLocation {
 		h.handleLocation(userID, msg)
@@ -503,6 +503,8 @@ func (h *Hub) Dispatch(userID string, msg models.ClientMessage) {
 			Timestamp:        time.Now().Unix(),
 		}); err != nil {
 			slog.Error("failed to add record", "chatID", c.ID, "userID", userID, "error", err)
+		} else {
+			h.UpdateLastSeen(userID, c.ID, c.GetLastSeq(), senderCh)
 		}
 	case models.ClientMessageTypeJoin:
 		records, err := c.GetLastRecords(100)
@@ -537,7 +539,7 @@ func (h *Hub) Dispatch(userID string, msg models.ClientMessage) {
 			Messages: mapRecordsToMessages(records),
 		})
 	case models.ClientMessageTypeRead:
-		h.UpdateLastSeen(userID, msg.ChatID, msg.Seq)
+		h.UpdateLastSeen(userID, msg.ChatID, msg.Seq, senderCh)
 	}
 }
 
@@ -566,6 +568,27 @@ func (h *Hub) sendToUser(userID string, msg models.ServerMessage) {
 	}
 
 	for _, ch := range channels {
+		select {
+		case ch <- msg:
+		default:
+			slog.Warn("Message channel full, dropping message", "userID", userID)
+		}
+	}
+}
+
+func (h *Hub) sendToUserExcept(userID string, msg models.ServerMessage, skipCh chan models.ServerMessage) {
+	h.mu.RLock()
+	channels, online := h.connectedUsers[userID]
+	h.mu.RUnlock()
+
+	if !online {
+		return
+	}
+
+	for _, ch := range channels {
+		if ch == skipCh {
+			continue
+		}
 		select {
 		case ch <- msg:
 		default:
@@ -837,7 +860,7 @@ func (h *Hub) flushLastSeen() {
 	}
 }
 
-func (h *Hub) UpdateLastSeen(userID string, chatID string, seq int64) {
+func (h *Hub) UpdateLastSeen(userID string, chatID string, seq int64, skipCh chan models.ServerMessage) {
 	if seq < 0 {
 		return
 	}
@@ -862,5 +885,11 @@ func (h *Hub) UpdateLastSeen(userID string, chatID string, seq int64) {
 			Seq:    seq,
 		})
 		h.changedSeqMux.Unlock()
+
+		go h.sendToUserExcept(userID, models.ServerMessage{
+			Type:   models.ServerMessageTypeRead,
+			ChatID: chatID,
+			Seq:    seq,
+		}, skipCh)
 	}
 }

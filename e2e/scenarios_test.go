@@ -15,6 +15,7 @@ import (
 )
 
 func TestE2EMainFlow(t *testing.T) {
+	t.Parallel()
 	server := startServer(t)
 	defer server.Stop()
 
@@ -239,6 +240,7 @@ func TestE2EMainFlow(t *testing.T) {
 }
 
 func TestE2EDeleteUserRemovesChat(t *testing.T) {
+	t.Parallel()
 	server := startServer(t)
 	defer server.Stop()
 
@@ -299,6 +301,7 @@ func TestE2EDeleteUserRemovesChat(t *testing.T) {
 }
 
 func TestE2ELogoff(t *testing.T) {
+	t.Parallel()
 	server := startServer(t)
 	defer server.Stop()
 
@@ -374,6 +377,7 @@ func TestE2ELogoff(t *testing.T) {
 }
 
 func TestE2EProfileEdit(t *testing.T) {
+	t.Parallel()
 	server := startServer(t)
 	defer server.Stop()
 
@@ -473,6 +477,7 @@ func TestE2EProfileEdit(t *testing.T) {
 }
 
 func TestE2EReactivateDeletedUser(t *testing.T) {
+	t.Parallel()
 	server := startServer(t)
 	defer server.Stop()
 
@@ -539,6 +544,7 @@ func TestE2EReactivateDeletedUser(t *testing.T) {
 }
 
 func TestE2EInfiniteScroll(t *testing.T) {
+	t.Parallel()
 	server := startServer(t)
 	defer server.Stop()
 
@@ -614,6 +620,7 @@ func TestE2EInfiniteScroll(t *testing.T) {
 }
 
 func TestE2EFileUpload(t *testing.T) {
+	t.Parallel()
 	server := startServer(t)
 	defer server.Stop()
 
@@ -688,6 +695,7 @@ func TestE2EFileUpload(t *testing.T) {
 }
 
 func TestE2EMultipleConnections(t *testing.T) {
+	t.Parallel()
 	server := startServer(t)
 	defer server.Stop()
 
@@ -739,6 +747,7 @@ func TestE2EMultipleConnections(t *testing.T) {
 }
 
 func TestE2EOfflineBadges(t *testing.T) {
+	t.Parallel()
 	server := startServer(t)
 	defer server.Stop()
 
