@@ -50,8 +50,8 @@ func NewConnection(
 	}
 }
 
-func (c *Connection) Handle(ctx context.Context) error {
-	ctx, cancel := context.WithCancel(ctx)
+func (c *Connection) Handle(parentCtx context.Context) error {
+	ctx, cancel := context.WithCancel(parentCtx)
 	defer func() {
 		close(c.fromClient)
 		close(c.errorCh)
@@ -72,7 +72,8 @@ func (c *Connection) Handle(ctx context.Context) error {
 	var err error
 	select {
 	case err = <-c.errorCh:
-	case <-ctx.Done():
+	case <-parentCtx.Done():
+		err = parentCtx.Err()
 	}
 	_ = c.ws.Close()
 	wg.Wait()

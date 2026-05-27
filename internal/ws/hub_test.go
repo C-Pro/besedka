@@ -118,6 +118,23 @@ func drainMessages(ch <-chan models.ServerMessage, count int) {
 	}
 }
 
+// expectMessages blocks until a ServerMessageTypeMessages is received for the specified chatID
+// or the timeout is reached. It discards other server messages (e.g. read receipts, online notifications).
+func expectMessages(t *testing.T, ch <-chan models.ServerMessage, chatID string) models.ServerMessage {
+	t.Helper()
+	timeout := time.After(1 * time.Second)
+	for {
+		select {
+		case msg := <-ch:
+			if msg.Type == models.ServerMessageTypeMessages && msg.ChatID == chatID {
+				return msg
+			}
+		case <-timeout:
+			t.Fatalf("timeout waiting for messages in chat %s", chatID)
+		}
+	}
+}
+
 func TestHub_MultipleConnections(t *testing.T) {
 	user1 := models.User{ID: "u1", DisplayName: "User 1"}
 	provider := &MockUserProvider{
@@ -141,39 +158,15 @@ func TestHub_MultipleConnections(t *testing.T) {
 	expectedHTML := fmt.Sprintf("<p>%s</p>\n", msgContent)
 
 	// Check receiving on ch1
-	select {
-	case msg := <-ch1:
-		if msg.Type == models.ServerMessageTypeOnline {
-			// Skip online notification, try again
-			select {
-			case msg = <-ch1:
-			case <-time.After(testTimeout):
-				t.Error("Timeout waiting for message on ch1 after online notification")
-			}
-		}
-		if len(msg.Messages) == 0 || msg.Messages[0].Content != expectedHTML {
-			t.Errorf("ch1: expected content %s, got %+v", expectedHTML, msg.Messages)
-		}
-	case <-time.After(testTimeout):
-		t.Error("Timeout waiting for message on ch1")
+	msg1 := expectMessages(t, ch1, "townhall")
+	if len(msg1.Messages) == 0 || msg1.Messages[0].Content != expectedHTML {
+		t.Errorf("ch1: expected content %s, got %+v", expectedHTML, msg1.Messages)
 	}
 
 	// Check receiving on ch2
-	select {
-	case msg := <-ch2:
-		if msg.Type == models.ServerMessageTypeOnline {
-			// Skip online notification, try again
-			select {
-			case msg = <-ch2:
-			case <-time.After(testTimeout):
-				t.Error("Timeout waiting for message on ch2 after online notification")
-			}
-		}
-		if len(msg.Messages) == 0 || msg.Messages[0].Content != expectedHTML {
-			t.Errorf("ch2: expected content %s, got %+v", expectedHTML, msg.Messages)
-		}
-	case <-time.After(testTimeout):
-		t.Error("Timeout waiting for message on ch2")
+	msg2 := expectMessages(t, ch2, "townhall")
+	if len(msg2.Messages) == 0 || msg2.Messages[0].Content != expectedHTML {
+		t.Errorf("ch2: expected content %s, got %+v", expectedHTML, msg2.Messages)
 	}
 }
 
@@ -227,42 +220,22 @@ func TestHub_Lifecycle(t *testing.T) {
 	}, nil)
 
 	// Check receiving on user2
-	select {
-	case msg := <-ch2:
-		if len(msg.Messages) == 0 {
-			t.Fatal("Received empty message list")
-		}
-		expectedHTML := fmt.Sprintf("<p>%s</p>\n", msgContent)
-		if msg.Messages[0].Content != expectedHTML {
-			t.Errorf("Expected content %s, got %s", expectedHTML, msg.Messages[0].Content)
-		}
-		if msg.ChatID != "townhall" {
-			t.Errorf("Expected ChatID townhall, got %s", msg.ChatID)
-		}
-	case <-time.After(1 * time.Second):
-		t.Error("Timeout waiting for townhall message on ch2")
+	msg2 := expectMessages(t, ch2, "townhall")
+	if len(msg2.Messages) == 0 {
+		t.Fatal("Received empty message list")
+	}
+	expectedHTML := fmt.Sprintf("<p>%s</p>\n", msgContent)
+	if msg2.Messages[0].Content != expectedHTML {
+		t.Errorf("Expected content %s, got %s", expectedHTML, msg2.Messages[0].Content)
 	}
 
 	// Check receiving on user1 (sender also gets it via callback)
-	// User1 might have received "User2 online" message first
-	timeout := time.After(1 * time.Second)
-	var foundMessage bool
-	for !foundMessage {
-		select {
-		case msg := <-ch1:
-			if msg.Type == models.ServerMessageTypeOnline {
-				continue
-			}
-			if msg.Type == models.ServerMessageTypeMessages {
-				expectedHTML := fmt.Sprintf("<p>%s</p>\n", msgContent)
-				if len(msg.Messages) > 0 && msg.Messages[0].Content == expectedHTML {
-					foundMessage = true
-				}
-			}
-		case <-timeout:
-			t.Error("Timeout waiting for townhall message on ch1")
-			foundMessage = true // Break loop
-		}
+	msg1 := expectMessages(t, ch1, "townhall")
+	if len(msg1.Messages) == 0 {
+		t.Fatal("Received empty message list")
+	}
+	if msg1.Messages[0].Content != expectedHTML {
+		t.Errorf("Expected content %s, got %s", expectedHTML, msg1.Messages[0].Content)
 	}
 
 	// 4. Dispatch & Receive (DM)
@@ -273,17 +246,13 @@ func TestHub_Lifecycle(t *testing.T) {
 		Content: dmContent,
 	}, nil)
 
-	select {
-	case msg := <-ch1:
-		expectedHTML := fmt.Sprintf("<p>%s</p>\n", dmContent)
-		if msg.Messages[0].Content != expectedHTML {
-			t.Errorf("User1 didn't get DM")
-		}
-		if msg.ChatID != dmID {
-			t.Errorf("Wrong ChatID for DM")
-		}
-	case <-time.After(1 * time.Second):
-		t.Error("Timeout waiting for DM message")
+	dmMsg := expectMessages(t, ch1, dmID)
+	if len(dmMsg.Messages) == 0 {
+		t.Fatal("Received empty message list")
+	}
+	expectedDMHTML := fmt.Sprintf("<p>%s</p>\n", dmContent)
+	if dmMsg.Messages[0].Content != expectedDMHTML {
+		t.Errorf("User1 didn't get DM")
 	}
 
 	// 5. Leave
@@ -294,14 +263,22 @@ func TestHub_Lifecycle(t *testing.T) {
 		Content: "are you there?",
 	}, nil)
 
-	select {
-	case _, ok := <-ch1:
-		if ok {
-			t.Error("Received message after leave")
+	timeout := time.After(testTimeout)
+	for {
+		select {
+		case msg, ok := <-ch1:
+			if !ok {
+				// Channel is closed, which is correct
+				return
+			}
+			if msg.Type == models.ServerMessageTypeMessages {
+				t.Errorf("Received message after leave: %+v", msg)
+				return
+			}
+		case <-timeout:
+			// Timeout is fine, though channel should ideally be closed
+			return
 		}
-		// If !ok, it means channel is closed, which is correct for Leave()
-	case <-time.After(testTimeout):
-		// Also OK if nothing received (though channel should be closed)
 	}
 }
 
@@ -417,28 +394,21 @@ func TestHub_JoinChat_ReturnsHistory(t *testing.T) {
 	}, nil)
 
 	// User 2 should receive history
-	select {
-	case msg := <-ch2:
-		if msg.Type != models.ServerMessageTypeMessages {
-			t.Errorf("Expected message type 'messages', got %s", msg.Type)
+	msg := expectMessages(t, ch2, "townhall")
+	if len(msg.Messages) != 5 {
+		t.Errorf("Expected 5 messages, got %d", len(msg.Messages))
+	}
+	// Verify order and sequence
+	for i, m := range msg.Messages {
+		expected := fmt.Sprintf("<p>msg %d</p>\n", i)
+		if m.Content != expected {
+			t.Errorf("Message %d: expected content %q, got %q", i, expected, m.Content)
 		}
-		if len(msg.Messages) != 5 {
-			t.Errorf("Expected 5 messages, got %d", len(msg.Messages))
+		// Chat sequences start at 0 (or 1 depending on implementation, let's just check it increases)
+		// Actually chat.go initializes LastSeq to -1, first add is 0.
+		if m.Seq != int64(i+1) {
+			t.Errorf("Message %d: expected seq %d, got %d", i, i+1, m.Seq)
 		}
-		// Verify order and sequence
-		for i, m := range msg.Messages {
-			expected := fmt.Sprintf("<p>msg %d</p>\n", i)
-			if m.Content != expected {
-				t.Errorf("Message %d: expected content %q, got %q", i, expected, m.Content)
-			}
-			// Chat sequences start at 0 (or 1 depending on implementation, let's just check it increases)
-			// Actually chat.go initializes LastSeq to -1, first add is 0.
-			if m.Seq != int64(i+1) {
-				t.Errorf("Message %d: expected seq %d, got %d", i, i+1, m.Seq)
-			}
-		}
-	case <-time.After(1 * time.Second):
-		t.Fatal("Timeout waiting for history")
 	}
 }
 
@@ -620,30 +590,19 @@ func TestHub_FetchMessages_ReturnsRange(t *testing.T) {
 		ToSeq:   6,
 	}, nil)
 
-	timeout := time.After(1 * time.Second)
-	var found bool
-	for !found {
-		select {
-		case msg := <-ch1:
-			if msg.Type == models.ServerMessageTypeMessages {
-				if len(msg.Messages) != 4 {
-					t.Errorf("Expected 4 messages, got %d", len(msg.Messages))
-				}
-				// Verify sequences (3, 4, 5, 6)
-				for i, m := range msg.Messages {
-					expectedSeq := int64(3 + i)
-					if m.Seq != expectedSeq {
-						t.Errorf("Message %d: expected seq %d, got %d", i, expectedSeq, m.Seq)
-					}
-					expectedContent := fmt.Sprintf("<p>msg %d</p>\n", expectedSeq-1)
-					if m.Content != expectedContent {
-						t.Errorf("Message %d: expected content %q, got %q", i, expectedContent, m.Content)
-					}
-				}
-				found = true
-			}
-		case <-timeout:
-			t.Fatal("Timeout waiting for fetched messages")
+	msgFetch := expectMessages(t, ch1, "townhall")
+	if len(msgFetch.Messages) != 4 {
+		t.Errorf("Expected 4 messages, got %d", len(msgFetch.Messages))
+	}
+	// Verify sequences (3, 4, 5, 6)
+	for i, m := range msgFetch.Messages {
+		expectedSeq := int64(3 + i)
+		if m.Seq != expectedSeq {
+			t.Errorf("Message %d: expected seq %d, got %d", i, expectedSeq, m.Seq)
+		}
+		expectedContent := fmt.Sprintf("<p>msg %d</p>\n", expectedSeq-1)
+		if m.Content != expectedContent {
+			t.Errorf("Message %d: expected content %q, got %q", i, expectedContent, m.Content)
 		}
 	}
 }
@@ -677,19 +636,9 @@ func TestHub_EnsureDMsFor_JoinsConnectedUsers(t *testing.T) {
 	}, nil)
 
 	// User 1 should receive it because EnsureDMsFor added them to the chat
-	timeout := time.After(testTimeout)
-	var found bool
-	for !found {
-		select {
-		case msg := <-ch1:
-			if msg.Type == models.ServerMessageTypeMessages {
-				if len(msg.Messages) > 0 && msg.Messages[0].Content == "<p>hello from new user</p>\n" {
-					found = true
-				}
-			}
-		case <-timeout:
-			t.Fatal("Timeout waiting for message on new DM chat, user1 was likely not joined")
-		}
+	dmMsg := expectMessages(t, ch1, dmID)
+	if len(dmMsg.Messages) == 0 || dmMsg.Messages[0].Content != "<p>hello from new user</p>\n" {
+		t.Errorf("Expected 'hello from new user', got %+v", dmMsg.Messages)
 	}
 }
 
@@ -758,15 +707,9 @@ func TestHub_Leave_ReplacedConnection(t *testing.T) {
 		Content: "still there?",
 	}, nil)
 
-	select {
-	case msg := <-ch1b:
-		if msg.Type == models.ServerMessageTypeMessages && len(msg.Messages) > 0 {
-			// Got the message - new connection is intact
-		} else {
-			t.Errorf("Unexpected message type on ch1b: %s", msg.Type)
-		}
-	case <-time.After(testTimeout):
-		t.Error("User 1's new connection should still receive messages after stale Leave")
+	msgLeave := expectMessages(t, ch1b, "townhall")
+	if len(msgLeave.Messages) == 0 {
+		t.Error("Expected messages on ch1b, got none")
 	}
 }
 
