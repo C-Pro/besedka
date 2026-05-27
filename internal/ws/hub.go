@@ -30,6 +30,11 @@ type pushTask struct {
 	payload []byte
 }
 
+type userChatKey struct {
+	UserID string
+	ChatID string
+}
+
 type Hub struct {
 	chats          map[string]*chat.Chat
 	connectedUsers map[string][]chan models.ServerMessage
@@ -40,6 +45,10 @@ type Hub struct {
 	pushService  PushService
 	pushQueue    chan pushTask
 
+	lastSeenSeq   map[userChatKey]int64
+	changedSeq    []models.LastSeenEntry
+	changedSeqMux sync.Mutex
+
 	mu sync.RWMutex
 }
 
@@ -48,6 +57,8 @@ type storage interface {
 	ListMessages(chatID string, from, to int64) ([]models.Message, error)
 	ListChats() ([]models.Chat, error)
 	UpsertChat(chat models.Chat) error
+	SaveLastSeenBatch(batch []models.LastSeenEntry) error
+	ListLastSeen() ([]models.LastSeenEntry, error)
 }
 
 type userProvider interface {
@@ -68,11 +79,25 @@ func NewHub(ctx context.Context, userProvider userProvider, storage storage, pus
 		storage:        storage,
 		pushService:    pushService,
 		pushQueue:      make(chan pushTask, pushQueueSize),
+		lastSeenSeq:    make(map[userChatKey]int64),
 	}
 
 	for i := 0; i < pushWorkers; i++ {
 		go h.pushWorker(ctx)
 	}
+
+	// Load last seen sequence numbers
+	lastSeen, err := storage.ListLastSeen()
+	if err != nil {
+		slog.Error("failed to load last seen from storage", "error", err)
+	} else {
+		for _, entry := range lastSeen {
+			h.lastSeenSeq[userChatKey{UserID: entry.UserID, ChatID: entry.ChatID}] = entry.Seq
+		}
+	}
+
+	// Start writer goroutine
+	go h.startLastSeenWriter(ctx)
 
 	chats, err := storage.ListChats()
 	if err != nil {
@@ -139,6 +164,7 @@ func (h *Hub) restoreChat(modelChat models.Chat) {
 	}
 
 	if modelChat.LastSeq > 0 {
+		c.LastSeq = chat.Seq(modelChat.LastSeq)
 		from := int64(modelChat.LastSeq) - chatMaxRecords + 1
 		if from < 1 {
 			from = 1
@@ -443,7 +469,7 @@ func (h *Hub) sendToChannels(channels []chan models.ServerMessage, msg models.Se
 	}
 }
 
-func (h *Hub) Dispatch(userID string, msg models.ClientMessage) {
+func (h *Hub) Dispatch(userID string, msg models.ClientMessage, senderCh chan models.ServerMessage) {
 	// Location messages do not belong to any chatID, so handle them separately.
 	if msg.Type == models.ClientMessageTypeLocation {
 		h.handleLocation(userID, msg)
@@ -477,6 +503,8 @@ func (h *Hub) Dispatch(userID string, msg models.ClientMessage) {
 			Timestamp:        time.Now().Unix(),
 		}); err != nil {
 			slog.Error("failed to add record", "chatID", c.ID, "userID", userID, "error", err)
+		} else {
+			h.UpdateLastSeen(userID, c.ID, c.GetLastSeq(), senderCh)
 		}
 	case models.ClientMessageTypeJoin:
 		records, err := c.GetLastRecords(100)
@@ -510,6 +538,8 @@ func (h *Hub) Dispatch(userID string, msg models.ClientMessage) {
 			ChatID:   c.ID,
 			Messages: mapRecordsToMessages(records),
 		})
+	case models.ClientMessageTypeRead:
+		h.UpdateLastSeen(userID, msg.ChatID, msg.Seq, senderCh)
 	}
 }
 
@@ -546,6 +576,27 @@ func (h *Hub) sendToUser(userID string, msg models.ServerMessage) {
 	}
 }
 
+func (h *Hub) sendToUserExcept(userID string, msg models.ServerMessage, skipCh chan models.ServerMessage) {
+	h.mu.RLock()
+	channels, online := h.connectedUsers[userID]
+	h.mu.RUnlock()
+
+	if !online {
+		return
+	}
+
+	for _, ch := range channels {
+		if ch == skipCh {
+			continue
+		}
+		select {
+		case ch <- msg:
+		default:
+			slog.Warn("Message channel full, dropping message", "userID", userID)
+		}
+	}
+}
+
 func (h *Hub) IsUserOnline(userID string) bool {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -553,48 +604,100 @@ func (h *Hub) IsUserOnline(userID string) bool {
 	return ok
 }
 
-func (h *Hub) GetChats(userID string) []models.Chat {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
+type chatSnapshot struct {
+	ID          string
+	LastSeq     int64
+	LastSeenSeq int64
+	IsDM        bool
+	OtherID     string
+}
 
-	var result []models.Chat
+func (h *Hub) GetChats(userID string) []models.Chat {
+	h.mu.Lock()
+
+	var snapshots []chatSnapshot
+	var newEntries []models.LastSeenEntry
 
 	for id, c := range h.chats {
-		if id == "townhall" {
-			result = append(result, models.Chat{
-				ID:        c.ID,
-				Name:      "Town Hall",
-				AvatarURL: "/besedka.png",
-				LastSeq:   int(c.LastSeq),
-			})
+		inChat := (id == "townhall") || isUserInDM(userID, id)
+		if !inChat {
 			continue
 		}
 
-		if isUserInDM(userID, id) {
+		lastSeen, exists := h.lastSeenSeq[userChatKey{UserID: userID, ChatID: c.ID}]
+		if !exists {
+			lastSeen = int64(c.LastSeq)
+			h.lastSeenSeq[userChatKey{UserID: userID, ChatID: c.ID}] = lastSeen
+			newEntries = append(newEntries, models.LastSeenEntry{
+				UserID: userID,
+				ChatID: c.ID,
+				Seq:    lastSeen,
+			})
+		}
+
+		snap := chatSnapshot{
+			ID:          c.ID,
+			LastSeq:     int64(c.LastSeq),
+			LastSeenSeq: lastSeen,
+			IsDM:        id != "townhall",
+		}
+
+		if snap.IsDM {
 			parts := strings.Split(id[3:], "_")
 			otherID := parts[0]
 			if otherID == userID {
 				otherID = parts[1]
 			}
-
-			u, err := h.userProvider.GetUser(otherID)
-			if err != nil || u.Status == models.UserStatusDeleted {
-				continue
-			}
-
-			name := u.DisplayName
-			if name == "" {
-				name = "Unknown User"
-			}
-
-			_, online := h.connectedUsers[otherID]
-			result = append(result, models.Chat{
-				ID:     c.ID,
-				Name:   name,
-				IsDM:   true,
-				Online: online,
-			})
+			snap.OtherID = otherID
 		}
+
+		snapshots = append(snapshots, snap)
+	}
+
+	if len(newEntries) > 0 {
+		h.changedSeqMux.Lock()
+		h.changedSeq = append(h.changedSeq, newEntries...)
+		h.changedSeqMux.Unlock()
+	}
+
+	h.mu.Unlock()
+
+	var result []models.Chat
+
+	for _, snap := range snapshots {
+		if !snap.IsDM {
+			result = append(result, models.Chat{
+				ID:          snap.ID,
+				Name:        "Town Hall",
+				AvatarURL:   "/besedka.png",
+				LastSeq:     int(snap.LastSeq),
+				LastSeenSeq: snap.LastSeenSeq,
+			})
+			continue
+		}
+
+		u, err := h.userProvider.GetUser(snap.OtherID)
+		if err != nil || u.Status == models.UserStatusDeleted {
+			continue
+		}
+
+		name := u.DisplayName
+		if name == "" {
+			name = "Unknown User"
+		}
+
+		h.mu.Lock()
+		_, online := h.connectedUsers[snap.OtherID]
+		h.mu.Unlock()
+
+		result = append(result, models.Chat{
+			ID:          snap.ID,
+			Name:        name,
+			IsDM:        true,
+			Online:      online,
+			LastSeq:     int(snap.LastSeq),
+			LastSeenSeq: snap.LastSeenSeq,
+		})
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -606,8 +709,6 @@ func (h *Hub) GetChats(userID string) []models.Chat {
 			return false
 		}
 		// Everything else is sorted alphabetically.
-		// TODO: order by last message time.
-		// TODO: support pinned (favorite) chats.
 		return result[i].Name < result[j].Name
 	})
 
@@ -722,4 +823,73 @@ func isUserInDM(userID, chatID string) bool {
 		return false
 	}
 	return parts[0] == userID || parts[1] == userID
+}
+
+func (h *Hub) startLastSeenWriter(ctx context.Context) {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			h.flushLastSeen()
+			return
+		case <-ticker.C:
+			h.flushLastSeen()
+		}
+	}
+}
+
+func (h *Hub) flushLastSeen() {
+	h.changedSeqMux.Lock()
+	if len(h.changedSeq) == 0 {
+		h.changedSeqMux.Unlock()
+		return
+	}
+
+	batch := make([]models.LastSeenEntry, len(h.changedSeq))
+	copy(batch, h.changedSeq)
+	h.changedSeq = h.changedSeq[:0]
+	h.changedSeqMux.Unlock()
+
+	if err := h.storage.SaveLastSeenBatch(batch); err != nil {
+		slog.Error("failed to save last seen batch to storage, re-queuing", "error", err)
+		h.changedSeqMux.Lock()
+		h.changedSeq = append(h.changedSeq, batch...)
+		h.changedSeqMux.Unlock()
+	}
+}
+
+func (h *Hub) UpdateLastSeen(userID string, chatID string, seq int64, skipCh chan models.ServerMessage) {
+	if seq < 0 {
+		return
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	c, ok := h.chats[chatID]
+	if ok && seq > int64(c.LastSeq) {
+		seq = int64(c.LastSeq)
+	}
+
+	key := userChatKey{UserID: userID, ChatID: chatID}
+	current, exists := h.lastSeenSeq[key]
+	if !exists || seq > current {
+		h.lastSeenSeq[key] = seq
+
+		h.changedSeqMux.Lock()
+		h.changedSeq = append(h.changedSeq, models.LastSeenEntry{
+			UserID: userID,
+			ChatID: chatID,
+			Seq:    seq,
+		})
+		h.changedSeqMux.Unlock()
+
+		go h.sendToUserExcept(userID, models.ServerMessage{
+			Type:   models.ServerMessageTypeRead,
+			ChatID: chatID,
+			Seq:    seq,
+		}, skipCh)
+	}
 }

@@ -12,6 +12,7 @@ import (
 )
 
 func TestE2EPasteText(t *testing.T) {
+	t.Parallel()
 	server := startServer(t)
 	defer server.Stop()
 
@@ -81,6 +82,7 @@ func TestE2EPasteText(t *testing.T) {
 }
 
 func TestE2EPasteImage(t *testing.T) {
+	t.Parallel()
 	server := startServer(t)
 	defer server.Stop()
 
@@ -154,6 +156,7 @@ func TestE2EPasteImage(t *testing.T) {
 }
 
 func TestE2EPasteFile(t *testing.T) {
+	t.Parallel()
 	server := startServer(t)
 	defer server.Stop()
 

@@ -23,7 +23,7 @@ type wsConnection interface {
 type messageHub interface {
 	Join(userID string) chan models.ServerMessage
 	Leave(userID string, expectedCh chan models.ServerMessage)
-	Dispatch(userID string, msg models.ClientMessage)
+	Dispatch(userID string, msg models.ClientMessage, senderCh chan models.ServerMessage)
 }
 
 type Connection struct {
@@ -50,8 +50,8 @@ func NewConnection(
 	}
 }
 
-func (c *Connection) Handle(ctx context.Context) error {
-	ctx, cancel := context.WithCancel(ctx)
+func (c *Connection) Handle(parentCtx context.Context) error {
+	ctx, cancel := context.WithCancel(parentCtx)
 	defer func() {
 		close(c.fromClient)
 		close(c.errorCh)
@@ -72,7 +72,8 @@ func (c *Connection) Handle(ctx context.Context) error {
 	var err error
 	select {
 	case err = <-c.errorCh:
-	case <-ctx.Done():
+	case <-parentCtx.Done():
+		err = parentCtx.Err()
 	}
 	_ = c.ws.Close()
 	wg.Wait()
@@ -134,10 +135,10 @@ func (c *Connection) mainLoop(ctx context.Context) error {
 
 func (c *Connection) processClientMessage(msg models.ClientMessage) error {
 	switch msg.Type {
-	case models.ClientMessageTypeJoin, models.ClientMessageTypeSend, models.ClientMessageTypeFetch:
-		c.hub.Dispatch(c.userID, msg)
+	case models.ClientMessageTypeJoin, models.ClientMessageTypeSend, models.ClientMessageTypeFetch, models.ClientMessageTypeRead:
+		c.hub.Dispatch(c.userID, msg, c.fromServer)
 	case models.ClientMessageTypeLocation:
-		c.hub.Dispatch(c.userID, msg)
+		c.hub.Dispatch(c.userID, msg, c.fromServer)
 	}
 
 	return nil

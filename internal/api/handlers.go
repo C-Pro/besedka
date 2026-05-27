@@ -361,7 +361,7 @@ func (a *API) SendMessageHandler(w http.ResponseWriter, r *http.Request) {
 		Type:    models.ClientMessageTypeSend,
 		ChatID:  chatID,
 		Content: req.Content,
-	})
+	}, nil)
 
 	w.WriteHeader(http.StatusOK)
 }
@@ -474,6 +474,14 @@ func (a *API) ResetPasswordHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func isSVG(data []byte) bool {
+	trimmed := bytes.TrimSpace(data)
+	if bytes.HasPrefix(trimmed, []byte("<?xml")) {
+		return bytes.Contains(trimmed, []byte("<svg"))
+	}
+	return bytes.HasPrefix(trimmed, []byte("<svg"))
+}
+
 func (a *API) processUpload(w http.ResponseWriter, r *http.Request, maxBytes int64, enforceImage bool) (string, error) {
 	uploaderID := UserIDFromContext(r.Context())
 
@@ -487,7 +495,7 @@ func (a *API) processUpload(w http.ResponseWriter, r *http.Request, maxBytes int
 	data := buf.Bytes()
 
 	if enforceImage {
-		if !filetype.IsImage(data) {
+		if !filetype.IsImage(data) && !isSVG(data) {
 			http.Error(w, "Invalid file type. Only images are allowed.", http.StatusBadRequest)
 			return "", errors.New("invalid file type")
 		}
@@ -497,6 +505,8 @@ func (a *API) processUpload(w http.ResponseWriter, r *http.Request, maxBytes int
 	kind, err := filetype.Match(data)
 	if err == nil && kind != filetype.Unknown {
 		mimeType = kind.MIME.Value
+	} else if isSVG(data) {
+		mimeType = "image/svg+xml"
 	}
 
 	hasher := sha256.New()

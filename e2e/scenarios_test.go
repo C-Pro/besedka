@@ -15,6 +15,7 @@ import (
 )
 
 func TestE2EMainFlow(t *testing.T) {
+	t.Parallel()
 	server := startServer(t)
 	defer server.Stop()
 
@@ -32,6 +33,27 @@ func TestE2EMainFlow(t *testing.T) {
 	aliceContext := createBrowserContext(t, browser)
 	alicePage, err := aliceContext.NewPage()
 	require.NoError(t, err)
+
+	// Mock navigator.setAppBadge / navigator.clearAppBadge to test PWA badge updates
+	err = alicePage.AddInitScript(playwright.Script{
+		Content: playwright.String(`
+			window.__appBadgeCount = 0;
+			navigator.setAppBadge = async (count) => {
+				console.log("MOCK setAppBadge called with:", count);
+				window.__appBadgeCount = count;
+			};
+			navigator.clearAppBadge = async () => {
+				console.log("MOCK clearAppBadge called");
+				window.__appBadgeCount = 0;
+			};
+		`),
+	})
+	require.NoError(t, err)
+
+	alicePage.On("console", func(msg playwright.ConsoleMessage) {
+		t.Logf("BROWSER CONSOLE: %s", msg.Text())
+	})
+
 	registerUser(t, alicePage, aliceSetupLink, "Alice Smith", "password123")
 
 	// 3. Register Bob
@@ -117,6 +139,29 @@ func TestE2EMainFlow(t *testing.T) {
 		return err == nil && strings.TrimSpace(badge) == "1"
 	}, 5*time.Second, 200*time.Millisecond)
 
+	// Helper to safely get the badge count as int from window.__appBadgeCount
+	getIntVal := func(page playwright.Page, expr string) int {
+		val, err := page.Evaluate(expr)
+		if err != nil {
+			return -1
+		}
+		if f, ok := val.(float64); ok {
+			return int(f)
+		}
+		if i, ok := val.(int); ok {
+			return i
+		}
+		if i64, ok := val.(int64); ok {
+			return int(i64)
+		}
+		return -1
+	}
+
+	// Verify navigator.setAppBadge was called with 1
+	require.Eventually(t, func() bool {
+		return getIntVal(alicePage, "window.__appBadgeCount") == 1
+	}, 5*time.Second, 200*time.Millisecond)
+
 	t.Log("Bob sends a third message...")
 	bobMsg3 := "Hellooo?"
 	err = bobPage.Locator("#message-input").Fill(bobMsg3)
@@ -130,6 +175,11 @@ func TestE2EMainFlow(t *testing.T) {
 		return err == nil && strings.TrimSpace(badge) == "2"
 	}, 5*time.Second, 200*time.Millisecond)
 
+	// Verify navigator.setAppBadge was called with 2
+	require.Eventually(t, func() bool {
+		return getIntVal(alicePage, "window.__appBadgeCount") == 2
+	}, 5*time.Second, 200*time.Millisecond)
+
 	t.Log("Alice switches back to Bob's chat...")
 	err = bobChatLocator.Click()
 	require.NoError(t, err)
@@ -139,9 +189,58 @@ func TestE2EMainFlow(t *testing.T) {
 		count, _ := bobChatLocator.Locator(".unread-badge").Count()
 		return count == 0
 	}, 5*time.Second, 200*time.Millisecond)
+
+	// Verify navigator.clearAppBadge cleared the badge count (0)
+	require.Eventually(t, func() bool {
+		return getIntVal(alicePage, "window.__appBadgeCount") == 0
+	}, 5*time.Second, 200*time.Millisecond)
+
+	// 5. Test unread count > 99 displaying as 99+
+	t.Log("Alice switches back to Town Hall to test 99+ badges...")
+	err = alicePage.Locator(".chat-item:has-text(\"Town Hall\")").Click()
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		content, _ := alicePage.Locator(".chat-header h3").InnerHTML()
+		return strings.Contains(content, "Town Hall")
+	}, 5*time.Second, 200*time.Millisecond)
+
+	t.Log("Bob sends 100 messages to test 99+ display...")
+	for idx := 1; idx <= 100; idx++ {
+		err = bobPage.Locator("#message-input").Fill(fmt.Sprintf("Spam message %d", idx))
+		require.NoError(t, err)
+		err = bobPage.Locator("#send-btn").Click()
+		require.NoError(t, err)
+	}
+
+	t.Log("Alice should see an unread badge with '99+'...")
+	require.Eventually(t, func() bool {
+		badge, err := bobChatLocator.Locator(".unread-badge").InnerText()
+		return err == nil && strings.TrimSpace(badge) == "99+"
+	}, 10*time.Second, 200*time.Millisecond)
+
+	t.Log("Alice's AppBadge count should be 100...")
+	require.Eventually(t, func() bool {
+		return getIntVal(alicePage, "window.__appBadgeCount") == 100
+	}, 5*time.Second, 200*time.Millisecond)
+
+	t.Log("Alice switches back to Bob's chat to clear the 99+ badge...")
+	err = bobChatLocator.Click()
+	require.NoError(t, err)
+
+	t.Log("Unread badge should disappear...")
+	require.Eventually(t, func() bool {
+		count, _ := bobChatLocator.Locator(".unread-badge").Count()
+		return count == 0
+	}, 5*time.Second, 200*time.Millisecond)
+
+	require.Eventually(t, func() bool {
+		return getIntVal(alicePage, "window.__appBadgeCount") == 0
+	}, 5*time.Second, 200*time.Millisecond)
 }
 
 func TestE2EDeleteUserRemovesChat(t *testing.T) {
+	t.Parallel()
 	server := startServer(t)
 	defer server.Stop()
 
@@ -202,6 +301,7 @@ func TestE2EDeleteUserRemovesChat(t *testing.T) {
 }
 
 func TestE2ELogoff(t *testing.T) {
+	t.Parallel()
 	server := startServer(t)
 	defer server.Stop()
 
@@ -277,6 +377,7 @@ func TestE2ELogoff(t *testing.T) {
 }
 
 func TestE2EProfileEdit(t *testing.T) {
+	t.Parallel()
 	server := startServer(t)
 	defer server.Stop()
 
@@ -376,6 +477,7 @@ func TestE2EProfileEdit(t *testing.T) {
 }
 
 func TestE2EReactivateDeletedUser(t *testing.T) {
+	t.Parallel()
 	server := startServer(t)
 	defer server.Stop()
 
@@ -442,6 +544,7 @@ func TestE2EReactivateDeletedUser(t *testing.T) {
 }
 
 func TestE2EInfiniteScroll(t *testing.T) {
+	t.Parallel()
 	server := startServer(t)
 	defer server.Stop()
 
@@ -517,6 +620,7 @@ func TestE2EInfiniteScroll(t *testing.T) {
 }
 
 func TestE2EFileUpload(t *testing.T) {
+	t.Parallel()
 	server := startServer(t)
 	defer server.Stop()
 
@@ -591,6 +695,7 @@ func TestE2EFileUpload(t *testing.T) {
 }
 
 func TestE2EMultipleConnections(t *testing.T) {
+	t.Parallel()
 	server := startServer(t)
 	defer server.Stop()
 
@@ -640,3 +745,164 @@ func TestE2EMultipleConnections(t *testing.T) {
 		return strings.Contains(content, msgContent)
 	}, 5*time.Second, 200*time.Millisecond, "Message should be visible on the first connection")
 }
+
+func TestE2EOfflineBadges(t *testing.T) {
+	t.Parallel()
+	server := startServer(t)
+	defer server.Stop()
+
+	pw, browser := setupPlaywright(t)
+	defer func() { _ = pw.Stop() }()
+	defer func() { _ = browser.Close() }()
+
+	// 1. Create and register Alice and Bob
+	t.Log("Registering Alice and Bob...")
+	aliceSetupLink := server.CreateUser(t, "alice")
+	bobSetupLink := server.CreateUser(t, "bob")
+
+	aliceContext1 := createBrowserContext(t, browser)
+	alicePage1, err := aliceContext1.NewPage()
+	require.NoError(t, err)
+	aliceSecret := registerUser(t, alicePage1, aliceSetupLink, "Alice Smith", "password123")
+
+	bobContext := createBrowserContext(t, browser)
+	bobPage, err := bobContext.NewPage()
+	require.NoError(t, err)
+	_ = registerUser(t, bobPage, bobSetupLink, "Bob Jones", "password456")
+
+	// Reload Alice to make sure she sees Bob's updated display name
+	_, err = alicePage1.Reload()
+	require.NoError(t, err)
+
+	// 2. Alice selects Bob's chat to establish initial read receipt (seq 0)
+	t.Log("Alice selects Bob's chat...")
+	bobChatLocator1 := alicePage1.Locator(".chat-item:has-text(\"Bob Jones\")")
+	err = bobChatLocator1.WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	})
+	require.NoError(t, err)
+
+	err = bobChatLocator1.Click()
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		content, _ := alicePage1.Locator(".chat-header h3").InnerHTML()
+		return strings.Contains(content, "Bob Jones")
+	}, 5*time.Second, 200*time.Millisecond)
+
+	// Reload Bob to make sure he sees Alice
+	_, err = bobPage.Reload()
+	require.NoError(t, err)
+
+	// 3. Bob selects Alice's chat
+	t.Log("Bob selects Alice...")
+	err = bobPage.Locator(".chat-item:has-text(\"Alice Smith\")").Click()
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		content, _ := bobPage.Locator(".chat-header h3").InnerHTML()
+		return strings.Contains(content, "Alice Smith")
+	}, 5*time.Second, 200*time.Millisecond)
+
+	// 4. Alice goes offline (close context)
+	t.Log("Alice goes offline...")
+	err = aliceContext1.Close()
+	require.NoError(t, err)
+
+	// 5. Bob sends two messages to Alice
+	t.Log("Bob sends two messages to offline Alice...")
+	err = bobPage.Locator("#message-input").Fill("Offline message 1")
+	require.NoError(t, err)
+	err = bobPage.Locator("#send-btn").Click()
+	require.NoError(t, err)
+
+	err = bobPage.Locator("#message-input").Fill("Offline message 2")
+	require.NoError(t, err)
+	err = bobPage.Locator("#send-btn").Click()
+	require.NoError(t, err)
+
+	// Sleep briefly to let messages be persisted in the DB
+	time.Sleep(1 * time.Second)
+
+	// 6. Alice logs back in (new browser context)
+	t.Log("Alice logs back in...")
+	aliceContext2 := createBrowserContext(t, browser)
+	defer aliceContext2.Close()
+	alicePage2, err := aliceContext2.NewPage()
+	require.NoError(t, err)
+	loginViaForm(t, alicePage2, server.BaseURL, "alice", "password123", aliceSecret)
+
+	// Wait for layout
+	err = alicePage2.Locator(".app-layout").WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	})
+	require.NoError(t, err)
+
+	// 7. Alice should see unread badge of "2" on Bob's chat
+	t.Log("Alice should see unread badge count 2...")
+	bobChatLocator2 := alicePage2.Locator(".chat-item:has-text(\"Bob Jones\")")
+	err = bobChatLocator2.WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	})
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		badge, err := bobChatLocator2.Locator(".unread-badge").InnerText()
+		return err == nil && strings.TrimSpace(badge) == "2"
+	}, 5*time.Second, 200*time.Millisecond)
+
+	// 8. Alice clicks Bob's chat, badge should disappear
+	t.Log("Alice clicks Bob's chat...")
+	err = bobChatLocator2.Click()
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		count, _ := bobChatLocator2.Locator(".unread-badge").Count()
+		return count == 0
+	}, 5*time.Second, 200*time.Millisecond)
+
+	// Sleep 6 seconds to let the 5-second database ticker run and flush to bbolt
+	t.Log("Waiting for read receipt flush ticker...")
+	time.Sleep(6 * time.Second)
+
+	// Restart server to test database persistence
+	t.Log("Restarting server to test database persistence...")
+	server.Restart(t)
+
+	// Wait until the current TOTP window changes to avoid login failure due to TOTP code reuse
+	now := time.Now()
+	secondsIntoWindow := now.Unix() % 30
+	sleepDuration := time.Duration(30-secondsIntoWindow+1) * time.Second
+	t.Logf("Sleeping %v to wait for the next TOTP window...", sleepDuration)
+	time.Sleep(sleepDuration)
+
+	// 9. Alice closes browser and logs in once more
+	t.Log("Alice closes browser and logs in once more...")
+	err = aliceContext2.Close()
+	require.NoError(t, err)
+
+	aliceContext3 := createBrowserContext(t, browser)
+	defer aliceContext3.Close()
+	alicePage3, err := aliceContext3.NewPage()
+	require.NoError(t, err)
+	loginViaForm(t, alicePage3, server.BaseURL, "alice", "password123", aliceSecret)
+
+	err = alicePage3.Locator(".app-layout").WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	})
+	require.NoError(t, err)
+
+	bobChatLocator3 := alicePage3.Locator(".chat-item:has-text(\"Bob Jones\")")
+	err = bobChatLocator3.WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	})
+	require.NoError(t, err)
+
+	// Unread badge should not exist (count == 0)
+	t.Log("Verifying badge is still gone (0 unread)...")
+	require.Eventually(t, func() bool {
+		count, _ := bobChatLocator3.Locator(".unread-badge").Count()
+		return count == 0
+	}, 5*time.Second, 200*time.Millisecond)
+}
+

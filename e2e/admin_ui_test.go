@@ -65,12 +65,15 @@ func (m *mockStorage) ListMessages(chatID string, from, to int64) ([]models.Mess
 }
 func (m *mockStorage) ListChats() ([]models.Chat, error) { return nil, nil }
 func (m *mockStorage) UpsertChat(chat models.Chat) error { return nil }
+func (m *mockStorage) SaveLastSeenBatch(batch []models.LastSeenEntry) error { return nil }
+func (m *mockStorage) ListLastSeen() ([]models.LastSeenEntry, error)       { return nil, nil }
 
 type mockPushService struct{}
 
 func (m *mockPushService) SendNotification(userID string, payload []byte) error { return nil }
 
 func TestAdminUI(t *testing.T) {
+	t.Parallel()
 	// Setup dependencies
 	cfg := &config.Config{
 		AdminUser:     "admin",

@@ -375,5 +375,61 @@ func TestStorage(t *testing.T) {
 			t.Errorf("expected 0 subscriptions after delete, got %d", len(subs))
 		}
 	})
-}
 
+	t.Run("LastSeen", func(t *testing.T) {
+		batch := []models.LastSeenEntry{
+			{UserID: "user1", ChatID: "chat1", Seq: 10},
+			{UserID: "user2", ChatID: "chat1", Seq: 20},
+		}
+
+		if err := store.SaveLastSeenBatch(batch); err != nil {
+			t.Fatalf("SaveLastSeenBatch failed: %v", err)
+		}
+
+		list, err := store.ListLastSeen()
+		if err != nil {
+			t.Fatalf("ListLastSeen failed: %v", err)
+		}
+
+		if len(list) != 2 {
+			t.Fatalf("expected 2 entries, got %d", len(list))
+		}
+
+		var u1Entry, u2Entry *models.LastSeenEntry
+		for i := range list {
+			if list[i].UserID == "user1" {
+				u1Entry = &list[i]
+			}
+			if list[i].UserID == "user2" {
+				u2Entry = &list[i]
+			}
+		}
+
+		if u1Entry == nil || u1Entry.ChatID != "chat1" || u1Entry.Seq != 10 {
+			t.Errorf("incorrect entry for user1: %+v", u1Entry)
+		}
+		if u2Entry == nil || u2Entry.ChatID != "chat1" || u2Entry.Seq != 20 {
+			t.Errorf("incorrect entry for user2: %+v", u2Entry)
+		}
+
+		updateBatch := []models.LastSeenEntry{
+			{UserID: "user1", ChatID: "chat1", Seq: 15},
+		}
+		if err := store.SaveLastSeenBatch(updateBatch); err != nil {
+			t.Fatalf("SaveLastSeenBatch update failed: %v", err)
+		}
+
+		list, err = store.ListLastSeen()
+		if err != nil {
+			t.Fatalf("ListLastSeen after update failed: %v", err)
+		}
+
+		for _, entry := range list {
+			if entry.UserID == "user1" && entry.ChatID == "chat1" {
+				if entry.Seq != 15 {
+					t.Errorf("expected updated seq 15, got %d", entry.Seq)
+				}
+			}
+		}
+	})
+}

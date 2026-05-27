@@ -68,7 +68,7 @@ export function createChatList(container) {
                 badge.className = 'unread-badge';
                 el.appendChild(badge);
             }
-            badge.textContent = unreadCount;
+            badge.textContent = unreadCount > 99 ? '99+' : unreadCount;
         } else if (badge) {
             badge.remove();
         }

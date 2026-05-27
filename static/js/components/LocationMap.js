@@ -20,11 +20,16 @@ export class LocationMap {
                 .attr("height", "100%")
                 .attr("viewBox", `0 0 ${this.width} ${this.height}`)
                 .attr("preserveAspectRatio", "xMidYMid meet");
+
+            // SVG Background
+            this.svg.append("rect")
+                .attr("width", "100%")
+                .attr("height", "100%")
+                .attr("fill", "#0f172a");
                 
-            this.projection = d3.geoOrthographic()
-                .scale(this.height / 2.1)
-                .translate([this.width / 2, this.height / 2])
-                .clipAngle(90);
+            this.projection = d3.geoMercator()
+                .scale(this.height / 6.2)
+                .translate([this.width / 2, this.height / 2]);
 
             this.path = d3.geoPath().projection(this.projection);
 
@@ -138,58 +143,51 @@ export class LocationMap {
     }
 
     updateProjection() {
+        const minScale = this.width / (2 * Math.PI);
+
         if (!this.usersLastLocations || this.usersLastLocations.length === 0) {
             this.projection
-                .scale(Math.min(this.width, this.height) / 2.1)
+                .scale(minScale)
                 .translate([this.width / 2, this.height / 2])
-                .rotate([0, 0]); // Default rotation
+                .center([0, 0]);
                 
             this.drawPaths();
             return;
         }
 
-        // Calculate spherical center based on 3D mean
-        let sumX = 0, sumY = 0, sumZ = 0;
-        for (const loc of this.usersLastLocations) {
-            const [x, y, z] = this.toFixed3D(loc.lng, loc.lat);
-            sumX += x; sumY += y; sumZ += z;
-        }
-
-        const len = Math.sqrt(sumX*sumX + sumY*sumY + sumZ*sumZ);
-        let centerLon = 0, centerLat = 0;
-        if (len > 0) {
-            const [lon, lat] = this.fromFixed3D(sumX/len, sumY/len, sumZ/len);
-            centerLon = lon;
-            centerLat = lat;
-        }
-
-        // Center on the computed spherical mean
-        this.projection.rotate([-centerLon, -centerLat]);
-        
-        // Calculate bounds and zoom
-        // D3's geoOrthographic fitSize usually requires a GeoJSON object
         const points = {
             type: "MultiPoint",
             coordinates: this.usersLastLocations.map(l => [l.lng, l.lat])
         };
 
-        // If only one user, give a default scale
-        if (this.usersLastLocations.length <= 1) {
+        // If only one user, center on them and zoom in
+        if (this.usersLastLocations.length === 1) {
              this.projection
-                .scale(Math.min(this.width, this.height)) // Zoomed in a bit more for one person
-                .translate([this.width / 2, this.height / 2]);
+                .scale(Math.max(minScale, Math.min(this.width, this.height) * 1.5))
+                .translate([this.width / 2, this.height / 2])
+                .center([this.usersLastLocations[0].lng, this.usersLastLocations[0].lat]);
         } else {
+             // Reset center before fitting
+             this.projection.center([0, 0]);
+             
              // We fit the projection using fitExtent with some padding
              this.projection.fitExtent([
-                 [this.width * 0.1, this.height * 0.1], 
-                 [this.width * 0.9, this.height * 0.9]
+                 [this.width * 0.15, this.height * 0.15], 
+                 [this.width * 0.85, this.height * 0.85]
              ], points);
              
-             // GeoOrthographic scale might blow up if points are too close or across the globe,
-             // cap it at a reasonable max to not zoom in too deeply.
-             const currentScale = this.projection.scale();
-             if (currentScale > this.width * 3) {
-                 this.projection.scale(this.width * 3);
+             // Enforce that scale is at least minScale to fill container width
+             let currentScale = this.projection.scale();
+             if (currentScale < minScale) {
+                 this.projection
+                     .scale(minScale)
+                     .translate([this.width / 2, this.height / 2])
+                     .center([0, 0]);
+             }
+             // Cap it at a reasonable max to not zoom in too deeply.
+             currentScale = this.projection.scale();
+             if (currentScale > this.width * 2) {
+                 this.projection.scale(this.width * 2);
              }
         }
 
@@ -211,14 +209,9 @@ export class LocationMap {
                 return 'translate(-9999, -9999)';
             });
             
-        // Hide markers that are on the back side of the orthographic globe
+        // Show all markers on flat map
         this.markerLayer.selectAll('.marker-container')
-            .style('display', d => {
-                // To check if a point is visible on an orthographic projection:
-                // We use geoPath which returns undefined or empty for points on back of globe with clipping
-                const dpath = this.path({type: "Point", coordinates: [d.location.lng, d.location.lat]});
-                return dpath ? null : 'none';
-            });
+            .style('display', null);
     }
 
     getDMID(u1, u2) {

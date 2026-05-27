@@ -12,6 +12,7 @@ import (
 )
 
 func TestE2ENavigationBack(t *testing.T) {
+	t.Parallel()
 	server := startServer(t)
 	defer server.Stop()
 
@@ -141,6 +142,26 @@ func TestE2ENavigationBack(t *testing.T) {
 			visible, _ := page.Locator("#sidebar").IsVisible()
 			return visible
 		}, 5*time.Second, 100*time.Millisecond, "Should be back on chat list")
+
+		// 6.5 Click on the active chat (Town Hall) in the chat list. It should open the chat window even though it was already active.
+		t.Log("On chat-list, clicking already active Town Hall chat...")
+		err = page.Locator(".chat-item:has-text(\"Town Hall\")").DispatchEvent("click", nil)
+		require.NoError(t, err)
+
+		require.Eventually(t, func() bool {
+			visible, _ := page.Locator("#chat-area").IsVisible()
+			return visible
+		}, 5*time.Second, 100*time.Millisecond, "Should open chat window on clicking active chat")
+
+		// Go back to the chat list to restore position for the final back test
+		t.Log("Pressing back to return to Chat List...")
+		_, err = page.GoBack()
+		require.NoError(t, err)
+
+		require.Eventually(t, func() bool {
+			visible, _ := page.Locator("#sidebar").IsVisible()
+			return visible
+		}, 5*time.Second, 100*time.Millisecond, "Should be back on chat list again")
 
 		// 7. Press Back again (should NOT be login page)
 		t.Log("Pressing back (from Chat List)...")

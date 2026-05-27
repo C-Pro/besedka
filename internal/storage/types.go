@@ -150,3 +150,23 @@ func (s *DBPushSubscription) UnmarshalBinary(data []byte) error {
 	type alias DBPushSubscription
 	return msgpack.Unmarshal(data, (*alias)(s))
 }
+
+type DBLastSeen struct {
+	UserID string `msgpack:"userId"`
+	ChatID string `msgpack:"chatId"`
+	Seq    int64  `msgpack:"seq"`
+}
+
+func (l *DBLastSeen) Key() []byte {
+	return []byte(l.UserID + ":" + l.ChatID)
+}
+
+func (l *DBLastSeen) MarshalBinary() (data []byte, err error) {
+	type alias DBLastSeen
+	return msgpack.Marshal((*alias)(l))
+}
+
+func (l *DBLastSeen) UnmarshalBinary(data []byte) error {
+	type alias DBLastSeen
+	return msgpack.Unmarshal(data, (*alias)(l))
+}

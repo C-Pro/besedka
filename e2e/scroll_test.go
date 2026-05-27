@@ -13,6 +13,7 @@ import (
 )
 
 func TestE2EScrollPosition(t *testing.T) {
+	t.Parallel()
 	server := startServer(t)
 	defer server.Stop()
 

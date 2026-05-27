@@ -1,6 +1,5 @@
 const CACHE_VERSION = '{{CACHE_VERSION}}';
 const CACHE_FILES = [
-    '/',
     '/js/app.js',
     '/js/state.js',
     '/js/components/ChatList.js',
@@ -43,6 +42,9 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
     if (event.request.method !== 'GET') return;
+
+    // Do not intercept page navigation requests to prevent CORS/redirect errors (blocked:origin)
+    if (event.request.mode === 'navigate') return;
 
     const url = new URL(event.request.url);
 

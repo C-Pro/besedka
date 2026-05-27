@@ -26,6 +26,7 @@ var (
 	bucketSettings           = []byte("settings")
 	bucketVAPIDKeys          = []byte("vapid_keys")
 	bucketPushSubscriptions  = []byte("push_subscriptions")
+	bucketLastSeen           = []byte("last_seen")
 )
 
 type BboltStorage struct {
@@ -67,6 +68,9 @@ func NewBboltStorage(path string, key []byte, fs filestore.FileStore) (*BboltSto
 			return err
 		}
 		if _, err := tx.CreateBucketIfNotExists(bucketPushSubscriptions); err != nil {
+			return err
+		}
+		if _, err := tx.CreateBucketIfNotExists(bucketLastSeen); err != nil {
 			return err
 		}
 		return nil
@@ -671,4 +675,50 @@ func (s *BboltStorage) DeletePushSubscription(userID string, endpoint string) er
 		}
 		return userBucket.Delete([]byte(endpoint))
 	})
+}
+
+// SaveLastSeenBatch stores a batch of last seen entries.
+func (s *BboltStorage) SaveLastSeenBatch(batch []models.LastSeenEntry) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketLastSeen)
+		for _, entry := range batch {
+			if entry.Seq < 0 {
+				continue
+			}
+			dbLS := DBLastSeen{
+				UserID: entry.UserID,
+				ChatID: entry.ChatID,
+				Seq:    entry.Seq,
+			}
+			val, err := dbLS.MarshalBinary()
+			if err != nil {
+				return err
+			}
+			if err := b.Put(dbLS.Key(), val); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// ListLastSeen returns all stored last seen entries.
+func (s *BboltStorage) ListLastSeen() ([]models.LastSeenEntry, error) {
+	var result []models.LastSeenEntry
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketLastSeen)
+		return b.ForEach(func(k, v []byte) error {
+			var dbLS DBLastSeen
+			if err := dbLS.UnmarshalBinary(v); err != nil {
+				return err
+			}
+			result = append(result, models.LastSeenEntry{
+				UserID: dbLS.UserID,
+				ChatID: dbLS.ChatID,
+				Seq:    dbLS.Seq,
+			})
+			return nil
+		})
+	})
+	return result, err
 }

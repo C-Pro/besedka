@@ -96,7 +96,7 @@ func (m *mockHub) Leave(userID string, expectedCh chan models.ServerMessage) {
 	}
 }
 
-func (m *mockHub) Dispatch(userID string, msg models.ClientMessage) {
+func (m *mockHub) Dispatch(userID string, msg models.ClientMessage, senderCh chan models.ServerMessage) {
 	m.dispatchCh <- msg
 }
 
