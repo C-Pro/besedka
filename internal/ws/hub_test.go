@@ -847,13 +847,16 @@ func TestHub_ReadReceipts(t *testing.T) {
 
 	// 2. Test GetChats returning LastSeenSeq
 	chats := h.GetChats("u1")
-	var townhallChat *models.Chat
-	for i := range chats {
-		if chats[i].ID == "townhall" {
-			townhallChat = &chats[i]
+	var townhallChat models.Chat
+	var found bool
+	for _, c := range chats {
+		if c.ID == "townhall" {
+			townhallChat = c
+			found = true
+			break
 		}
 	}
-	if townhallChat == nil {
+	if !found {
 		t.Fatal("townhall chat not found in GetChats")
 	}
 	if townhallChat.LastSeenSeq != 5 {
@@ -862,13 +865,16 @@ func TestHub_ReadReceipts(t *testing.T) {
 
 	// Verify default to LastSeq when no last seen exists (e.g. for User 2)
 	chats2 := h.GetChats("u2")
-	var townhallChat2 *models.Chat
-	for i := range chats2 {
-		if chats2[i].ID == "townhall" {
-			townhallChat2 = &chats2[i]
+	var townhallChat2 models.Chat
+	var found2 bool
+	for _, c := range chats2 {
+		if c.ID == "townhall" {
+			townhallChat2 = c
+			found2 = true
+			break
 		}
 	}
-	if townhallChat2 == nil {
+	if !found2 {
 		t.Fatal("townhall chat not found in GetChats for u2")
 	}
 	if townhallChat2.LastSeenSeq != 10 {
