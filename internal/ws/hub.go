@@ -560,9 +560,9 @@ func (h *Hub) handleLocation(userID string, msg models.ClientMessage) {
 
 func (h *Hub) sendToUser(userID string, msg models.ServerMessage) {
 	h.mu.RLock()
-	channels, online := h.connectedUsers[userID]
-	h.mu.RUnlock()
+	defer h.mu.RUnlock()
 
+	channels, online := h.connectedUsers[userID]
 	if !online {
 		return
 	}
@@ -578,9 +578,9 @@ func (h *Hub) sendToUser(userID string, msg models.ServerMessage) {
 
 func (h *Hub) sendToUserExcept(userID string, msg models.ServerMessage, skipCh chan models.ServerMessage) {
 	h.mu.RLock()
-	channels, online := h.connectedUsers[userID]
-	h.mu.RUnlock()
+	defer h.mu.RUnlock()
 
+	channels, online := h.connectedUsers[userID]
 	if !online {
 		return
 	}
@@ -743,12 +743,11 @@ func (h *Hub) GetUser(userID string) (models.User, error) {
 func (h *Hub) handleRecordCallback(receiverID string, chatID string, record chat.ChatRecord) {
 	h.mu.RLock()
 	channels, online := h.connectedUsers[receiverID]
-	h.mu.RUnlock()
 
 	if online {
 		msg := models.ServerMessage{
-			Type:   models.ServerMessageTypeMessages,
-			ChatID: chatID,
+			Type:     models.ServerMessageTypeMessages,
+			ChatID:   chatID,
 			Messages: mapRecordsToMessages([]chat.ChatRecord{record}),
 		}
 
@@ -761,30 +760,34 @@ func (h *Hub) handleRecordCallback(receiverID string, chatID string, record chat
 				slog.Warn("Message channel full, dropping message", "chatID", chatID, "userID", receiverID)
 			}
 		}
-	} else if receiverID != record.UserID {
-		// Send push notification if user is offline AND is not the sender
-		sender, _ := h.userProvider.GetUser(record.UserID)
-		senderName := sender.DisplayName
-		if senderName == "" {
-			senderName = sender.UserName
-		}
+		h.mu.RUnlock()
+	} else {
+		h.mu.RUnlock()
+		if receiverID != record.UserID {
+			// Send push notification if user is offline AND is not the sender
+			sender, _ := h.userProvider.GetUser(record.UserID)
+			senderName := sender.DisplayName
+			if senderName == "" {
+				senderName = sender.UserName
+			}
 
-		formatted := record.FormattedContent
-		if formatted == "" {
-			formatted = content.FormatMessage(record.Content)
-		}
+			formatted := record.FormattedContent
+			if formatted == "" {
+				formatted = content.FormatMessage(record.Content)
+			}
 
-		payload := map[string]string{
-			"title": senderName,
-			"body":  content.Sanitize(formatted),
-			"url":   fmt.Sprintf("/?chat=%s", chatID),
-		}
+			payload := map[string]string{
+				"title": senderName,
+				"body":  content.Sanitize(formatted),
+				"url":   fmt.Sprintf("/?chat=%s", chatID),
+			}
 
-		payloadBytes, _ := json.Marshal(payload)
-		select {
-		case h.pushQueue <- pushTask{userID: receiverID, payload: payloadBytes}:
-		default:
-			slog.Warn("Push notification queue full, dropping notification", "userID", receiverID)
+			payloadBytes, _ := json.Marshal(payload)
+			select {
+			case h.pushQueue <- pushTask{userID: receiverID, payload: payloadBytes}:
+			default:
+				slog.Warn("Push notification queue full, dropping notification", "userID", receiverID)
+			}
 		}
 	}
 }
