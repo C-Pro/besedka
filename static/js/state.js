@@ -24,6 +24,9 @@ class Store {
         this.locationInterval = null;
         this.locationSharingEnabled = localStorage.getItem('locationSharing') === 'true';
         this.readReceiptsSent = new Set();
+        this.tokenExpiry = null;
+        this.sessionLimit = null;
+        this.cookieExpiryInterval = setInterval(() => this.checkCookieExpiry(), 60000);
     }
 
     subscribe(listener) {
@@ -49,11 +52,49 @@ class Store {
             if (response.ok) {
                 const user = await response.json();
                 this.setState({ currentUser: user });
+                if (user.tokenExpiry) {
+                    this.tokenExpiry = user.tokenExpiry;
+                }
+                if (user.sessionLimit) {
+                    this.sessionLimit = user.sessionLimit;
+                }
                 return true;
             }
             return false;
         } catch {
             return false;
+        }
+    }
+
+    async checkCookieExpiry() {
+        if (!this.state.currentUser || !this.tokenExpiry) return;
+        const now = Math.floor(Date.now() / 1000);
+        const limit = this.sessionLimit || 24 * 3600;
+        const threshold = limit / 2;
+        if (this.tokenExpiry - now < threshold) {
+            console.log('Session cookie is close to expiring, refreshing...');
+            await this.refreshSession();
+        }
+    }
+
+    async refreshSession() {
+        try {
+            const response = await fetch('/api/me');
+            if (response.status === 401) {
+                window.location.href = '/login.html';
+                return;
+            }
+            if (response.ok) {
+                const data = await response.json();
+                if (data.tokenExpiry) {
+                    this.tokenExpiry = data.tokenExpiry;
+                }
+                if (data.sessionLimit) {
+                    this.sessionLimit = data.sessionLimit;
+                }
+            }
+        } catch (error) {
+            console.error('Failed to refresh session cookie:', error);
         }
     }
 
@@ -91,6 +132,12 @@ class Store {
 
             const data = await response.json();
             this.setState({ currentUser: { id: data.userId } });
+            if (data.tokenExpiry) {
+                this.tokenExpiry = data.tokenExpiry;
+            }
+            if (data.sessionLimit) {
+                this.sessionLimit = data.sessionLimit;
+            }
 
             await this.fetchUsers();
             await this.fetchChats();
@@ -107,6 +154,8 @@ class Store {
         try {
             const response = await fetch('/api/logoff', { method: 'POST' });
             if (response.ok) {
+                this.tokenExpiry = null;
+                this.sessionLimit = null;
                 // Clear state
                 this.setState({
                     currentUser: null,

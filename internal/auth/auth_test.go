@@ -588,6 +588,59 @@ func TestAuthService(t *testing.T) {
 		}
 	})
 
+	t.Run("RefreshToken_And_GetTokenExpiry", func(t *testing.T) {
+		svc, now, _ := createService(t)
+		const userID = "user_refresh"
+		const token = "session-token-refresh"
+		tokenHash := svc.hashToken(token)
+
+		tx := svc.users.Lock()
+		tx.Set(userID, &UserCredentials{
+			User: models.User{
+				ID:       userID,
+				UserName: "user_refresh",
+				Status:   models.UserStatusActive,
+			},
+		})
+		svc.usernames.Set("user_refresh", userID)
+		tx.Unlock()
+
+		initial := *now
+		svc.liveTokens.Set(tokenHash, tokenSession{UserID: userID, UpdatedAt: initial})
+
+		// Test GetTokenExpiry
+		expiryTime, err := svc.GetTokenExpiry(token)
+		if err != nil {
+			t.Fatalf("GetTokenExpiry failed: %v", err)
+		}
+		expectedExpiry := initial.Add(svc.TokenExpiry)
+		if !expiryTime.Equal(expectedExpiry) {
+			t.Errorf("GetTokenExpiry: expected %v, got %v", expectedExpiry, expiryTime)
+		}
+
+		// Advance time slightly
+		*now = initial.Add(time.Minute)
+
+		// Test RefreshToken
+		newExpiryTime, err := svc.RefreshToken(token)
+		if err != nil {
+			t.Fatalf("RefreshToken failed: %v", err)
+		}
+		expectedNewExpiry := (*now).Add(svc.TokenExpiry)
+		if !newExpiryTime.Equal(expectedNewExpiry) {
+			t.Errorf("RefreshToken new expiry: expected %v, got %v", expectedNewExpiry, newExpiryTime)
+		}
+
+		// Verify cached session UpdatedAt is updated
+		session, err := svc.liveTokens.Get(tokenHash)
+		if err != nil {
+			t.Fatalf("failed to read session: %v", err)
+		}
+		if !session.UpdatedAt.Equal(*now) {
+			t.Errorf("expected UpdatedAt updated to %v, got %v", *now, session.UpdatedAt)
+		}
+	})
+
 	t.Run("CompleteRegistration", func(t *testing.T) {
 		svc, now, _ := createService(t)
 		token, err := svc.AddUser("user1", "User 1")

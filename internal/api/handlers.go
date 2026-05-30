@@ -375,16 +375,28 @@ func (a *API) MeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	token := a.getToken(r)
+	var tokenExpiry int64
+	if token != "" {
+		if expiry, err := a.auth.GetTokenExpiry(token); err == nil {
+			tokenExpiry = expiry.Unix()
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	// Return a simplified structure or the full user struct.
 	// The frontend expects { id: ... } at minimum based on existing logic,
 	// but having name is good too.
 	resp := struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
+		ID           string `json:"id"`
+		Name         string `json:"name"`
+		TokenExpiry  int64  `json:"tokenExpiry,omitempty"`
+		SessionLimit int64  `json:"sessionLimit,omitempty"`
 	}{
-		ID:   currentUser.ID,
-		Name: content.Escape(currentUser.DisplayName),
+		ID:           currentUser.ID,
+		Name:         content.Escape(currentUser.DisplayName),
+		TokenExpiry:  tokenExpiry,
+		SessionLimit: int64(a.auth.TokenExpiry.Seconds()),
 	}
 
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
