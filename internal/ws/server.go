@@ -40,6 +40,18 @@ func (s *Server) HandleConnections(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Force refresh token/session in-memory and cookie on upgrade
+	if expiry, err := s.auth.RefreshToken(token); err == nil {
+		http.SetCookie(w, &http.Cookie{
+			Name:     "token",
+			Value:    token,
+			HttpOnly: true,
+			Secure:   true,
+			Path:     "/",
+			Expires:  expiry,
+		})
+	}
+
 	// nosemgrep
 	ws, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {

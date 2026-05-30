@@ -76,11 +76,12 @@ type RegistrationInfoResponse struct {
 }
 
 type LoginResponse struct {
-	Success     bool   `json:"success"`
-	Message     string `json:"message,omitempty"`
-	Token       string `json:"token,omitempty"`
-	TokenExpiry int64  `json:"tokenExpiry,omitempty"`
-	UserID      string `json:"userId,omitempty"`
+	Success      bool   `json:"success"`
+	Message      string `json:"message,omitempty"`
+	Token        string `json:"token,omitempty"`
+	TokenExpiry  int64  `json:"tokenExpiry,omitempty"`
+	SessionLimit int64  `json:"sessionLimit,omitempty"`
+	UserID       string `json:"userId,omitempty"`
 }
 
 type UserCredentials struct {
@@ -602,10 +603,11 @@ func (as *AuthService) Login(req LoginRequest) (LoginResponse, string) {
 	}
 
 	return LoginResponse{
-		Success:     true,
-		Token:       token,
-		TokenExpiry: now.Unix() + int64(as.TokenExpiry.Seconds()),
-		UserID:      user.ID,
+		Success:      true,
+		Token:        token,
+		TokenExpiry:  now.Unix() + int64(as.TokenExpiry.Seconds()),
+		SessionLimit: int64(as.TokenExpiry.Seconds()),
+		UserID:       user.ID,
 	}, user.ID
 }
 
@@ -875,4 +877,24 @@ func (as *AuthService) GetUserID(token string) (string, time.Time, error) {
 	}
 
 	return user.ID, expiry, nil
+}
+
+func (as *AuthService) GetTokenExpiry(token string) (time.Time, error) {
+	tokenHash := as.hashToken(token)
+	session, err := as.liveTokens.Get(tokenHash)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return session.UpdatedAt.Add(as.TokenExpiry), nil
+}
+
+func (as *AuthService) RefreshToken(token string) (time.Time, error) {
+	tokenHash := as.hashToken(token)
+	session, err := as.liveTokens.Get(tokenHash)
+	if err != nil {
+		return time.Time{}, err
+	}
+	now := as.now()
+	as.liveTokens.Set(tokenHash, tokenSession{UserID: session.UserID, UpdatedAt: now})
+	return now.Add(as.TokenExpiry), nil
 }
