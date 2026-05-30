@@ -41,19 +41,21 @@ func (s *Server) HandleConnections(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Force refresh token/session in-memory and cookie on upgrade
+	var responseHeader http.Header
 	if expiry, err := s.auth.RefreshToken(token); err == nil {
-		http.SetCookie(w, &http.Cookie{
+		responseHeader = http.Header{}
+		responseHeader.Add("Set-Cookie", (&http.Cookie{
 			Name:     "token",
 			Value:    token,
 			HttpOnly: true,
 			Secure:   true,
 			Path:     "/",
 			Expires:  expiry,
-		})
+		}).String())
 	}
 
 	// nosemgrep
-	ws, err := s.upgrader.Upgrade(w, r, nil)
+	ws, err := s.upgrader.Upgrade(w, r, responseHeader)
 	if err != nil {
 		slog.Error("error upgrading to websocket", "address", r.RemoteAddr, "error", err)
 		return
