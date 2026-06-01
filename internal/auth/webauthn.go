@@ -1,0 +1,159 @@
+package auth
+
+import (
+	"net/http"
+	"time"
+
+	"besedka/internal/models"
+
+	"github.com/go-webauthn/webauthn/protocol"
+	"github.com/go-webauthn/webauthn/webauthn"
+)
+
+type webAuthnUser struct {
+	authService *AuthService
+	user        *UserCredentials
+}
+
+func (w *webAuthnUser) WebAuthnID() []byte { return []byte(w.user.ID) }
+func (w *webAuthnUser) WebAuthnName() string { return w.user.UserName }
+func (w *webAuthnUser) WebAuthnDisplayName() string { return w.user.DisplayName }
+func (w *webAuthnUser) WebAuthnIcon() string { return "" }
+func (w *webAuthnUser) WebAuthnCredentials() []webauthn.Credential {
+	passkeys, _ := w.authService.storage.ListPasskeys(w.user.ID)
+	var creds []webauthn.Credential
+	for _, p := range passkeys {
+		var transports []protocol.AuthenticatorTransport
+		for _, t := range p.Transport {
+			transports = append(transports, protocol.AuthenticatorTransport(t))
+		}
+		creds = append(creds, webauthn.Credential{
+			ID:              p.ID,
+			PublicKey:       p.PublicKey,
+			AttestationType: p.AttestationType,
+			Transport:       transports,
+			Authenticator: webauthn.Authenticator{
+				AAGUID:       p.AAGUID,
+				SignCount:    p.SignCount,
+				CloneWarning: false,
+			},
+		})
+	}
+	return creds
+}
+
+func (a *AuthService) getWebAuthnUser(userID string) (*webAuthnUser, error) {
+	tx := a.users.Lock()
+	defer tx.Unlock()
+	u, err := tx.Get(userID)
+	if err != nil {
+		return nil, models.ErrNotFound
+	}
+	return &webAuthnUser{authService: a, user: u}, nil
+}
+
+func (a *AuthService) BeginPasskeyRegistration(userID string) (*protocol.CredentialCreation, *webauthn.SessionData, error) {
+	u, err := a.getWebAuthnUser(userID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return a.webAuthn.BeginRegistration(u, webauthn.WithResidentKeyRequirement(protocol.ResidentKeyRequirementRequired))
+}
+
+func (a *AuthService) FinishPasskeyRegistration(userID string, name string, sessionData *webauthn.SessionData, r *http.Request) error {
+	u, err := a.getWebAuthnUser(userID)
+	if err != nil {
+		return err
+	}
+	cred, err := a.webAuthn.FinishRegistration(u, *sessionData, r)
+	if err != nil {
+		return err
+	}
+	if name == "" {
+		name = "Passkey"
+	}
+	var transports []string
+	for _, t := range cred.Transport {
+		transports = append(transports, string(t))
+	}
+	pk := Passkey{
+		ID:              cred.ID,
+		UserID:          userID,
+		PublicKey:       cred.PublicKey,
+		AttestationType: cred.AttestationType,
+		AAGUID:          cred.Authenticator.AAGUID,
+		SignCount:       cred.Authenticator.SignCount,
+		Name:            name,
+		CreatedAt:       time.Now().Unix(),
+		Transport:       transports,
+		BackupEligible:  cred.Flags.BackupEligible,
+		BackupState:     cred.Flags.BackupState,
+	}
+	return a.storage.UpsertPasskey(pk)
+}
+
+func (a *AuthService) BeginPasskeyLogin() (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
+	return a.webAuthn.BeginDiscoverableLogin()
+}
+
+func (a *AuthService) FinishPasskeyLogin(userID string, sessionData *webauthn.SessionData, r *http.Request) (LoginResponse, *models.User, error) {
+	u, err := a.getWebAuthnUser(userID)
+	if err != nil {
+		return LoginResponse{Success: false, Message: "User not found"}, nil, err
+	}
+	_, err = a.webAuthn.FinishLogin(u, *sessionData, r)
+	if err != nil {
+		return LoginResponse{Success: false, Message: "WebAuthn login failed"}, nil, err
+	}
+
+	token, err := a.generateToken()
+	if err != nil {
+		return LoginResponse{Success: false, Message: "Failed to generate token"}, nil, err
+	}
+	tokenHash := a.hashToken(token)
+
+	now := a.now()
+	a.liveTokens.Set(tokenHash, tokenSession{UserID: userID, UpdatedAt: now})
+
+	userTokensTx := a.userTokens.Lock()
+	userTokens, _ := userTokensTx.Get(userID)
+	userTokensTx.Set(userID, append(userTokens, tokenHash))
+	userTokensTx.Unlock()
+
+	u.user.ResetFailedLoginAttempts(now)
+	if err := a.storage.UpsertCredentials(*u.user); err != nil {
+		return LoginResponse{Success: false, Message: "Database error"}, nil, err
+	}
+
+	return LoginResponse{
+		Success:      true,
+		Token:        token,
+		TokenExpiry:  int64(a.TokenExpiry.Seconds()),
+		SessionLimit: int64(a.TokenExpiry.Seconds()),
+		UserID:       userID,
+	}, &u.user.User, nil
+}
+
+func (a *AuthService) SaveWebAuthnSession(sessionID string, sessionData *webauthn.SessionData) {
+	a.webAuthnSessions.Set(sessionID, sessionData)
+}
+
+func (a *AuthService) GetWebAuthnSession(sessionID string) (*webauthn.SessionData, bool) {
+	data, err := a.webAuthnSessions.Get(sessionID)
+	if err != nil {
+		return nil, false
+	}
+	return data, true
+}
+
+func (a *AuthService) DeleteWebAuthnSession(sessionID string) {
+	_ = a.webAuthnSessions.Del(sessionID)
+}
+
+func (a *AuthService) ListPasskeys(userID string) ([]Passkey, error) {
+	return a.storage.ListPasskeys(userID)
+}
+
+func (a *AuthService) DeletePasskey(userID string, credentialID []byte) error {
+	return a.storage.DeletePasskey(userID, credentialID)
+}
