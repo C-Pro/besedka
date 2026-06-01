@@ -58,6 +58,14 @@ func NewAPIServer(cfg *config.Config, authService *auth.AuthService, hub *ws.Hub
 
 	// Push notification endpoints
 	mux.HandleFunc("GET /api/push/vapidPublicKey", apiHandlers.RequireAuth(apiHandlers.PushVAPIDPublicKeyHandler))
+
+	// WebAuthn endpoints
+	mux.HandleFunc("POST /api/webauthn/register/begin", api.RequireSameOrigin(apiHandlers.RequireAuth(apiHandlers.WebAuthnRegisterBeginHandler)))
+	mux.HandleFunc("POST /api/webauthn/register/finish", api.RequireSameOrigin(apiHandlers.RequireAuth(apiHandlers.WebAuthnRegisterFinishHandler)))
+	mux.HandleFunc("POST /api/webauthn/login/begin", api.RequireSameOrigin(apiHandlers.WebAuthnLoginBeginHandler))
+	mux.HandleFunc("POST /api/webauthn/login/finish", api.RequireSameOrigin(apiHandlers.WebAuthnLoginFinishHandler))
+	mux.HandleFunc("GET /api/webauthn/passkeys", apiHandlers.RequireAuth(apiHandlers.ListPasskeysHandler))
+	mux.HandleFunc("DELETE /api/webauthn/passkeys/{id}", api.RequireSameOrigin(apiHandlers.RequireAuth(apiHandlers.DeletePasskeyHandler)))
 	mux.HandleFunc("POST /api/push/subscribe", apiHandlers.RequireAuth(apiHandlers.PushSubscribeHandler))
 
 	// WebSocket endpoint
@@ -156,5 +164,5 @@ func (s *APIServer) httpsRedirectFallbackHandler(w http.ResponseWriter, r *http.
 	if len(r.URL.RawQuery) > 0 {
 		target += "?" + r.URL.RawQuery
 	}
-	http.Redirect(w, r, target, http.StatusTemporaryRedirect) //nosemgrep
+	http.Redirect(w, r, target, http.StatusTemporaryRedirect) // nosemgrep: go.lang.security.injection.open-redirect.open-redirect
 }

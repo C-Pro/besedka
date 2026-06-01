@@ -19,6 +19,7 @@ import (
 	"besedka/internal/models"
 
 	"github.com/c-pro/geche"
+	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/google/uuid"
 )
 
@@ -46,6 +47,25 @@ type storage interface {
 	UpsertRegistrationToken(userID string, token string) error
 	DeleteRegistrationToken(userID string) error
 	ListRegistrationTokens() (map[string]string, error)
+
+	UpsertPasskey(cred Passkey) error
+	ListPasskeys(userID string) ([]Passkey, error)
+	DeletePasskey(userID string, credentialID []byte) error
+	DeleteAllPasskeys(userID string) error
+}
+
+type Passkey struct {
+	ID              []byte
+	UserID          string   `json:"userId"`
+	PublicKey       []byte
+	AttestationType string
+	AAGUID          []byte
+	SignCount       uint32
+	Name            string   `json:"name"`
+	CreatedAt       int64    `json:"createdAt"`
+	Transport       []string
+	BackupEligible  bool
+	BackupState     bool
 }
 
 type LoginRequest struct {
@@ -111,6 +131,9 @@ type Config struct {
 	secretBytes             []byte        `json:"-"`
 	TokenExpiry             time.Duration `json:"tokenExpiry"`
 	RegistrationTokenExpiry time.Duration `json:"registrationTokenExpiry"`
+	RPDisplayName           string        `json:"rpDisplayName"`
+	RPID                    string        `json:"rpID"`
+	RPOrigin                string        `json:"rpOrigin"`
 }
 
 type tokenSession struct {
@@ -132,6 +155,9 @@ type AuthService struct {
 	// Map of registration token to user ID
 	registrationTokens *geche.MapTTLCache[string, string]
 	now                func() time.Time
+
+	webAuthn           *webauthn.WebAuthn
+	webAuthnSessions   *geche.MapTTLCache[string, *webauthn.SessionData]
 }
 
 func (c *Config) Validate() error {
@@ -160,6 +186,15 @@ func NewAuthService(ctx context.Context, config Config, storage storage) (*AuthS
 		return nil, err
 	}
 
+	wAuthn, err := webauthn.New(&webauthn.Config{
+		RPDisplayName: config.RPDisplayName,
+		RPID:          config.RPID,
+		RPOrigins:     []string{config.RPOrigin},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize webauthn: %w", err)
+	}
+
 	as := &AuthService{
 		Config:             config,
 		storage:            storage,
@@ -169,6 +204,8 @@ func NewAuthService(ctx context.Context, config Config, storage storage) (*AuthS
 		userTokens:         geche.NewLocker(geche.NewMapCache[string, []string]()),
 		registrationTokens: geche.NewMapTTLCache[string, string](ctx, config.RegistrationTokenExpiry, time.Minute),
 		now:                time.Now,
+		webAuthn:           wAuthn,
+		webAuthnSessions:   geche.NewMapTTLCache[string, *webauthn.SessionData](ctx, 5*time.Minute, time.Minute),
 	}
 
 	// Load users from storage
@@ -360,7 +397,7 @@ func (as *AuthService) AddUser(username, displayName string) (string, error) {
 	return token, nil
 }
 
-func (as *AuthService) ResetPassword(userID string) (string, error) {
+func (as *AuthService) ResetPassword(userID string, clearPasskeys bool) (string, error) {
 	tx := as.users.Lock()
 	defer tx.Unlock()
 
@@ -379,6 +416,12 @@ func (as *AuthService) ResetPassword(userID string) (string, error) {
 		}
 	}
 	userTokensTx.Set(user.ID, nil)
+
+	if clearPasskeys {
+		if err := as.storage.DeleteAllPasskeys(userID); err != nil {
+			slog.Error("failed to clear passkeys on admin password reset", "user_id", userID, "error", err)
+		}
+	}
 
 	totpSecret, err := as.generateTOTPSecret()
 	if err != nil {
@@ -436,6 +479,10 @@ func (as *AuthService) DeleteUser(userID string) error {
 	user.Status = models.UserStatusDeleted
 	user.PasswordHash = ""
 	user.TOTPSecret = ""
+
+	if err := as.storage.DeleteAllPasskeys(userID); err != nil {
+		slog.Error("failed to delete passkeys for deleted user", "userID", userID, "error", err)
+	}
 
 	// Initializing presence to offline
 	user.Presence = models.Presence{

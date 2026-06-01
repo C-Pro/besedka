@@ -234,7 +234,7 @@ func TestScreenshots(t *testing.T) {
 			Latitude:  userLats[4], // Bob
 			Longitude: userLngs[4],
 		},
-		Permissions: []string{"geolocation"},
+		Permissions: []string{"geolocation", "notifications"},
 	})
 	require.NoError(t, err)
 	defer func() { _ = mobileCtx.Close() }()

@@ -234,7 +234,9 @@ func (s *TestServer) GetUserID(t *testing.T, username string) string {
 }
 
 func createBrowserContext(t *testing.T, browser playwright.Browser) playwright.BrowserContext {
-	context, err := browser.NewContext()
+	context, err := browser.NewContext(playwright.BrowserNewContextOptions{
+		Permissions: []string{"notifications"},
+	})
 	require.NoError(t, err)
 	context.SetDefaultTimeout(3000)
 	return context

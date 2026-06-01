@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	oshttp "net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -37,9 +38,17 @@ func run(ctx context.Context, addUser string) error {
 		return commands.AddUser(addUser, cfg)
 	}
 
+	baseURL, err := url.Parse(cfg.BaseURL)
+	if err != nil {
+		return fmt.Errorf("invalid BaseURL: %w", err)
+	}
+
 	authConfig := auth.Config{
-		Secret:      base64.StdEncoding.EncodeToString([]byte(cfg.AuthSecret)),
-		TokenExpiry: cfg.TokenExpiry,
+		Secret:        base64.StdEncoding.EncodeToString([]byte(cfg.AuthSecret)),
+		TokenExpiry:   cfg.TokenExpiry,
+		RPDisplayName: cfg.ChatName,
+		RPID:          baseURL.Hostname(),
+		RPOrigin:      cfg.BaseURL,
 	}
 
 	// Initialize FileStore

@@ -73,6 +73,22 @@ func (m *mockStorage) ListRegistrationTokens() (map[string]string, error) {
 	return m.regTokens, nil
 }
 
+func (m *mockStorage) UpsertPasskey(cred auth.Passkey) error {
+	return nil
+}
+
+func (m *mockStorage) ListPasskeys(userID string) ([]auth.Passkey, error) {
+	return nil, nil
+}
+
+func (m *mockStorage) DeletePasskey(userID string, credentialID []byte) error {
+	return nil
+}
+
+func (m *mockStorage) DeleteAllPasskeys(userID string) error {
+	return nil
+}
+
 func hashToken(token string) string {
 	h := hmac.New(sha512.New, []byte("server-secret"))
 	h.Write([]byte(token))
@@ -81,8 +97,11 @@ func hashToken(token string) string {
 
 func createTestAuthService(t *testing.T) (*auth.AuthService, *mockStorage) {
 	cfg := auth.Config{
-		Secret:      base64.StdEncoding.EncodeToString([]byte("server-secret")),
-		TokenExpiry: time.Hour,
+		Secret:        base64.StdEncoding.EncodeToString([]byte("server-secret")),
+		TokenExpiry:   time.Hour,
+		RPDisplayName: "Besedka Test",
+		RPID:          "localhost",
+		RPOrigin:      "http://localhost",
 	}
 	store := &mockStorage{
 		creds:     make(map[string]auth.UserCredentials),

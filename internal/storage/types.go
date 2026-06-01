@@ -170,3 +170,31 @@ func (l *DBLastSeen) UnmarshalBinary(data []byte) error {
 	type alias DBLastSeen
 	return msgpack.Unmarshal(data, (*alias)(l))
 }
+
+type DBPasskeyCredential struct {
+	ID              []byte   `msgpack:"id"`
+	UserID          string   `msgpack:"userId"`
+	PublicKey       []byte   `msgpack:"publicKey"`
+	AttestationType string   `msgpack:"attestationType"`
+	AAGUID          []byte   `msgpack:"aaguid"`
+	SignCount       uint32   `msgpack:"signCount"`
+	Name            string   `msgpack:"name"`
+	CreatedAt       int64    `msgpack:"createdAt"`
+	Transport       []string `msgpack:"transport"`
+	BackupEligible  bool     `msgpack:"backupEligible"`
+	BackupState     bool     `msgpack:"backupState"`
+}
+
+func (c *DBPasskeyCredential) Key() []byte {
+	return c.ID
+}
+
+func (c *DBPasskeyCredential) MarshalBinary() (data []byte, err error) {
+	type alias DBPasskeyCredential
+	return msgpack.Marshal((*alias)(c))
+}
+
+func (c *DBPasskeyCredential) UnmarshalBinary(data []byte) error {
+	type alias DBPasskeyCredential
+	return msgpack.Unmarshal(data, (*alias)(c))
+}

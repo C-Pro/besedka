@@ -88,6 +88,22 @@ func (m *MockStorage) ListRegistrationTokens() (map[string]string, error) {
 	return m.regTokens, nil
 }
 
+func (m *MockStorage) UpsertPasskey(cred Passkey) error {
+	return nil
+}
+
+func (m *MockStorage) ListPasskeys(userID string) ([]Passkey, error) {
+	return nil, nil
+}
+
+func (m *MockStorage) DeletePasskey(userID string, credentialID []byte) error {
+	return nil
+}
+
+func (m *MockStorage) DeleteAllPasskeys(userID string) error {
+	return nil
+}
+
 func TestAuthService(t *testing.T) {
 	// Test Vectors generated using github.com/pquerna/otp
 	// RawSecret: 12345678901234567890
@@ -103,8 +119,11 @@ func TestAuthService(t *testing.T) {
 	// Helper to create service with fixed time
 	createService := func(t *testing.T) (*AuthService, *time.Time, *MockStorage) {
 		cfg := Config{
-			Secret:      base64.StdEncoding.EncodeToString([]byte("server-secret")),
-			TokenExpiry: time.Hour,
+			Secret:        base64.StdEncoding.EncodeToString([]byte("server-secret")),
+			TokenExpiry:   time.Hour,
+			RPDisplayName: "Besedka Test",
+			RPID:          "localhost",
+			RPOrigin:      "http://localhost",
 		}
 
 		store := &MockStorage{
@@ -851,7 +870,13 @@ func TestAuthService(t *testing.T) {
 		// 3. Create NEW service instance (simulate restart)
 		// Re-use same store
 		ctx := context.Background()
-		svc2, err := NewAuthService(ctx, svc.Config, store)
+		cfg := svc.Config
+		cfg.TokenExpiry = 0 // force default
+		cfg.RegistrationTokenExpiry = 0 // force default
+		cfg.RPDisplayName = "Besedka Test"
+		cfg.RPID = "localhost"
+		cfg.RPOrigin = "http://localhost"
+		svc2, err := NewAuthService(ctx, cfg, store)
 		if err != nil {
 			t.Fatalf("Failed to create service 2: %v", err)
 		}
@@ -1024,7 +1049,7 @@ func TestAuthService(t *testing.T) {
 		}
 
 		// 3. Reset password
-		regToken, err := svc.ResetPassword(userID)
+		regToken, err := svc.ResetPassword(userID, false)
 		if err != nil {
 			t.Fatalf("ResetPassword failed: %v", err)
 		}

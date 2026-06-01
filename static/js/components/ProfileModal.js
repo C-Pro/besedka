@@ -1,3 +1,5 @@
+import { bufferToBase64URL, base64URLToBuffer } from '../state.js';
+
 export function createProfileModal(store) {
     // Check if modal already exists
     if (document.getElementById('profile-modal')) return;
@@ -46,6 +48,18 @@ export function createProfileModal(store) {
                 </div>
                 <div id="display-name-error" class="error-text" style="display:none;"></div>
                 <div id="display-name-success" class="success-text" style="display:none;">Display name updated!</div>
+            </div>
+
+            <!-- Passkeys Section -->
+            <div class="profile-section">
+                <h3>Passkeys</h3>
+                <p class="text-muted">Use passkeys for passwordless sign-in. Your device will prompt you to save a passkey.</p>
+                <div id="passkeys-list" class="passkeys-list">
+                    <!-- Loaded dynamically -->
+                </div>
+                <button class="btn btn-secondary" id="passkey-register-btn" style="margin-top: 10px;">Register New Passkey</button>
+                <div id="passkey-error" class="error-text" style="display:none;"></div>
+                <div id="passkey-success" class="success-text" style="display:none;"></div>
             </div>
 
             <!-- Password Reset Section -->
@@ -286,4 +300,108 @@ export function createProfileModal(store) {
     logoutAfterResetBtn.addEventListener('click', () => {
         window.location.href = '/login.html';
     });
+
+    // Passkeys Logic
+    const passkeysList = document.getElementById('passkeys-list');
+    const passkeyRegisterBtn = document.getElementById('passkey-register-btn');
+    const passkeyError = document.getElementById('passkey-error');
+    const passkeySuccess = document.getElementById('passkey-success');
+
+    async function loadPasskeys() {
+        try {
+            const passkeys = await store.getPasskeys();
+            passkeysList.innerHTML = '';
+            if (!passkeys || passkeys.length === 0) {
+                passkeysList.innerHTML = '<p class="text-muted">No passkeys registered.</p>';
+                return;
+            }
+            
+            passkeys.forEach(pk => {
+                const item = document.createElement('div');
+                item.className = 'passkey-item';
+                item.style.display = 'flex';
+                item.style.justifyContent = 'space-between';
+                item.style.alignItems = 'center';
+                item.style.padding = '8px';
+                item.style.borderBottom = '1px solid #ccc';
+                
+                const nameSpan = document.createElement('span');
+                nameSpan.textContent = pk.name || 'Unnamed Passkey';
+                
+                const delBtn = document.createElement('button');
+                delBtn.className = 'btn btn-danger btn-sm';
+                delBtn.textContent = 'Remove';
+                delBtn.onclick = async () => {
+                    if (confirm('Remove this passkey?')) {
+                        try {
+                            await store.deletePasskey(pk.id);
+                            loadPasskeys();
+                        } catch (e) {
+                            passkeyError.textContent = e.message;
+                            passkeyError.style.display = 'block';
+                        }
+                    }
+                };
+                
+                item.appendChild(nameSpan);
+                item.appendChild(delBtn);
+                passkeysList.appendChild(item);
+            });
+        } catch (_e) {
+            passkeyError.textContent = "Failed to load passkeys.";
+            passkeyError.style.display = 'block';
+        }
+    }
+    
+    // Initial load
+    if (window.PublicKeyCredential) {
+        loadPasskeys();
+        passkeyRegisterBtn.addEventListener('click', async () => {
+            passkeyError.style.display = 'none';
+            passkeySuccess.style.display = 'none';
+            passkeyRegisterBtn.disabled = true;
+            try {
+                // 1. Begin registration
+                const options = await store.beginPasskeyRegistration();
+                
+                // Decode challenge & user id
+                options.publicKey.challenge = base64URLToBuffer(options.publicKey.challenge);
+                options.publicKey.user.id = base64URLToBuffer(options.publicKey.user.id);
+                if (options.publicKey.excludeCredentials) {
+                    for (let c of options.publicKey.excludeCredentials) {
+                        c.id = base64URLToBuffer(c.id);
+                    }
+                }
+                
+                // 2. Create credential via browser API
+                const credential = await navigator.credentials.create(options);
+                
+                // 3. Finish registration
+                const attestationObj = {
+                    id: credential.id,
+                    rawId: bufferToBase64URL(credential.rawId),
+                    type: credential.type,
+                    response: {
+                        attestationObject: bufferToBase64URL(credential.response.attestationObject),
+                        clientDataJSON: bufferToBase64URL(credential.response.clientDataJSON),
+                        transports: credential.response.getTransports ? credential.response.getTransports() : []
+                    }
+                };
+                
+                await store.finishPasskeyRegistration('My Device', attestationObj);
+                passkeySuccess.textContent = 'Passkey registered successfully!';
+                passkeySuccess.style.display = 'block';
+                loadPasskeys();
+            } catch (e) {
+                console.error(e);
+                passkeyError.textContent = e.message || 'Passkey registration failed.';
+                passkeyError.style.display = 'block';
+            } finally {
+                passkeyRegisterBtn.disabled = false;
+            }
+        });
+    } else {
+        passkeyRegisterBtn.style.display = 'none';
+        passkeysList.innerHTML = '<p class="text-muted">Passkeys are not supported on this device/browser.</p>';
+    }
 }
