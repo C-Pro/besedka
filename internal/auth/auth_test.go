@@ -14,6 +14,7 @@ type MockStorage struct {
 	// tokens maps TokenHash -> UserID
 	tokens    map[string]string
 	regTokens map[string]string
+	passkeys  []Passkey
 }
 
 func (m *MockStorage) UpsertCredentials(c UserCredentials) error {
@@ -89,18 +90,46 @@ func (m *MockStorage) ListRegistrationTokens() (map[string]string, error) {
 }
 
 func (m *MockStorage) UpsertPasskey(cred Passkey) error {
+	for i, pk := range m.passkeys {
+		if string(pk.ID) == string(cred.ID) {
+			m.passkeys[i] = cred
+			return nil
+		}
+	}
+	m.passkeys = append(m.passkeys, cred)
 	return nil
 }
 
 func (m *MockStorage) ListPasskeys(userID string) ([]Passkey, error) {
-	return nil, nil
+	var res []Passkey
+	for _, pk := range m.passkeys {
+		if pk.UserID == userID {
+			res = append(res, pk)
+		}
+	}
+	return res, nil
 }
 
 func (m *MockStorage) DeletePasskey(userID string, credentialID []byte) error {
+	var remaining []Passkey
+	for _, pk := range m.passkeys {
+		if pk.UserID == userID && string(pk.ID) == string(credentialID) {
+			continue
+		}
+		remaining = append(remaining, pk)
+	}
+	m.passkeys = remaining
 	return nil
 }
 
 func (m *MockStorage) DeleteAllPasskeys(userID string) error {
+	var remaining []Passkey
+	for _, pk := range m.passkeys {
+		if pk.UserID != userID {
+			remaining = append(remaining, pk)
+		}
+	}
+	m.passkeys = remaining
 	return nil
 }
 

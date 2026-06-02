@@ -388,7 +388,28 @@ export function createProfileModal(store) {
                     }
                 };
                 
-                await store.finishPasskeyRegistration('My Device', attestationObj);
+                const getDeviceName = () => {
+                    const ua = navigator.userAgent;
+                    let browser = "Browser";
+                    let os = "Device";
+                    
+                    if (ua.includes("Firefox")) browser = "Firefox";
+                    else if (ua.includes("SamsungBrowser")) browser = "Samsung Internet";
+                    else if (ua.includes("Opera") || ua.includes("OPR")) browser = "Opera";
+                    else if (ua.includes("Edge") || ua.includes("Edg")) browser = "Edge";
+                    else if (ua.includes("Chrome")) browser = "Chrome";
+                    else if (ua.includes("Safari")) browser = "Safari";
+                    
+                    if (ua.includes("Win")) os = "Windows";
+                    else if (ua.includes("Mac")) os = "macOS";
+                    else if (ua.includes("Android")) os = "Android";
+                    else if (ua.includes("Linux")) os = "Linux";
+                    else if (ua.includes("iPhone") || ua.includes("iPad")) os = "iOS";
+                    
+                    return `${browser} on ${os}`;
+                };
+                
+                await store.finishPasskeyRegistration(getDeviceName(), attestationObj);
                 passkeySuccess.textContent = 'Passkey registered successfully!';
                 passkeySuccess.style.display = 'block';
                 loadPasskeys();

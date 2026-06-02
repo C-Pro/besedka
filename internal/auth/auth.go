@@ -55,7 +55,7 @@ type storage interface {
 }
 
 type Passkey struct {
-	ID              []byte
+	ID              []byte   `json:"id"`
 	UserID          string   `json:"userId"`
 	PublicKey       []byte
 	AttestationType string

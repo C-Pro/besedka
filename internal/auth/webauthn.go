@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"errors"
 	"net/http"
 	"time"
 
@@ -96,12 +97,21 @@ func (a *AuthService) BeginPasskeyLogin() (*protocol.CredentialAssertion, *webau
 	return a.webAuthn.BeginDiscoverableLogin()
 }
 
-func (a *AuthService) FinishPasskeyLogin(userID string, sessionData *webauthn.SessionData, r *http.Request) (LoginResponse, *models.User, error) {
-	u, err := a.getWebAuthnUser(userID)
-	if err != nil {
-		return LoginResponse{Success: false, Message: "User not found"}, nil, err
+func (a *AuthService) FinishPasskeyLogin(sessionData *webauthn.SessionData, r *http.Request) (LoginResponse, *models.User, error) {
+	var userID string
+	var u *webAuthnUser
+
+	handler := func(rawID, userHandle []byte) (webauthn.User, error) {
+		userID = string(userHandle)
+		if userID == "" {
+			return nil, errors.New("user not found")
+		}
+		var err error
+		u, err = a.getWebAuthnUser(userID)
+		return u, err
 	}
-	_, err = a.webAuthn.FinishLogin(u, *sessionData, r)
+
+	_, err := a.webAuthn.FinishDiscoverableLogin(handler, *sessionData, r)
 	if err != nil {
 		return LoginResponse{Success: false, Message: "WebAuthn login failed"}, nil, err
 	}

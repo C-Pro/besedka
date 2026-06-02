@@ -6,8 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
-
-	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/google/uuid"
 )
 
@@ -111,22 +109,7 @@ func (a *API) WebAuthnLoginFinishHandler(w http.ResponseWriter, r *http.Request)
 	}
 	defer a.auth.DeleteWebAuthnSession(cookie.Value)
 
-	// Since we are using discoverable credentials, user ID is extracted from the credential itself.
-	// We need to parse the response first to get the user handle
-	parsedResponse, err := protocol.ParseCredentialRequestResponse(r)
-	if err != nil {
-		http.Error(w, "Failed to parse credential response", http.StatusBadRequest)
-		return
-	}
-	
-	// The user handle should be the userID
-	userID := string(parsedResponse.Response.UserHandle)
-	if userID == "" {
-		http.Error(w, "No user handle found in credential", http.StatusBadRequest)
-		return
-	}
-
-	loginResp, _, err := a.auth.FinishPasskeyLogin(userID, sessionData, r)
+	loginResp, _, err := a.auth.FinishPasskeyLogin(sessionData, r)
 	if err != nil || !loginResp.Success {
 		slog.Error("Failed to finish passkey login", "error", err)
 		http.Error(w, loginResp.Message, http.StatusUnauthorized)
@@ -177,8 +160,11 @@ func (a *API) DeletePasskeyHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		credID, err = base64.URLEncoding.DecodeString(idB64)
 		if err != nil {
-			http.Error(w, "Invalid passkey id format", http.StatusBadRequest)
-			return
+			credID, err = base64.StdEncoding.DecodeString(idB64)
+			if err != nil {
+				http.Error(w, "Invalid passkey id format", http.StatusBadRequest)
+				return
+			}
 		}
 	}
 	
