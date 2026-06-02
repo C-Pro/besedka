@@ -319,11 +319,6 @@ export function createProfileModal(store) {
             passkeys.forEach(pk => {
                 const item = document.createElement('div');
                 item.className = 'passkey-item';
-                item.style.display = 'flex';
-                item.style.justifyContent = 'space-between';
-                item.style.alignItems = 'center';
-                item.style.padding = '8px';
-                item.style.borderBottom = '1px solid #ccc';
                 
                 const nameSpan = document.createElement('span');
                 nameSpan.textContent = pk.name || 'Unnamed Passkey';

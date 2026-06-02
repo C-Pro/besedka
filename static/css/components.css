@@ -1044,3 +1044,20 @@
 .update-banner:hover {
     filter: brightness(1.08);
 }
+
+/* Passkey Items */
+.passkeys-list {
+    margin-top: var(--spacing-md);
+}
+
+.passkey-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-sm) 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.passkey-item:last-child {
+    border-bottom: none;
+}

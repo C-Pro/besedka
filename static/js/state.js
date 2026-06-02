@@ -197,8 +197,7 @@ class Store {
     }
 
     async deletePasskey(id) {
-        // id is base64 string originally, wait, id in passkeys list is raw bytes []byte -> json encodes to base64.
-        // So pk.id is a base64 string.
+        // id is standard base64 encoded credential ID.
         const response = await fetch(`/api/webauthn/passkeys/${encodeURIComponent(id)}`, { method: 'DELETE' });
         if (!response.ok) {
             const text = await response.text();

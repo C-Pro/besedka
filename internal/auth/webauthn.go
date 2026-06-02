@@ -1,7 +1,9 @@
 package auth
 
 import (
+	"bytes"
 	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -19,9 +21,11 @@ type webAuthnUser struct {
 func (w *webAuthnUser) WebAuthnID() []byte { return []byte(w.user.ID) }
 func (w *webAuthnUser) WebAuthnName() string { return w.user.UserName }
 func (w *webAuthnUser) WebAuthnDisplayName() string { return w.user.DisplayName }
-func (w *webAuthnUser) WebAuthnIcon() string { return "" }
 func (w *webAuthnUser) WebAuthnCredentials() []webauthn.Credential {
-	passkeys, _ := w.authService.storage.ListPasskeys(w.user.ID)
+	passkeys, err := w.authService.storage.ListPasskeys(w.user.ID)
+	if err != nil {
+		slog.Error("failed to list passkeys in WebAuthnCredentials", "error", err, "userID", w.user.ID)
+	}
 	var creds []webauthn.Credential
 	for _, p := range passkeys {
 		var transports []protocol.AuthenticatorTransport
@@ -111,9 +115,25 @@ func (a *AuthService) FinishPasskeyLogin(sessionData *webauthn.SessionData, r *h
 		return u, err
 	}
 
-	_, err := a.webAuthn.FinishDiscoverableLogin(handler, *sessionData, r)
+	cred, err := a.webAuthn.FinishDiscoverableLogin(handler, *sessionData, r)
 	if err != nil {
 		return LoginResponse{Success: false, Message: "WebAuthn login failed"}, nil, err
+	}
+
+	// Update sign count
+	passkeys, err := a.storage.ListPasskeys(userID)
+	if err != nil {
+		slog.Error("failed to list passkeys for sign count update", "error", err, "userID", userID)
+	} else {
+		for _, pk := range passkeys {
+			if bytes.Equal(pk.ID, cred.ID) {
+				pk.SignCount = cred.Authenticator.SignCount
+				if err := a.storage.UpsertPasskey(pk); err != nil {
+					slog.Error("failed to update passkey sign count", "error", err, "userID", userID)
+				}
+				break
+			}
+		}
 	}
 
 	token, err := a.generateToken()
@@ -135,10 +155,14 @@ func (a *AuthService) FinishPasskeyLogin(sessionData *webauthn.SessionData, r *h
 		return LoginResponse{Success: false, Message: "Database error"}, nil, err
 	}
 
+	if err := a.storage.UpsertToken(userID, tokenHash); err != nil {
+		slog.Error("failed to persist token after passkey login", "error", err)
+	}
+
 	return LoginResponse{
 		Success:      true,
 		Token:        token,
-		TokenExpiry:  int64(a.TokenExpiry.Seconds()),
+		TokenExpiry:  now.Unix() + int64(a.TokenExpiry.Seconds()),
 		SessionLimit: int64(a.TokenExpiry.Seconds()),
 		UserID:       userID,
 	}, &u.user.User, nil

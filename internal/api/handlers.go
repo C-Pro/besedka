@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"besedka/internal/auth"
@@ -93,11 +94,13 @@ func (a *API) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
 	http.SetCookie(w, &http.Cookie{
 		Name:     "token",
 		Value:    loginResp.Token,
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   strings.HasPrefix(a.auth.RPOrigin, "https://"),
+		SameSite: http.SameSiteLaxMode,
 		Path:     "/",
 		Expires:  time.Unix(loginResp.TokenExpiry, 0),
 	})

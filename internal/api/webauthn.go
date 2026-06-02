@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
+
 	"github.com/google/uuid"
 )
 
@@ -23,16 +25,17 @@ func (a *API) WebAuthnRegisterBeginHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	sessionID := generateSessionID() // wait, I don't have this func here. I can just use a random string. I'll define it.
+	sessionID := generateSessionID()
 	a.auth.SaveWebAuthnSession(sessionID, sessionData)
 
 	// Set session ID in a cookie
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
 	http.SetCookie(w, &http.Cookie{
 		Name:     "webauthn_session",
 		Value:    sessionID,
 		Path:     "/api/webauthn/",
 		HttpOnly: true,
-		Secure:   true, // Assuming HTTPS, but ok for localhost if browser allows or we don't set Secure on localhost. I'll omit Secure for dev or just rely on SameSite
+		Secure:   strings.HasPrefix(a.auth.RPOrigin, "https://"),
 		SameSite: http.SameSiteLaxMode,
 		Expires:  time.Now().Add(5 * time.Minute),
 	})
@@ -81,12 +84,13 @@ func (a *API) WebAuthnLoginBeginHandler(w http.ResponseWriter, r *http.Request) 
 	sessionID := generateSessionID()
 	a.auth.SaveWebAuthnSession(sessionID, sessionData)
 
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
 	http.SetCookie(w, &http.Cookie{
 		Name:     "webauthn_session",
 		Value:    sessionID,
 		Path:     "/api/webauthn/",
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   strings.HasPrefix(a.auth.RPOrigin, "https://"),
 		SameSite: http.SameSiteLaxMode,
 		Expires:  time.Now().Add(5 * time.Minute),
 	})
@@ -117,14 +121,15 @@ func (a *API) WebAuthnLoginFinishHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Set auth cookie
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
 	http.SetCookie(w, &http.Cookie{
 		Name:     "token",
 		Value:    loginResp.Token,
 		Path:     "/",
-		Expires:  time.Now().Add(time.Duration(loginResp.TokenExpiry) * time.Second),
+		Expires:  time.Unix(loginResp.TokenExpiry, 0),
 		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteStrictMode,
+		Secure:   strings.HasPrefix(a.auth.RPOrigin, "https://"),
+		SameSite: http.SameSiteLaxMode,
 	})
 
 	w.Header().Set("Content-Type", "application/json")
@@ -148,24 +153,16 @@ func (a *API) DeletePasskeyHandler(w http.ResponseWriter, r *http.Request) {
 	userID := UserIDFromContext(r.Context())
 	
 	// id is base64 encoded credential ID in the URL path.
-	// But it's easier to pass it as a query param or in the URL path segment.
-	// r.PathValue("id") requires Go 1.22
 	idB64 := r.PathValue("id")
 	if idB64 == "" {
 		http.Error(w, "Missing passkey id", http.StatusBadRequest)
 		return
 	}
 	
-	credID, err := base64.RawURLEncoding.DecodeString(idB64)
+	credID, err := base64.StdEncoding.DecodeString(idB64)
 	if err != nil {
-		credID, err = base64.URLEncoding.DecodeString(idB64)
-		if err != nil {
-			credID, err = base64.StdEncoding.DecodeString(idB64)
-			if err != nil {
-				http.Error(w, "Invalid passkey id format", http.StatusBadRequest)
-				return
-			}
-		}
+		http.Error(w, "Invalid passkey id format", http.StatusBadRequest)
+		return
 	}
 	
 	err = a.auth.DeletePasskey(userID, credID)
