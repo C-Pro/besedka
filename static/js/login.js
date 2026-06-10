@@ -81,6 +81,9 @@ const handlePasskeyLogin = async () => {
             showError(result.message || 'Passkey login failed');
         }
     } catch (err) {
+        if (err.name === 'NotAllowedError' || err.name === 'AbortError') {
+            return;
+        }
         console.error(err);
         showError(err.message || 'Passkey login failed');
     } finally {

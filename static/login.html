@@ -30,8 +30,8 @@
                 <div id="error-message" class="error-message" style="display: none;"></div>
 
                 <form id="login-form" onsubmit="event.preventDefault();">
-                    <input type="text" id="username" placeholder="Username">
-                    <input type="password" id="password" placeholder="Password">
+                    <input type="text" id="username" placeholder="Username" autocomplete="username webauthn">
+                    <input type="password" id="password" placeholder="Password" autocomplete="current-password">
                     <input type="text" id="otp" placeholder="OTP (6 digits)">
 
                     <button type="submit" id="login-btn">Login</button>

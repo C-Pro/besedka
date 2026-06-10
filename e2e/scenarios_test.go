@@ -46,6 +46,11 @@ func TestE2EMainFlow(t *testing.T) {
 				console.log("MOCK clearAppBadge called");
 				window.__appBadgeCount = 0;
 			};
+			if (window.ServiceWorkerRegistration) {
+				window.ServiceWorkerRegistration.prototype.showNotification = async function(title, options) {
+					console.log("MOCK showNotification called with:", title);
+				};
+			}
 		`),
 	})
 	require.NoError(t, err)

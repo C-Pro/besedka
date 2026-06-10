@@ -136,17 +136,32 @@ func (a *API) WebAuthnLoginFinishHandler(w http.ResponseWriter, r *http.Request)
 	_ = json.NewEncoder(w).Encode(loginResp)
 }
 
+type passkeyJSON struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	CreatedAt int64  `json:"createdAt"`
+}
+
 func (a *API) ListPasskeysHandler(w http.ResponseWriter, r *http.Request) {
 	userID := UserIDFromContext(r.Context())
-	
+
 	passkeys, err := a.auth.ListPasskeys(userID)
 	if err != nil {
 		http.Error(w, "Failed to list passkeys", http.StatusInternalServerError)
 		return
 	}
-	
+
+	result := make([]passkeyJSON, len(passkeys))
+	for i, pk := range passkeys {
+		result[i] = passkeyJSON{
+			ID:        base64.RawURLEncoding.EncodeToString(pk.ID),
+			Name:      pk.Name,
+			CreatedAt: pk.CreatedAt,
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(passkeys)
+	_ = json.NewEncoder(w).Encode(result)
 }
 
 func (a *API) DeletePasskeyHandler(w http.ResponseWriter, r *http.Request) {
@@ -159,7 +174,7 @@ func (a *API) DeletePasskeyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	credID, err := base64.StdEncoding.DecodeString(idB64)
+	credID, err := base64.RawURLEncoding.DecodeString(idB64)
 	if err != nil {
 		http.Error(w, "Invalid passkey id format", http.StatusBadRequest)
 		return

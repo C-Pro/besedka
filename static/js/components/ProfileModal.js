@@ -409,6 +409,9 @@ export function createProfileModal(store) {
                 passkeySuccess.style.display = 'block';
                 loadPasskeys();
             } catch (e) {
+                if (['NotAllowedError', 'InvalidStateError', 'AbortError'].includes(e.name)) {
+                    return;
+                }
                 console.error(e);
                 passkeyError.textContent = e.message || 'Passkey registration failed.';
                 passkeyError.style.display = 'block';

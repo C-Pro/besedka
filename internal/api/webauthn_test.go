@@ -86,7 +86,7 @@ func TestListPasskeysHandler(t *testing.T) {
 		t.Errorf("expected status 200, got %d", w.Code)
 	}
 
-	var passkeys []auth.Passkey
+	var passkeys []passkeyJSON
 	if err := json.Unmarshal(w.Body.Bytes(), &passkeys); err != nil {
 		t.Fatalf("failed to unmarshal passkeys response: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestDeletePasskeyHandler(t *testing.T) {
 	}
 
 	// 2. Call DeletePasskeyHandler
-	idB64 := base64.StdEncoding.EncodeToString(credID)
+	idB64 := base64.RawURLEncoding.EncodeToString(credID)
 	req := httptest.NewRequest("DELETE", "/api/webauthn/passkeys/"+idB64, nil)
 	req.SetPathValue("id", idB64)
 
@@ -156,6 +156,62 @@ func TestDeletePasskeyHandler_InvalidID(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected status 400, got %d", w.Code)
+	}
+}
+
+func TestDeletePasskeyHandler_URLSafeBase64(t *testing.T) {
+	api, cleanup := setupTestAPI(t)
+	defer cleanup()
+
+	// Credential ID with bytes that produce +, /, = in standard base64
+	// but are safe with base64url encoding.
+	credID := []byte{0xff, 0xfe, 0xfd, 0xfc, 0xfb, 0xfa}
+	stdB64 := base64.StdEncoding.EncodeToString(credID)
+	urlB64 := base64.RawURLEncoding.EncodeToString(credID)
+	if stdB64 == urlB64 {
+		t.Fatal("test setup: credID should produce different std vs url base64")
+	}
+
+	pk := auth.Passkey{
+		ID:        credID,
+		UserID:    "user123",
+		PublicKey: []byte("pubkey"),
+		Name:      "Slash Passkey",
+	}
+	if err := api.storage.UpsertPasskey(pk); err != nil {
+		t.Fatalf("failed to insert passkey: %v", err)
+	}
+
+	// List and verify the returned ID is base64url
+	req := httptest.NewRequest("GET", "/api/webauthn/passkeys", nil)
+	w := httptest.NewRecorder()
+	ctx := context.WithValue(req.Context(), userIDKey, "user123")
+	req = req.WithContext(ctx)
+	api.ListPasskeysHandler(w, req)
+
+	var listed []passkeyJSON
+	if err := json.Unmarshal(w.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	if len(listed) != 1 || listed[0].ID != urlB64 {
+		t.Fatalf("expected ID %q, got %q", urlB64, listed[0].ID)
+	}
+
+	// Delete using the base64url ID from the list response
+	req = httptest.NewRequest("DELETE", "/api/webauthn/passkeys/"+listed[0].ID, nil)
+	req.SetPathValue("id", listed[0].ID)
+	w = httptest.NewRecorder()
+	ctx = context.WithValue(req.Context(), userIDKey, "user123")
+	req = req.WithContext(ctx)
+	api.DeletePasskeyHandler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	pks, _ := api.storage.ListPasskeys("user123")
+	if len(pks) != 0 {
+		t.Errorf("expected 0 passkeys, got %d", len(pks))
 	}
 }
 
