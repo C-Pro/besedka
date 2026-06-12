@@ -20,6 +20,7 @@ import (
 	"besedka/internal/config"
 	"besedka/internal/filestore"
 	"besedka/internal/http"
+	"besedka/internal/images"
 	"besedka/internal/push"
 	"besedka/internal/storage"
 	"besedka/internal/ws"
@@ -62,6 +63,12 @@ func run(ctx context.Context, addUser string) error {
 		return err
 	}
 	defer func() { _ = bbStorage.Close() }()
+
+	// One-time backfill of thumbnails for existing images; must complete
+	// before the HTTP servers start so thumbnail URLs are stable.
+	if err := images.EnsureThumbnails(bbStorage); err != nil {
+		return fmt.Errorf("thumbnail migration failed: %w", err)
+	}
 
 	authService, err := auth.NewAuthService(ctx, authConfig, bbStorage)
 	if err != nil {

@@ -198,7 +198,10 @@ export function createChatWindow(container) {
                     imageWrap.appendChild(placeholder);
 
                     const img = document.createElement('img');
-                    img.src = imageUrl;
+                    // Chat shows the thumbnail; the overlay loads the full
+                    // image via dataset.src. Falls back to the original when
+                    // no thumbnail exists (SVG, small images).
+                    img.src = `${imageUrl}?thumb=1`;
                     img.alt = att.name || '';
                     img.loading = 'lazy';
                     img.addEventListener('load', () => {

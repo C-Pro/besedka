@@ -17,6 +17,11 @@ type FileMetadata struct {
 	CreatedAt int64  `msgpack:"createdAt"`
 	UserID    string `msgpack:"userId"`
 	ChatID    string `msgpack:"chatId"`
+	// Thumbnail fields are set for images that have a generated thumbnail.
+	// The thumbnail blob is stored in the filestore like any other blob.
+	ThumbnailHash string `msgpack:"thumbnailHash,omitempty"`
+	ThumbnailMime string `msgpack:"thumbnailMime,omitempty"`
+	ThumbnailSize int64  `msgpack:"thumbnailSize,omitempty"`
 }
 
 func (f *FileMetadata) Key() []byte {
@@ -69,6 +74,31 @@ func (s *BboltStorage) GetFileMetadata(id string) (FileMetadata, error) {
 		return meta.UnmarshalBinary(data)
 	})
 	return meta, err
+}
+
+// ListFileMetadata returns all file metadata records.
+func (s *BboltStorage) ListFileMetadata() ([]FileMetadata, error) {
+	var metas []FileMetadata
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketFiles)
+		return b.ForEach(func(k, v []byte) error {
+			if s.isEncrypted {
+				var err error
+				v, err = s.crypter.Decrypt(v)
+				if err != nil {
+					return fmt.Errorf("failed to decrypt file metadata for id %s: %w", string(k), err)
+				}
+			}
+
+			var meta FileMetadata
+			if err := meta.UnmarshalBinary(v); err != nil {
+				return fmt.Errorf("failed to unmarshal file metadata for id %s: %w", string(k), err)
+			}
+			metas = append(metas, meta)
+			return nil
+		})
+	})
+	return metas, err
 }
 
 // SaveFileBlob saves a file blob, encrypting it if storage is encrypted.
