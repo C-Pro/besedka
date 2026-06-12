@@ -12,6 +12,8 @@ import (
 	_ "image/gif"
 	_ "image/png"
 
+	_ "golang.org/x/image/webp"
+
 	"golang.org/x/image/draw"
 )
 

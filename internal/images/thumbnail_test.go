@@ -2,6 +2,7 @@ package images
 
 import (
 	"bytes"
+	"encoding/base64"
 	"image"
 	"image/color"
 	"image/gif"
@@ -151,5 +152,38 @@ func TestGenerateThumbnailUnsupported(t *testing.T) {
 				t.Errorf("expected ErrUnsupported, got %v", err)
 			}
 		})
+	}
+}
+
+func makeLargeWebP(t *testing.T) []byte {
+	t.Helper()
+	b64 := "UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA=="
+	data, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		t.Fatalf("failed to decode base64: %v", err)
+	}
+	return append(data, make([]byte, 105*1024)...)
+}
+
+func TestGenerateThumbnailWebP(t *testing.T) {
+	data := makeLargeWebP(t)
+
+	if len(data) <= ThumbnailThreshold {
+		t.Fatalf("test image too small: %d bytes", len(data))
+	}
+
+	thumb, mime, err := GenerateThumbnail(data, "image/webp")
+	if err != nil {
+		t.Fatalf("GenerateThumbnail failed: %v", err)
+	}
+	if mime != "image/jpeg" {
+		t.Errorf("expected image/jpeg, got %s", mime)
+	}
+	decoded, _, err := image.Decode(bytes.NewReader(thumb))
+	if err != nil {
+		t.Fatalf("failed to decode thumbnail: %v", err)
+	}
+	if got := decoded.Bounds(); got.Dx() != 1 || got.Dy() != 1 {
+		t.Errorf("expected 1x1 thumbnail from 1x1 dummy webp, got %dx%d", got.Dx(), got.Dy())
 	}
 }

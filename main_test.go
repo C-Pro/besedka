@@ -253,6 +253,53 @@ func TestIntegration(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, bigPNG, fullBody.Bytes(), "full image request should serve the original")
 
+	// Step 4.56: Upload a large WebP image and verify thumbnail serving
+	bigWebP := makeLargeWebP(t)
+	require.Greater(t, len(bigWebP), 100*1024, "webp test image must exceed the thumbnail threshold")
+
+	reqWebP, err := http.NewRequest("POST", fmt.Sprintf("http://localhost%s/api/upload/image", apiAddr), bytes.NewReader(bigWebP))
+	require.NoError(t, err)
+	reqWebP.AddCookie(&http.Cookie{Name: "token", Value: sessionToken})
+	reqWebP.Header.Set("Origin", fmt.Sprintf("http://localhost%s", apiAddr))
+	respWebP, err := client.Do(reqWebP)
+	require.NoError(t, err)
+	defer func() { _ = respWebP.Body.Close() }()
+	require.Equal(t, http.StatusOK, respWebP.StatusCode)
+
+	var webpResp struct {
+		ID string `json:"id"`
+	}
+	require.NoError(t, json.NewDecoder(respWebP.Body).Decode(&webpResp))
+	require.NotEmpty(t, webpResp.ID)
+
+	// Thumbnail request returns a JPEG
+	reqWebPThumb, err := http.NewRequest("GET", fmt.Sprintf("http://localhost%s/api/images/%s?thumb=1", apiAddr, webpResp.ID), nil)
+	require.NoError(t, err)
+	reqWebPThumb.AddCookie(&http.Cookie{Name: "token", Value: sessionToken})
+	respWebPThumb, err := client.Do(reqWebPThumb)
+	require.NoError(t, err)
+	defer func() { _ = respWebPThumb.Body.Close() }()
+	require.Equal(t, http.StatusOK, respWebPThumb.StatusCode)
+	require.Equal(t, "image/jpeg", respWebPThumb.Header.Get("Content-Type"))
+	var webpThumbBody bytes.Buffer
+	_, err = webpThumbBody.ReadFrom(respWebPThumb.Body)
+	require.NoError(t, err)
+	require.Less(t, webpThumbBody.Len(), len(bigWebP), "thumbnail should be smaller than original")
+
+	// Plain request returns original WebP
+	reqWebPFull, err := http.NewRequest("GET", fmt.Sprintf("http://localhost%s/api/images/%s", apiAddr, webpResp.ID), nil)
+	require.NoError(t, err)
+	reqWebPFull.AddCookie(&http.Cookie{Name: "token", Value: sessionToken})
+	respWebPFull, err := client.Do(reqWebPFull)
+	require.NoError(t, err)
+	defer func() { _ = respWebPFull.Body.Close() }()
+	require.Equal(t, http.StatusOK, respWebPFull.StatusCode)
+	require.Equal(t, "image/webp", respWebPFull.Header.Get("Content-Type"))
+	var webpFullBody bytes.Buffer
+	_, err = webpFullBody.ReadFrom(respWebPFull.Body)
+	require.NoError(t, err)
+	require.Equal(t, bigWebP, webpFullBody.Bytes(), "full image request should serve the original WebP")
+
 	// Step 4.6: Upload and Download File
 	fileContent := []byte("hello world this is a test file")
 	reqFile, err := http.NewRequest("POST", fmt.Sprintf("http://localhost%s/api/upload/file", apiAddr), bytes.NewReader(fileContent))
@@ -372,4 +419,16 @@ func makeNoisePNG(t *testing.T, width, height int) []byte {
 		t.Fatalf("failed to encode png: %v", err)
 	}
 	return buf.Bytes()
+}
+
+// makeLargeWebP builds a dummy WebP image by padding a 1x1 transparent WebP
+// with zeros so it exceeds the thumbnail threshold.
+func makeLargeWebP(t *testing.T) []byte {
+	t.Helper()
+	b64 := "UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA=="
+	data, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		t.Fatalf("failed to decode base64: %v", err)
+	}
+	return append(data, make([]byte, 105*1024)...)
 }
