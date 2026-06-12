@@ -27,6 +27,7 @@ var (
 	bucketVAPIDKeys          = []byte("vapid_keys")
 	bucketPushSubscriptions  = []byte("push_subscriptions")
 	bucketLastSeen           = []byte("last_seen")
+	bucketPasskeyCredentials = []byte("passkey_credentials")
 )
 
 type BboltStorage struct {
@@ -71,6 +72,9 @@ func NewBboltStorage(path string, key []byte, fs filestore.FileStore) (*BboltSto
 			return err
 		}
 		if _, err := tx.CreateBucketIfNotExists(bucketLastSeen); err != nil {
+			return err
+		}
+		if _, err := tx.CreateBucketIfNotExists(bucketPasskeyCredentials); err != nil {
 			return err
 		}
 		return nil
@@ -721,4 +725,127 @@ func (s *BboltStorage) ListLastSeen() ([]models.LastSeenEntry, error) {
 		})
 	})
 	return result, err
+}
+
+func (s *BboltStorage) UpsertPasskey(cred auth.Passkey) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		mainBucket := tx.Bucket(bucketPasskeyCredentials)
+		if mainBucket == nil {
+			return errors.New("passkey_credentials bucket not found")
+		}
+
+		userBucket, err := mainBucket.CreateBucketIfNotExists([]byte(cred.UserID))
+		if err != nil {
+			return err
+		}
+
+		dbCred := DBPasskeyCredential{
+			ID:              cred.ID,
+			UserID:          cred.UserID,
+			PublicKey:       cred.PublicKey,
+			AttestationType: cred.AttestationType,
+			AAGUID:          cred.AAGUID,
+			SignCount:       cred.SignCount,
+			Name:            cred.Name,
+			CreatedAt:       cred.CreatedAt,
+			Transport:       cred.Transport,
+			BackupEligible:  cred.BackupEligible,
+			BackupState:     cred.BackupState,
+		}
+
+		data, err := dbCred.MarshalBinary()
+		if err != nil {
+			return err
+		}
+
+		if s.isEncrypted {
+			data, err = s.crypter.Encrypt(data)
+			if err != nil {
+				return err
+			}
+		}
+
+		return userBucket.Put(dbCred.Key(), data)
+	})
+}
+
+func (s *BboltStorage) ListPasskeys(userID string) ([]auth.Passkey, error) {
+	var results []auth.Passkey
+
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		mainBucket := tx.Bucket(bucketPasskeyCredentials)
+		if mainBucket == nil {
+			return nil
+		}
+
+		userBucket := mainBucket.Bucket([]byte(userID))
+		if userBucket == nil {
+			return nil
+		}
+
+		return userBucket.ForEach(func(k, v []byte) error {
+			data := v
+			if s.isEncrypted {
+				var err error
+				data, err = s.crypter.Decrypt(v)
+				if err != nil {
+					slog.Error("Failed to decrypt passkey credential", "error", err, "userId", userID)
+					return nil // skip
+				}
+			}
+
+			var dbCred DBPasskeyCredential
+			if err := dbCred.UnmarshalBinary(data); err != nil {
+				slog.Error("Failed to unmarshal passkey credential", "error", err, "userId", userID)
+				return nil // skip
+			}
+			
+			results = append(results, auth.Passkey{
+				ID:              dbCred.ID,
+				UserID:          dbCred.UserID,
+				PublicKey:       dbCred.PublicKey,
+				AttestationType: dbCred.AttestationType,
+				AAGUID:          dbCred.AAGUID,
+				SignCount:       dbCred.SignCount,
+				Name:            dbCred.Name,
+				CreatedAt:       dbCred.CreatedAt,
+				Transport:       dbCred.Transport,
+				BackupEligible:  dbCred.BackupEligible,
+				BackupState:     dbCred.BackupState,
+			})
+			return nil
+		})
+	})
+
+	return results, err
+}
+
+func (s *BboltStorage) DeletePasskey(userID string, credentialID []byte) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		mainBucket := tx.Bucket(bucketPasskeyCredentials)
+		if mainBucket == nil {
+			return nil
+		}
+
+		userBucket := mainBucket.Bucket([]byte(userID))
+		if userBucket == nil {
+			return nil
+		}
+
+		return userBucket.Delete(credentialID)
+	})
+}
+
+func (s *BboltStorage) DeleteAllPasskeys(userID string) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		mainBucket := tx.Bucket(bucketPasskeyCredentials)
+		if mainBucket == nil {
+			return nil
+		}
+
+		if mainBucket.Bucket([]byte(userID)) != nil {
+			return mainBucket.DeleteBucket([]byte(userID))
+		}
+		return nil
+	})
 }

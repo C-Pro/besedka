@@ -25,6 +25,7 @@ func TestE2EMobileScrollSwipe(t *testing.T) {
 
 	// Create mobile context
 	context, err := browser.NewContext(playwright.BrowserNewContextOptions{
+		Permissions: []string{"notifications"},
 		Viewport: &playwright.Size{
 			Width:  375,
 			Height: 667,

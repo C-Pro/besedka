@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"besedka/internal/auth"
@@ -93,11 +94,13 @@ func (a *API) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
 	http.SetCookie(w, &http.Cookie{
 		Name:     "token",
 		Value:    loginResp.Token,
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   strings.HasPrefix(a.auth.RPOrigin, "https://"),
+		SameSite: http.SameSiteLaxMode,
 		Path:     "/",
 		Expires:  time.Unix(loginResp.TokenExpiry, 0),
 	})
@@ -452,7 +455,7 @@ func RequireSameOrigin(next http.HandlerFunc) http.HandlerFunc {
 func (a *API) ResetPasswordHandler(w http.ResponseWriter, r *http.Request) {
 	userID := UserIDFromContext(r.Context())
 
-	regToken, err := a.auth.ResetPassword(userID)
+	regToken, err := a.auth.ResetPassword(userID, false)
 	if err != nil {
 		slog.Error("failed to reset password for user", "userID", userID, "error", err)
 		w.Header().Set("Content-Type", "application/json")
@@ -730,7 +733,7 @@ func (a *API) GetFileHandler(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) PushVAPIDPublicKeyHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/octet-stream")
-	_, _ = w.Write([]byte(a.push.PublicKey())) //nosemgrep
+	_, _ = w.Write([]byte(a.push.PublicKey())) // nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter.no-direct-write-to-responsewriter
 }
 
 func (a *API) PushSubscribeHandler(w http.ResponseWriter, r *http.Request) {

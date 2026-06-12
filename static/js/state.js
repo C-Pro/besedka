@@ -190,6 +190,73 @@ class Store {
         }
     }
 
+    async getPasskeys() {
+        const response = await fetch('/api/webauthn/passkeys');
+        if (!response.ok) throw new Error('Failed to fetch passkeys');
+        return await response.json();
+    }
+
+    async deletePasskey(id) {
+        // id is standard base64 encoded credential ID.
+        const response = await fetch(`/api/webauthn/passkeys/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        if (!response.ok) {
+            const text = await response.text();
+            throw new Error(text || 'Failed to delete passkey');
+        }
+    }
+
+    async beginPasskeyRegistration() {
+        const response = await fetch('/api/webauthn/register/begin', { method: 'POST' });
+        if (!response.ok) {
+            const text = await response.text();
+            throw new Error(text || 'Failed to begin passkey registration');
+        }
+        return await response.json();
+    }
+
+    async finishPasskeyRegistration(name, attestationObj) {
+        const response = await fetch(`/api/webauthn/register/finish?name=${encodeURIComponent(name)}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(attestationObj)
+        });
+        if (!response.ok) {
+            const text = await response.text();
+            throw new Error(text || 'Failed to finish passkey registration');
+        }
+        return await response.json();
+    }
+
+    async beginPasskeyLogin() {
+        const response = await fetch('/api/webauthn/login/begin', { method: 'POST' });
+        if (!response.ok) {
+            const text = await response.text();
+            throw new Error(text || 'Failed to begin passkey login');
+        }
+        return await response.json();
+    }
+
+    async finishPasskeyLogin(assertionObj) {
+        const response = await fetch('/api/webauthn/login/finish', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(assertionObj)
+        });
+        if (!response.ok) {
+            const text = await response.text();
+            throw new Error(text || 'Failed to finish passkey login');
+        }
+        const data = await response.json();
+        
+        // Populate state using /api/me just like checkSession does
+        await this.checkSession();
+        return data;
+    }
+
     async uploadImage(file, signal) {
         try {
             const response = await fetch('/api/upload/image', {
@@ -895,3 +962,26 @@ class Store {
 }
 
 export const store = new Store();
+
+export function bufferToBase64URL(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let str = '';
+    for (const charCode of bytes) {
+        str += String.fromCharCode(charCode);
+    }
+    const base64String = btoa(str);
+    return base64String.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+export function base64URLToBuffer(base64URL) {
+    const base64 = base64URL.replace(/-/g, '+').replace(/_/g, '/');
+    const padLen = (4 - (base64.length % 4)) % 4;
+    const padded = base64 + '='.repeat(padLen);
+    const binary = atob(padded);
+    const buffer = new ArrayBuffer(binary.length);
+    const bytes = new Uint8Array(buffer);
+    for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+    }
+    return buffer;
+}

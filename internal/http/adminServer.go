@@ -164,7 +164,7 @@ func (s *AdminServer) handleResetUser(w http.ResponseWriter, r *http.Request) {
 	if userID == "" {
 		data["Error"] = "User ID is required"
 	} else {
-		token, err := s.authService.ResetPassword(userID)
+		token, err := s.authService.ResetPassword(userID, true)
 		if err != nil {
 			data["Error"] = "Failed to reset password: " + err.Error()
 		} else {

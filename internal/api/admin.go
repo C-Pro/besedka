@@ -144,7 +144,7 @@ func (h *AdminHandler) ResetUserPasswordHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	token, err := h.authService.ResetPassword(userID)
+	token, err := h.authService.ResetPassword(userID, true)
 	if err != nil {
 		if errors.Is(err, models.ErrNotFound) {
 			w.Header().Set("Content-Type", "application/json")

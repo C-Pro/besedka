@@ -57,6 +57,10 @@ func (m *mockStorage) SaveVAPIDKeys(priv, pub string) error             { return
 func (m *mockStorage) UpsertPushSubscription(uid, end string, sub []byte) error { return nil }
 func (m *mockStorage) GetPushSubscriptions(uid string) ([][]byte, error) { return nil, nil }
 func (m *mockStorage) DeletePushSubscription(uid, end string) error      { return nil }
+func (m *mockStorage) UpsertPasskey(pk auth.Passkey) error               { return nil }
+func (m *mockStorage) ListPasskeys(userID string) ([]auth.Passkey, error) { return nil, nil }
+func (m *mockStorage) DeletePasskey(userID string, credentialID []byte) error { return nil }
+func (m *mockStorage) DeleteAllPasskeys(userID string) error             { return nil }
 
 // ws.storage implementation
 func (m *mockStorage) UpsertMessage(message models.Message) error { return nil }
@@ -88,8 +92,11 @@ func TestAdminUI(t *testing.T) {
 	}
 
 	authService, err := auth.NewAuthService(context.Background(), auth.Config{
-		Secret:      cfg.AuthSecret,
-		TokenExpiry: time.Hour,
+		Secret:        cfg.AuthSecret,
+		TokenExpiry:   time.Hour,
+		RPDisplayName: "Besedka Test",
+		RPID:          "localhost",
+		RPOrigin:      "http://localhost",
 	}, store)
 	if err != nil {
 		t.Fatalf("Failed to create auth service: %v", err)
