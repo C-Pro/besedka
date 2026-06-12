@@ -37,6 +37,10 @@ func (w *webAuthnUser) WebAuthnCredentials() []webauthn.Credential {
 			PublicKey:       p.PublicKey,
 			AttestationType: p.AttestationType,
 			Transport:       transports,
+			Flags: webauthn.CredentialFlags{
+				BackupEligible: p.BackupEligible,
+				BackupState:    p.BackupState,
+			},
 			Authenticator: webauthn.Authenticator{
 				AAGUID:       p.AAGUID,
 				SignCount:    p.SignCount,
@@ -128,8 +132,9 @@ func (a *AuthService) FinishPasskeyLogin(sessionData *webauthn.SessionData, r *h
 		for _, pk := range passkeys {
 			if bytes.Equal(pk.ID, cred.ID) {
 				pk.SignCount = cred.Authenticator.SignCount
+				pk.BackupState = cred.Flags.BackupState
 				if err := a.storage.UpsertPasskey(pk); err != nil {
-					slog.Error("failed to update passkey sign count", "error", err, "userID", userID)
+					slog.Error("failed to update passkey after login", "error", err, "userID", userID)
 				}
 				break
 			}
