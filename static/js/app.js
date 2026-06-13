@@ -180,6 +180,9 @@ function renderApp() {
     document.addEventListener('touchend', onTouchEnd);
 
     const handleSwipe = () => {
+        // Don't switch tabs while the image overlay is open; it handles its
+        // own swipe navigation between images.
+        if (document.getElementById('image-overlay')?.classList.contains('active')) return;
         const distanceX = touchEndX - touchStartX;
         const distanceY = touchEndY - touchStartY;
         if (Math.abs(distanceX) < minSwipeDistance) return;
