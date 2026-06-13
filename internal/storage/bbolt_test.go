@@ -432,4 +432,55 @@ func TestStorage(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("FileMetadata", func(t *testing.T) {
+		withThumb := FileMetadata{
+			ID:            "file1",
+			Hash:          "hash1",
+			MimeType:      "image/png",
+			Size:          200_000,
+			CreatedAt:     time.Now().Unix(),
+			UserID:        "user1",
+			ThumbnailHash: "thumbhash1",
+			ThumbnailMime: "image/jpeg",
+			ThumbnailSize: 80_000,
+		}
+		withoutThumb := FileMetadata{
+			ID:       "file2",
+			Hash:     "hash2",
+			MimeType: "application/pdf",
+			Size:     1000,
+			UserID:   "user1",
+		}
+
+		for _, meta := range []FileMetadata{withThumb, withoutThumb} {
+			if err := store.UpsertFileMetadata(meta); err != nil {
+				t.Fatalf("UpsertFileMetadata failed: %v", err)
+			}
+		}
+
+		got, err := store.GetFileMetadata("file1")
+		if err != nil {
+			t.Fatalf("GetFileMetadata failed: %v", err)
+		}
+		if got != withThumb {
+			t.Errorf("metadata roundtrip mismatch: got %+v, want %+v", got, withThumb)
+		}
+
+		got, err = store.GetFileMetadata("file2")
+		if err != nil {
+			t.Fatalf("GetFileMetadata failed: %v", err)
+		}
+		if got.ThumbnailHash != "" || got.ThumbnailMime != "" || got.ThumbnailSize != 0 {
+			t.Errorf("expected empty thumbnail fields, got %+v", got)
+		}
+
+		metas, err := store.ListFileMetadata()
+		if err != nil {
+			t.Fatalf("ListFileMetadata failed: %v", err)
+		}
+		if len(metas) != 2 {
+			t.Errorf("expected 2 file metadata records, got %d", len(metas))
+		}
+	})
 }

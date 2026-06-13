@@ -19,6 +19,7 @@ import (
 	"besedka/internal/auth"
 	"besedka/internal/config"
 	"besedka/internal/content"
+	"besedka/internal/images"
 	"besedka/internal/models"
 	"besedka/internal/storage"
 	"besedka/internal/ws"
@@ -547,6 +548,11 @@ func (a *API) processUpload(w http.ResponseWriter, r *http.Request, maxBytes int
 		ChatID: "",
 	}
 
+	// Thumbnail failure must never fail the upload.
+	if _, err := images.AttachThumbnail(a.storage, &meta, data); err != nil {
+		slog.Warn("thumbnail generation failed", "fileID", fileID, "error", err)
+	}
+
 	if err := a.storage.UpsertFileMetadata(meta); err != nil {
 		slog.Error("failed to save file metadata", "error", err)
 		http.Error(w, "Internal Database Error", http.StatusInternalServerError)
@@ -578,7 +584,9 @@ func (a *API) UploadAvatarHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	avatarURL := fmt.Sprintf("/api/images/%s", fileID)
+	// Avatars are rendered small everywhere, so serve the thumbnail.
+	// Serving falls back to the original when no thumbnail exists.
+	avatarURL := fmt.Sprintf("/api/images/%s?thumb=1", fileID)
 	if err := a.auth.UpdateAvatarURL(uploaderID, avatarURL); err != nil {
 		slog.Error("failed to update user avatar url", "error", err)
 		http.Error(w, "Internal Database Error", http.StatusInternalServerError)
@@ -664,7 +672,17 @@ func (a *API) GetImageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rc, err := a.storage.GetFileBlob(meta.Hash)
+	// Thumbnails are generated before a file ID is ever served (synchronously
+	// on upload, blocking migration on start), so a given URL's content never
+	// changes and the immutable cache header below stays correct. Files
+	// without a thumbnail (SVG, small or undecodable images) fall back to the
+	// original.
+	hash, mimeType, size := meta.Hash, meta.MimeType, meta.Size
+	if r.URL.Query().Get("thumb") == "1" && meta.ThumbnailHash != "" {
+		hash, mimeType, size = meta.ThumbnailHash, meta.ThumbnailMime, meta.ThumbnailSize
+	}
+
+	rc, err := a.storage.GetFileBlob(hash)
 	if err != nil {
 		slog.Error("failed to retrieve file blob", "error", err)
 		http.Error(w, "File content missing", http.StatusInternalServerError)
@@ -672,8 +690,8 @@ func (a *API) GetImageHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = rc.Close() }()
 
-	w.Header().Set("Content-Type", meta.MimeType)
-	w.Header().Set("Content-Length", strconv.FormatInt(meta.Size, 10))
+	w.Header().Set("Content-Type", mimeType)
+	w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
 	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
 
 	if _, err := io.Copy(w, rc); err != nil {

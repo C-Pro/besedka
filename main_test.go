@@ -8,6 +8,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"os"
@@ -184,6 +188,117 @@ func TestIntegration(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, avatarResp.AvatarURL)
 	require.Contains(t, avatarResp.AvatarURL, "/api/images/")
+	require.Contains(t, avatarResp.AvatarURL, "?thumb=1", "avatar URL should request the thumbnail")
+
+	// The tiny avatar PNG is below the thumbnail threshold, so the thumb URL
+	// must fall back to the original.
+	reqAvatarThumb, err := http.NewRequest("GET", fmt.Sprintf("http://localhost%s%s", apiAddr, avatarResp.AvatarURL), nil)
+	require.NoError(t, err)
+	reqAvatarThumb.AddCookie(&http.Cookie{Name: "token", Value: sessionToken})
+	respAvatarThumb, err := client.Do(reqAvatarThumb)
+	require.NoError(t, err)
+	defer func() { _ = respAvatarThumb.Body.Close() }()
+	require.Equal(t, http.StatusOK, respAvatarThumb.StatusCode)
+	require.Equal(t, "image/png", respAvatarThumb.Header.Get("Content-Type"))
+	var avatarBody bytes.Buffer
+	_, err = avatarBody.ReadFrom(respAvatarThumb.Body)
+	require.NoError(t, err)
+	require.Equal(t, pngDecoded, avatarBody.Bytes(), "small image thumb request should serve the original")
+
+	// Step 4.55: Upload a large image and verify thumbnail serving
+	bigPNG := makeNoisePNG(t, 1200, 900)
+	require.Greater(t, len(bigPNG), 100*1024, "test image must exceed the thumbnail threshold")
+
+	reqBigImg, err := http.NewRequest("POST", fmt.Sprintf("http://localhost%s/api/upload/image", apiAddr), bytes.NewReader(bigPNG))
+	require.NoError(t, err)
+	reqBigImg.AddCookie(&http.Cookie{Name: "token", Value: sessionToken})
+	reqBigImg.Header.Set("Origin", fmt.Sprintf("http://localhost%s", apiAddr))
+	respBigImg, err := client.Do(reqBigImg)
+	require.NoError(t, err)
+	defer func() { _ = respBigImg.Body.Close() }()
+	require.Equal(t, http.StatusOK, respBigImg.StatusCode)
+
+	var bigImgResp struct {
+		ID string `json:"id"`
+	}
+	require.NoError(t, json.NewDecoder(respBigImg.Body).Decode(&bigImgResp))
+	require.NotEmpty(t, bigImgResp.ID)
+
+	// Thumbnail request returns a JPEG smaller than the original.
+	reqThumb, err := http.NewRequest("GET", fmt.Sprintf("http://localhost%s/api/images/%s?thumb=1", apiAddr, bigImgResp.ID), nil)
+	require.NoError(t, err)
+	reqThumb.AddCookie(&http.Cookie{Name: "token", Value: sessionToken})
+	respThumb, err := client.Do(reqThumb)
+	require.NoError(t, err)
+	defer func() { _ = respThumb.Body.Close() }()
+	require.Equal(t, http.StatusOK, respThumb.StatusCode)
+	require.Equal(t, "image/jpeg", respThumb.Header.Get("Content-Type"))
+	var thumbBody bytes.Buffer
+	_, err = thumbBody.ReadFrom(respThumb.Body)
+	require.NoError(t, err)
+	require.Less(t, thumbBody.Len(), len(bigPNG), "thumbnail should be smaller than the original")
+	require.LessOrEqual(t, thumbBody.Len(), 100*1024, "thumbnail should fit the size target")
+
+	// Plain request still returns the full original.
+	reqFull, err := http.NewRequest("GET", fmt.Sprintf("http://localhost%s/api/images/%s", apiAddr, bigImgResp.ID), nil)
+	require.NoError(t, err)
+	reqFull.AddCookie(&http.Cookie{Name: "token", Value: sessionToken})
+	respFull, err := client.Do(reqFull)
+	require.NoError(t, err)
+	defer func() { _ = respFull.Body.Close() }()
+	require.Equal(t, http.StatusOK, respFull.StatusCode)
+	require.Equal(t, "image/png", respFull.Header.Get("Content-Type"))
+	var fullBody bytes.Buffer
+	_, err = fullBody.ReadFrom(respFull.Body)
+	require.NoError(t, err)
+	require.Equal(t, bigPNG, fullBody.Bytes(), "full image request should serve the original")
+
+	// Step 4.56: Upload a large WebP image and verify thumbnail serving
+	bigWebP := makeLargeWebP(t)
+	require.Greater(t, len(bigWebP), 100*1024, "webp test image must exceed the thumbnail threshold")
+
+	reqWebP, err := http.NewRequest("POST", fmt.Sprintf("http://localhost%s/api/upload/image", apiAddr), bytes.NewReader(bigWebP))
+	require.NoError(t, err)
+	reqWebP.AddCookie(&http.Cookie{Name: "token", Value: sessionToken})
+	reqWebP.Header.Set("Origin", fmt.Sprintf("http://localhost%s", apiAddr))
+	respWebP, err := client.Do(reqWebP)
+	require.NoError(t, err)
+	defer func() { _ = respWebP.Body.Close() }()
+	require.Equal(t, http.StatusOK, respWebP.StatusCode)
+
+	var webpResp struct {
+		ID string `json:"id"`
+	}
+	require.NoError(t, json.NewDecoder(respWebP.Body).Decode(&webpResp))
+	require.NotEmpty(t, webpResp.ID)
+
+	// Thumbnail request returns a JPEG
+	reqWebPThumb, err := http.NewRequest("GET", fmt.Sprintf("http://localhost%s/api/images/%s?thumb=1", apiAddr, webpResp.ID), nil)
+	require.NoError(t, err)
+	reqWebPThumb.AddCookie(&http.Cookie{Name: "token", Value: sessionToken})
+	respWebPThumb, err := client.Do(reqWebPThumb)
+	require.NoError(t, err)
+	defer func() { _ = respWebPThumb.Body.Close() }()
+	require.Equal(t, http.StatusOK, respWebPThumb.StatusCode)
+	require.Equal(t, "image/jpeg", respWebPThumb.Header.Get("Content-Type"))
+	var webpThumbBody bytes.Buffer
+	_, err = webpThumbBody.ReadFrom(respWebPThumb.Body)
+	require.NoError(t, err)
+	require.Less(t, webpThumbBody.Len(), len(bigWebP), "thumbnail should be smaller than original")
+
+	// Plain request returns original WebP
+	reqWebPFull, err := http.NewRequest("GET", fmt.Sprintf("http://localhost%s/api/images/%s", apiAddr, webpResp.ID), nil)
+	require.NoError(t, err)
+	reqWebPFull.AddCookie(&http.Cookie{Name: "token", Value: sessionToken})
+	respWebPFull, err := client.Do(reqWebPFull)
+	require.NoError(t, err)
+	defer func() { _ = respWebPFull.Body.Close() }()
+	require.Equal(t, http.StatusOK, respWebPFull.StatusCode)
+	require.Equal(t, "image/webp", respWebPFull.Header.Get("Content-Type"))
+	var webpFullBody bytes.Buffer
+	_, err = webpFullBody.ReadFrom(respWebPFull.Body)
+	require.NoError(t, err)
+	require.Equal(t, bigWebP, webpFullBody.Bytes(), "full image request should serve the original WebP")
 
 	// Step 4.6: Upload and Download File
 	fileContent := []byte("hello world this is a test file")
@@ -281,4 +396,39 @@ func waitForServer(t *testing.T, urlStr string, retries int) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	t.Fatalf("Server failed to start at %s after %d retries", urlStr, retries)
+}
+
+// makeNoisePNG builds a PNG filled with deterministic per-pixel noise so the
+// encoding stays large enough to exceed the thumbnail threshold.
+func makeNoisePNG(t *testing.T, width, height int) []byte {
+	t.Helper()
+	rnd := rand.New(rand.NewSource(42))
+	img := image.NewNRGBA(image.Rect(0, 0, width, height))
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			img.SetNRGBA(x, y, color.NRGBA{
+				R: uint8(rnd.Intn(256)),
+				G: uint8(rnd.Intn(256)),
+				B: uint8(rnd.Intn(256)),
+				A: 255,
+			})
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatalf("failed to encode png: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// makeLargeWebP builds a dummy WebP image by padding a 1x1 transparent WebP
+// with zeros so it exceeds the thumbnail threshold.
+func makeLargeWebP(t *testing.T) []byte {
+	t.Helper()
+	b64 := "UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA=="
+	data, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		t.Fatalf("failed to decode base64: %v", err)
+	}
+	return append(data, make([]byte, 105*1024)...)
 }
