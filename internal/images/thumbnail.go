@@ -48,6 +48,12 @@ func GenerateThumbnail(data []byte, mimeType string) (thumb []byte, thumbMime st
 		return nil, "", ErrUnsupported
 	}
 
+	// image.Decode ignores the EXIF orientation tag, so read it from the raw
+	// bytes and apply it after scaling. The longest-side cap below is
+	// orientation-invariant (a 90 degree swap exchanges width and height but
+	// not their maximum), so the scaling math needs no adjustment.
+	orientation := readOrientation(data)
+
 	bounds := src.Bounds()
 	width, height := bounds.Dx(), bounds.Dy()
 	if width <= 0 || height <= 0 {
@@ -70,10 +76,14 @@ func GenerateThumbnail(data []byte, mimeType string) (thumb []byte, thumbMime st
 	draw.Draw(canvas, canvas.Bounds(), image.NewUniform(color.White), image.Point{}, draw.Src)
 	draw.CatmullRom.Scale(canvas, canvas.Bounds(), src, bounds, draw.Over, nil)
 
+	// Rotate/flip the scaled image so the thumbnail matches how the original
+	// renders. Operating on the small thumbnail keeps this cheap.
+	oriented := applyOrientation(canvas, orientation)
+
 	var buf bytes.Buffer
 	for _, quality := range jpegQualities {
 		buf.Reset()
-		if err := jpeg.Encode(&buf, canvas, &jpeg.Options{Quality: quality}); err != nil {
+		if err := jpeg.Encode(&buf, oriented, &jpeg.Options{Quality: quality}); err != nil {
 			return nil, "", err
 		}
 		if buf.Len() <= targetThumbBytes {

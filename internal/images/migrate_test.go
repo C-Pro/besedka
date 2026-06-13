@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"image"
 	"io"
 	"path/filepath"
 	"testing"
@@ -107,8 +108,8 @@ func TestEnsureThumbnails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetConfig failed: %v", err)
 	}
-	if done != "1" {
-		t.Errorf("expected imageThumbnails=1, got %q", done)
+	if done != currentMigrationVersion {
+		t.Errorf("expected imageThumbnails=%s, got %q", currentMigrationVersion, done)
 	}
 
 	// Second run must be a no-op.
@@ -141,6 +142,75 @@ func TestEnsureThumbnailsResume(t *testing.T) {
 	}
 	if got.ThumbnailHash != "preexisting" {
 		t.Errorf("expected preexisting thumbnail to be kept, got %s", got.ThumbnailHash)
+	}
+}
+
+// TestEnsureThumbnailsRegeneratesOriented simulates upgrading from the
+// orientation-unaware version "1": a file whose original carries an EXIF
+// orientation must have its thumbnail rebuilt, while a correctly oriented one
+// must be left untouched.
+func TestEnsureThumbnailsRegeneratesOriented(t *testing.T) {
+	store := newTestStore(t)
+
+	rotated := jpegWithOrientation(t, noiseImage(t, 1000, 600, 255), 6)
+	upright := jpegWithOrientation(t, noiseImage(t, 1000, 600, 255), 1)
+	if len(rotated) <= ThumbnailThreshold || len(upright) <= ThumbnailThreshold {
+		t.Fatalf("test images too small: rotated=%d upright=%d", len(rotated), len(upright))
+	}
+
+	// Seed both files with a placeholder thumbnail as version "1" would leave them.
+	for _, f := range []struct {
+		id   string
+		data []byte
+	}{{"rotated", rotated}, {"upright", upright}} {
+		meta := seedFile(t, store, f.id, "image/jpeg", f.data)
+		meta.ThumbnailHash = "v1-" + f.id
+		meta.ThumbnailMime = "image/jpeg"
+		meta.ThumbnailSize = 1
+		if err := store.UpsertFileMetadata(meta); err != nil {
+			t.Fatalf("failed to seed thumbnail: %v", err)
+		}
+	}
+	if err := store.SetConfig("imageThumbnails", "1"); err != nil {
+		t.Fatalf("SetConfig failed: %v", err)
+	}
+
+	if err := EnsureThumbnails(store); err != nil {
+		t.Fatalf("EnsureThumbnails failed: %v", err)
+	}
+
+	// The oriented file was regenerated into a real, portrait thumbnail.
+	rotatedMeta, err := store.GetFileMetadata("rotated")
+	if err != nil {
+		t.Fatalf("GetFileMetadata failed: %v", err)
+	}
+	if rotatedMeta.ThumbnailHash == "v1-rotated" || rotatedMeta.ThumbnailHash == "" {
+		t.Fatalf("expected oriented thumbnail to be regenerated, got %q", rotatedMeta.ThumbnailHash)
+	}
+	rc, err := store.GetFileBlob(rotatedMeta.ThumbnailHash)
+	if err != nil {
+		t.Fatalf("failed to get regenerated thumbnail: %v", err)
+	}
+	thumb, err := io.ReadAll(rc)
+	_ = rc.Close()
+	if err != nil {
+		t.Fatalf("failed to read thumbnail: %v", err)
+	}
+	decoded, _, err := image.Decode(bytes.NewReader(thumb))
+	if err != nil {
+		t.Fatalf("failed to decode thumbnail: %v", err)
+	}
+	if b := decoded.Bounds(); b.Dx() >= b.Dy() {
+		t.Errorf("expected portrait regenerated thumbnail, got %dx%d", b.Dx(), b.Dy())
+	}
+
+	// The correctly oriented file keeps its existing thumbnail.
+	uprightMeta, err := store.GetFileMetadata("upright")
+	if err != nil {
+		t.Fatalf("GetFileMetadata failed: %v", err)
+	}
+	if uprightMeta.ThumbnailHash != "v1-upright" {
+		t.Errorf("expected upright thumbnail to be kept, got %q", uprightMeta.ThumbnailHash)
 	}
 }
 

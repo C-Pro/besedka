@@ -10,8 +10,13 @@ import (
 	"besedka/internal/storage"
 )
 
-// migrationConfigKey marks the thumbnail backfill as done in the settings bucket.
-const migrationConfigKey = "imageThumbnails"
+// migrationConfigKey records the completed thumbnail migration version in the
+// settings bucket. Version "1" generated thumbnails without honoring EXIF
+// orientation; version "2" regenerates the mis-oriented ones.
+const (
+	migrationConfigKey      = "imageThumbnails"
+	currentMigrationVersion = "2"
+)
 
 // avatarURLPattern matches locally served avatar URLs that have no query
 // string yet, leaving external URLs and already rewritten ones alone.
@@ -20,27 +25,30 @@ var avatarURLPattern = regexp.MustCompile(`^/api/images/[^?]+$`)
 // EnsureThumbnails backfills thumbnails for all existing image files and
 // rewrites stored user avatar URLs to request thumbnails. It is blocking and
 // must run after storage initialization, before the HTTP servers start.
-// A repeated run is a no-op thanks to the settings key; an interrupted run
-// resumes where it left off because files with thumbnails are skipped.
+// A repeated run at the current version is a no-op; an interrupted run resumes
+// because files with up-to-date thumbnails are skipped. Upgrading from version
+// "1" regenerates thumbnails whose original carries an EXIF orientation, since
+// those were generated sideways.
 func EnsureThumbnails(store *storage.BboltStorage) error {
-	done, err := store.GetConfig(migrationConfigKey)
+	prev, err := store.GetConfig(migrationConfigKey)
 	if err != nil {
 		return fmt.Errorf("failed to read %s config: %w", migrationConfigKey, err)
 	}
-	if done == "1" {
+	if prev == currentMigrationVersion {
 		return nil
 	}
+	regenerateOriented := prev == "1"
 
 	metas, err := store.ListFileMetadata()
 	if err != nil {
 		return fmt.Errorf("failed to list file metadata: %w", err)
 	}
 
-	slog.Info("running thumbnail migration", "files", len(metas))
+	slog.Info("running thumbnail migration", "files", len(metas), "from", prev, "to", currentMigrationVersion)
 
 	var generated, failed int
 	for i, meta := range metas {
-		ok, err := backfillThumbnail(store, meta)
+		ok, err := backfillThumbnail(store, meta, regenerateOriented)
 		if err != nil {
 			failed++
 			slog.Warn("thumbnail migration: failed to process file, skipping", "fileID", meta.ID, "error", err)
@@ -57,7 +65,7 @@ func EnsureThumbnails(store *storage.BboltStorage) error {
 		return err
 	}
 
-	if err := store.SetConfig(migrationConfigKey, "1"); err != nil {
+	if err := store.SetConfig(migrationConfigKey, currentMigrationVersion); err != nil {
 		return fmt.Errorf("failed to persist %s config: %w", migrationConfigKey, err)
 	}
 
@@ -69,14 +77,19 @@ func EnsureThumbnails(store *storage.BboltStorage) error {
 	return nil
 }
 
-// backfillThumbnail generates and persists a thumbnail for a single file.
+// backfillThumbnail generates and persists a thumbnail for a single file. When
+// regenerateOriented is set, an existing thumbnail is rebuilt if the original
+// has a non-trivial EXIF orientation (version-1 thumbnails were not rotated).
 // It reports whether a thumbnail was generated.
-func backfillThumbnail(store *storage.BboltStorage, meta storage.FileMetadata) (bool, error) {
-	// Cheap skip before touching the blob; AttachThumbnail rechecks.
-	if meta.ThumbnailHash != "" ||
-		meta.Size <= ThumbnailThreshold ||
+func backfillThumbnail(store *storage.BboltStorage, meta storage.FileMetadata, regenerateOriented bool) (bool, error) {
+	if meta.Size <= ThumbnailThreshold ||
 		!strings.HasPrefix(meta.MimeType, "image/") ||
 		meta.MimeType == "image/svg+xml" {
+		return false, nil
+	}
+
+	hasThumb := meta.ThumbnailHash != ""
+	if hasThumb && !regenerateOriented {
 		return false, nil
 	}
 
@@ -88,6 +101,14 @@ func backfillThumbnail(store *storage.BboltStorage, meta storage.FileMetadata) (
 	_ = rc.Close()
 	if err != nil {
 		return false, fmt.Errorf("failed to read file blob: %w", err)
+	}
+
+	if hasThumb {
+		// A correctly oriented original already has a usable thumbnail.
+		if readOrientation(data) == orientationNormal {
+			return false, nil
+		}
+		meta.ThumbnailHash = "" // force AttachThumbnail to regenerate
 	}
 
 	ok, err := AttachThumbnail(store, &meta, data)
