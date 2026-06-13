@@ -3,8 +3,12 @@ import { createChatList } from './components/ChatList.js';
 import { createChatWindow } from './components/ChatWindow.js';
 import { createInfoPanel } from './components/InfoPanel.js';
 import { createProfileModal } from './components/ProfileModal.js';
+import { createSettingsModal } from './components/SettingsModal.js';
 
 const app = document.getElementById('app');
+
+// Expose the store for diagnostics and e2e assertions.
+window.store = store;
 
 function renderApp() {
     // Create layout structure
@@ -23,7 +27,7 @@ function renderApp() {
                     <button type="button" class="avatar profile-avatar" id="mobile-profile-avatar" aria-expanded="false" aria-controls="mobile-profile-dropdown" aria-haspopup="true" aria-label="Profile Menu">?</button>
                     <div class="profile-dropdown" id="mobile-profile-dropdown">
                         <button class="profile-menu-item" id="mobile-profile-btn" type="button">Profile</button>
-                        <button class="profile-menu-item disabled" type="button" disabled aria-disabled="true">Settings</button>
+                        <button class="profile-menu-item" id="mobile-settings-btn" type="button">Settings</button>
                         <button class="profile-menu-item" id="mobile-logoff-btn" type="button">Log Off</button>
                     </div>
                 </div>
@@ -241,6 +245,18 @@ function renderApp() {
             return;
         }
 
+        // Handle Settings Button
+        if (e.target.closest('#mobile-settings-btn') || e.target.closest('#desktop-settings-btn')) {
+            createSettingsModal(store);
+
+            // Close dropdowns
+            document.getElementById('mobile-profile-dropdown')?.classList.remove('open');
+            document.getElementById('desktop-profile-dropdown')?.classList.remove('open');
+            document.getElementById('mobile-profile-avatar')?.setAttribute('aria-expanded', 'false');
+            document.getElementById('desktop-profile-avatar')?.setAttribute('aria-expanded', 'false');
+            return;
+        }
+
         // Handle Logoff Buttons
         if (e.target.closest('#mobile-logoff-btn') || e.target.closest('#desktop-logoff-btn')) {
             store.logoff();
@@ -431,6 +447,7 @@ function init() {
             renderApp();
             store.fetchUsers();
             store.fetchChats();
+            store.fetchSettings();
             store.connectWebSocket();
             setupPushNotifications();
 

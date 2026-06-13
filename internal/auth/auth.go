@@ -52,6 +52,9 @@ type storage interface {
 	ListPasskeys(userID string) ([]Passkey, error)
 	DeletePasskey(userID string, credentialID []byte) error
 	DeleteAllPasskeys(userID string) error
+
+	UpsertUserSettings(userID string, settings models.UserSettings) error
+	GetUserSettings(userID string) (models.UserSettings, bool, error)
 }
 
 type Passkey struct {
@@ -325,6 +328,41 @@ func (as *AuthService) UpdateDisplayName(userID string, displayName string) (str
 	tx.Set(user.ID, user)
 
 	return displayName, nil
+}
+
+// GetUserSettings returns the user's stored preferences, falling back to
+// models.DefaultUserSettings() when the user has never saved any.
+func (as *AuthService) GetUserSettings(userID string) (models.UserSettings, error) {
+	tx := as.users.RLock()
+	_, err := tx.Get(userID)
+	tx.Unlock()
+	if err != nil {
+		return models.UserSettings{}, models.ErrNotFound
+	}
+
+	settings, found, err := as.storage.GetUserSettings(userID)
+	if err != nil {
+		return models.UserSettings{}, fmt.Errorf("failed to fetch user settings: %w", err)
+	}
+	if !found {
+		return models.DefaultUserSettings(), nil
+	}
+	return settings, nil
+}
+
+// UpdateUserSettings persists the user's preferences.
+func (as *AuthService) UpdateUserSettings(userID string, settings models.UserSettings) error {
+	tx := as.users.RLock()
+	_, err := tx.Get(userID)
+	tx.Unlock()
+	if err != nil {
+		return models.ErrNotFound
+	}
+
+	if err := as.storage.UpsertUserSettings(userID, settings); err != nil {
+		return fmt.Errorf("failed to persist user settings: %w", err)
+	}
+	return nil
 }
 
 func (as *AuthService) AddUser(username, displayName string) (string, error) {

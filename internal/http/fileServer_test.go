@@ -27,6 +27,14 @@ func (m *mockStorage) UpsertCredentials(c auth.UserCredentials) error {
 	return nil
 }
 
+func (m *mockStorage) UpsertUserSettings(_ string, _ models.UserSettings) error {
+	return nil
+}
+
+func (m *mockStorage) GetUserSettings(_ string) (models.UserSettings, bool, error) {
+	return models.UserSettings{}, false, nil
+}
+
 func (m *mockStorage) ListCredentials() ([]auth.UserCredentials, error) {
 	var list []auth.UserCredentials
 	for _, c := range m.creds {

@@ -52,6 +52,35 @@ type Presence struct {
 	LastSeen int64 `json:"lastSeen"` // Unix timestamp (seconds)
 }
 
+// NotificationSettings controls when an incoming-message notification sound is played.
+type NotificationSettings struct {
+	SoundAllMessages     bool `json:"soundAllMessages"`
+	SoundDirectMessages  bool `json:"soundDirectMessages"`
+	SoundMentions        bool `json:"soundMentions"`
+	SuppressWhenChatOpen bool `json:"suppressWhenChatOpen"`
+}
+
+// UserSettings holds a user's persisted preferences. It is the single
+// extensibility point for per-user settings; add sibling sections here as
+// new preference groups are introduced.
+type UserSettings struct {
+	Notifications NotificationSettings `json:"notifications"`
+}
+
+// DefaultUserSettings returns the settings applied to a user who has never
+// saved any preferences. Direct-message and mention sounds are on by default,
+// "all messages" is off, and sounds are muted for the chat already on screen.
+func DefaultUserSettings() UserSettings {
+	return UserSettings{
+		Notifications: NotificationSettings{
+			SoundAllMessages:     false,
+			SoundDirectMessages:  true,
+			SoundMentions:        true,
+			SuppressWhenChatOpen: true,
+		},
+	}
+}
+
 // Chat represents a chat conversation.
 type Chat struct {
 	ID          string `json:"id"`

@@ -1,5 +1,7 @@
 import { store } from '../state.js';
 import { imageOverlay } from './ImageOverlay.js';
+import { decorateMentions } from '../mentions.js';
+import { attachMentionAutocomplete } from './MentionAutocomplete.js';
 
 export function createChatWindow(container) {
     const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -190,6 +192,8 @@ export function createChatWindow(container) {
         const contentSpan = document.createElement('span');
         contentSpan.className = 'message-content';
         contentSpan.innerHTML = msg.text;
+        // Highlight @mentions per-viewer (brighter for the current user).
+        decorateMentions(contentSpan, state.users, store.getCurrentUserName());
         div.appendChild(contentSpan);
 
         div.appendChild(attachmentsFragment);
@@ -529,12 +533,18 @@ export function createChatWindow(container) {
         }
     };
 
+    const mentionCtrl = attachMentionAutocomplete(elements.input, store);
+
     elements.sendBtn.addEventListener('click', handleSend);
     elements.input.addEventListener('input', () => {
         elements.input.style.height = 'auto';
         elements.input.style.height = `${Math.max(40, elements.input.scrollHeight)}px`;
     });
     elements.input.addEventListener('keydown', (e) => {
+        // Let the mention dropdown handle navigation/selection keys first.
+        if (mentionCtrl.isOpen() && mentionCtrl.handleKeydown(e)) {
+            return;
+        }
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             handleSend();

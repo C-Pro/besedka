@@ -4,6 +4,8 @@ import (
 	"encoding"
 	"encoding/binary"
 
+	"besedka/internal/models"
+
 	"github.com/vmihailenco/msgpack/v5"
 )
 
@@ -56,6 +58,55 @@ func (u *DBUser) MarshalBinary() (data []byte, err error) {
 func (u *DBUser) UnmarshalBinary(data []byte) error {
 	type alias DBUser
 	return msgpack.Unmarshal(data, (*alias)(u))
+}
+
+type DBNotificationSettings struct {
+	SoundAllMessages     bool `msgpack:"soundAllMessages"`
+	SoundDirectMessages  bool `msgpack:"soundDirectMessages"`
+	SoundMentions        bool `msgpack:"soundMentions"`
+	SuppressWhenChatOpen bool `msgpack:"suppressWhenChatOpen"`
+}
+
+type DBUserSettings struct {
+	UserID        string                 `msgpack:"userId"`
+	Notifications DBNotificationSettings `msgpack:"notifications"`
+}
+
+func (s *DBUserSettings) Key() []byte {
+	return []byte(s.UserID)
+}
+
+func (s *DBUserSettings) MarshalBinary() (data []byte, err error) {
+	type alias DBUserSettings
+	return msgpack.Marshal((*alias)(s))
+}
+
+func (s *DBUserSettings) UnmarshalBinary(data []byte) error {
+	type alias DBUserSettings
+	return msgpack.Unmarshal(data, (*alias)(s))
+}
+
+func userSettingsToDB(userID string, s models.UserSettings) *DBUserSettings {
+	return &DBUserSettings{
+		UserID: userID,
+		Notifications: DBNotificationSettings{
+			SoundAllMessages:     s.Notifications.SoundAllMessages,
+			SoundDirectMessages:  s.Notifications.SoundDirectMessages,
+			SoundMentions:        s.Notifications.SoundMentions,
+			SuppressWhenChatOpen: s.Notifications.SuppressWhenChatOpen,
+		},
+	}
+}
+
+func (s *DBUserSettings) toModel() models.UserSettings {
+	return models.UserSettings{
+		Notifications: models.NotificationSettings{
+			SoundAllMessages:     s.Notifications.SoundAllMessages,
+			SoundDirectMessages:  s.Notifications.SoundDirectMessages,
+			SoundMentions:        s.Notifications.SoundMentions,
+			SuppressWhenChatOpen: s.Notifications.SuppressWhenChatOpen,
+		},
+	}
 }
 
 type DBChat struct {
