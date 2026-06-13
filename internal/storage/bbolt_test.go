@@ -483,4 +483,44 @@ func TestStorage(t *testing.T) {
 			t.Errorf("expected 2 file metadata records, got %d", len(metas))
 		}
 	})
+
+	t.Run("UserSettings", func(t *testing.T) {
+		// No record yet -> found == false so callers can apply defaults.
+		if _, found, err := store.GetUserSettings("settings_user"); err != nil {
+			t.Fatalf("GetUserSettings failed: %v", err)
+		} else if found {
+			t.Error("expected no settings record for a new user")
+		}
+
+		want := models.DefaultUserSettings()
+		want.Notifications.SoundAllMessages = true
+		want.Notifications.SuppressWhenChatOpen = false
+		if err := store.UpsertUserSettings("settings_user", want); err != nil {
+			t.Fatalf("UpsertUserSettings failed: %v", err)
+		}
+
+		got, found, err := store.GetUserSettings("settings_user")
+		if err != nil {
+			t.Fatalf("GetUserSettings failed: %v", err)
+		}
+		if !found {
+			t.Fatal("expected settings record to exist after upsert")
+		}
+		if got != want {
+			t.Errorf("settings roundtrip mismatch: got %+v, want %+v", got, want)
+		}
+
+		// Update overwrites the stored value.
+		want.Notifications.SoundMentions = false
+		if err := store.UpsertUserSettings("settings_user", want); err != nil {
+			t.Fatalf("UpsertUserSettings update failed: %v", err)
+		}
+		got, _, err = store.GetUserSettings("settings_user")
+		if err != nil {
+			t.Fatalf("GetUserSettings after update failed: %v", err)
+		}
+		if got != want {
+			t.Errorf("updated settings mismatch: got %+v, want %+v", got, want)
+		}
+	})
 }

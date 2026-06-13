@@ -28,6 +28,7 @@ var (
 	bucketPushSubscriptions  = []byte("push_subscriptions")
 	bucketLastSeen           = []byte("last_seen")
 	bucketPasskeyCredentials = []byte("passkey_credentials")
+	bucketUserSettings       = []byte("user_settings")
 )
 
 type BboltStorage struct {
@@ -75,6 +76,9 @@ func NewBboltStorage(path string, key []byte, fs filestore.FileStore) (*BboltSto
 			return err
 		}
 		if _, err := tx.CreateBucketIfNotExists(bucketPasskeyCredentials); err != nil {
+			return err
+		}
+		if _, err := tx.CreateBucketIfNotExists(bucketUserSettings); err != nil {
 			return err
 		}
 		return nil
@@ -189,6 +193,62 @@ func (s *BboltStorage) UpsertCredentials(credentials auth.UserCredentials) error
 
 		return b.Put(dbUser.Key(), data)
 	})
+}
+
+// UpsertUserSettings stores a user's preferences, keyed by user ID.
+func (s *BboltStorage) UpsertUserSettings(userID string, settings models.UserSettings) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketUserSettings)
+		dbSettings := userSettingsToDB(userID, settings)
+
+		data, err := dbSettings.MarshalBinary()
+		if err != nil {
+			return err
+		}
+
+		if s.isEncrypted {
+			data, err = s.crypter.Encrypt(data)
+			if err != nil {
+				return fmt.Errorf("failed to encrypt user settings: %w", err)
+			}
+		}
+
+		return b.Put(dbSettings.Key(), data)
+	})
+}
+
+// GetUserSettings returns a user's stored preferences. The returned bool
+// reports whether a record existed; when false the caller should apply
+// defaults rather than treating the zero value as the user's choice.
+func (s *BboltStorage) GetUserSettings(userID string) (models.UserSettings, bool, error) {
+	var (
+		settings models.UserSettings
+		found    bool
+	)
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketUserSettings)
+		data := b.Get([]byte(userID))
+		if data == nil {
+			return nil
+		}
+
+		if s.isEncrypted {
+			var err error
+			data, err = s.crypter.Decrypt(data)
+			if err != nil {
+				return fmt.Errorf("failed to decrypt user settings: %w", err)
+			}
+		}
+
+		var dbSettings DBUserSettings
+		if err := dbSettings.UnmarshalBinary(data); err != nil {
+			return err
+		}
+		settings = dbSettings.toModel()
+		found = true
+		return nil
+	})
+	return settings, found, err
 }
 
 // backfillStatus returns the appropriate status for a user based on their current data.

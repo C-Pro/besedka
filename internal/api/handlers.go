@@ -408,6 +408,55 @@ func (a *API) MeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// GetUserSettingsHandler returns the current user's persisted preferences,
+// falling back to defaults when none have been saved.
+func (a *API) GetUserSettingsHandler(w http.ResponseWriter, r *http.Request) {
+	userID := UserIDFromContext(r.Context())
+
+	settings, err := a.auth.GetUserSettings(userID)
+	if err != nil {
+		if errors.Is(err, models.ErrNotFound) {
+			http.Error(w, "User not found", http.StatusNotFound)
+			return
+		}
+		slog.Error("failed to fetch user settings", "userID", userID, "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(settings); err != nil {
+		slog.Error("failed to encode settings response", "error", err)
+	}
+}
+
+// UpdateUserSettingsHandler persists the current user's preferences. The body
+// is decoded into the strongly-typed UserSettings struct.
+func (a *API) UpdateUserSettingsHandler(w http.ResponseWriter, r *http.Request) {
+	userID := UserIDFromContext(r.Context())
+
+	var settings models.UserSettings
+	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
+		http.Error(w, "Invalid settings payload", http.StatusBadRequest)
+		return
+	}
+
+	if err := a.auth.UpdateUserSettings(userID, settings); err != nil {
+		if errors.Is(err, models.ErrNotFound) {
+			http.Error(w, "User not found", http.StatusNotFound)
+			return
+		}
+		slog.Error("failed to update user settings", "userID", userID, "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(settings); err != nil {
+		slog.Error("failed to encode settings response", "error", err)
+	}
+}
+
 // validateCSRFSameOrigin implements a simple same-origin check using the Origin
 // and Referer headers. It ensures that the request originates from the same host
 // as the server, mitigating CSRF attacks for cookie-authenticated endpoints.

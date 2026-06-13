@@ -1,3 +1,14 @@
+import { getMentionedUserNames } from './mentions.js';
+
+// Default per-user notification settings; mirrors models.DefaultUserSettings()
+// on the server and is used until the server copy is fetched.
+const DEFAULT_NOTIFICATION_SETTINGS = {
+    soundAllMessages: false,
+    soundDirectMessages: true,
+    soundMentions: true,
+    suppressWhenChatOpen: true
+};
+
 // Simple State Management
 class Store {
     constructor() {
@@ -27,6 +38,52 @@ class Store {
         this.tokenExpiry = null;
         this.sessionLimit = null;
         this.cookieExpiryInterval = setInterval(() => this.checkCookieExpiry(), 60000);
+
+        // Notification settings are persisted server-side; start with defaults
+        // so sound logic is well-defined before fetchSettings() resolves.
+        this.settings = { notifications: { ...DEFAULT_NOTIFICATION_SETTINGS } };
+
+        // Notification sound. Browsers block audio until a user gesture, so we
+        // prime the element on the first interaction. _soundPlays is exposed for
+        // tests to assert the trigger logic without depending on real playback.
+        this.notificationAudio = null;
+        this.audioUnlocked = false;
+        this._soundPlays = 0;
+        this.initAudioUnlock();
+    }
+
+    initAudioUnlock() {
+        if (typeof document === 'undefined') return;
+        const unlock = () => {
+            this.audioUnlocked = true;
+            const audio = this.ensureAudio();
+            if (!audio) return;
+            const prevMuted = audio.muted;
+            audio.muted = true;
+            const p = audio.play();
+            if (p && typeof p.then === 'function') {
+                p.then(() => {
+                    audio.pause();
+                    audio.currentTime = 0;
+                    audio.muted = prevMuted;
+                }).catch(() => {
+                    audio.muted = prevMuted;
+                });
+            } else {
+                audio.muted = prevMuted;
+            }
+        };
+        document.addEventListener('pointerdown', unlock, { once: true });
+        document.addEventListener('keydown', unlock, { once: true });
+    }
+
+    ensureAudio() {
+        if (typeof Audio === 'undefined') return null;
+        if (!this.notificationAudio) {
+            this.notificationAudio = new Audio('/cup.mp3');
+            this.notificationAudio.preload = 'auto';
+        }
+        return this.notificationAudio;
     }
 
     subscribe(listener) {
@@ -730,7 +787,12 @@ class Store {
         if (!wasLoadingHistory && !isHistoryFetch) {
             const now = Date.now();
             const lastSeq = currentMessages.length > 0 ? currentMessages[currentMessages.length - 1].seq : 0;
-            
+
+            const chat = this.state.chats.find(c => c.id === chatId);
+            const n = this.settings.notifications;
+            const myUserName = this.getCurrentUserName();
+            let playSound = false;
+
             for (const m of newMessages) {
                 const alreadyExists = m.seq <= lastSeq;
                 const isOld = (now - m.rawTimestamp) > 5 * 60 * 1000;
@@ -742,7 +804,26 @@ class Store {
                     if (isDifferentChat || isTabHidden) {
                         this.showLocalNotification(chatId, m);
                     }
+
+                    // Notification sound has its own gating, independent of the
+                    // visual notification above.
+                    const mentionedMe = !!myUserName
+                        && getMentionedUserNames(m.rawText, this.state.users).has(myUserName.toLowerCase());
+                    const shouldPlay = n.soundAllMessages
+                        || (n.soundDirectMessages && chat?.isDm)
+                        || (n.soundMentions && mentionedMe);
+                    const suppressed = n.suppressWhenChatOpen
+                        && chatId === this.state.activeChatId
+                        && !document.hidden;
+                    if (shouldPlay && !suppressed) {
+                        playSound = true;
+                    }
                 }
+            }
+
+            // Play at most once per incoming batch to avoid overlapping audio.
+            if (playSound) {
+                this.playNotificationSound();
             }
         }
     }
@@ -957,6 +1038,76 @@ class Store {
             navigator.setAppBadge(total).catch(console.error);
         } else {
             navigator.clearAppBadge().catch(console.error);
+        }
+    }
+
+    // getCurrentUserName resolves the logged-in user's userName (not the display
+    // name, which is what currentUser.name holds) for mention detection.
+    getCurrentUserName() {
+        const id = this.state.currentUser?.id;
+        if (!id) return null;
+        return this.state.users.find(u => u.id === id)?.userName || null;
+    }
+
+    async fetchSettings() {
+        try {
+            const response = await fetch('/api/users/me/settings');
+            if (!response.ok) return;
+            const settings = await response.json();
+            // Merge over defaults so newly-added keys stay well-defined.
+            this.settings = {
+                ...this.settings,
+                ...settings,
+                notifications: {
+                    ...DEFAULT_NOTIFICATION_SETTINGS,
+                    ...(settings.notifications || {})
+                }
+            };
+            this.notify();
+        } catch (e) {
+            console.error('Failed to fetch settings:', e);
+        }
+    }
+
+    async setNotificationSetting(key, value) {
+        const previous = this.settings.notifications[key];
+        // Optimistic update for instant UI feedback.
+        this.settings = {
+            ...this.settings,
+            notifications: { ...this.settings.notifications, [key]: value }
+        };
+        this.notify();
+        try {
+            const response = await fetch('/api/users/me/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(this.settings)
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        } catch (e) {
+            console.error('Failed to save settings:', e);
+            // Revert on failure.
+            this.settings = {
+                ...this.settings,
+                notifications: { ...this.settings.notifications, [key]: previous }
+            };
+            this.notify();
+            throw e;
+        }
+    }
+
+    playNotificationSound() {
+        this._soundPlays += 1;
+        const audio = this.ensureAudio();
+        if (!audio) return;
+        try {
+            audio.currentTime = 0;
+            const p = audio.play();
+            if (p && typeof p.catch === 'function') {
+                p.catch(() => {});
+            }
+        } catch {
+            // Ignore playback errors (e.g. autoplay still blocked).
         }
     }
 }

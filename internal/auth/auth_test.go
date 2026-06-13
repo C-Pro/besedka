@@ -15,11 +15,25 @@ type MockStorage struct {
 	tokens    map[string]string
 	regTokens map[string]string
 	passkeys  []Passkey
+	settings  map[string]models.UserSettings
 }
 
 func (m *MockStorage) UpsertCredentials(c UserCredentials) error {
 	m.creds[c.ID] = c
 	return nil
+}
+
+func (m *MockStorage) UpsertUserSettings(userID string, s models.UserSettings) error {
+	if m.settings == nil {
+		m.settings = make(map[string]models.UserSettings)
+	}
+	m.settings[userID] = s
+	return nil
+}
+
+func (m *MockStorage) GetUserSettings(userID string) (models.UserSettings, bool, error) {
+	s, ok := m.settings[userID]
+	return s, ok, nil
 }
 
 func (m *MockStorage) ListCredentials() ([]UserCredentials, error) {
@@ -1243,4 +1257,65 @@ func TestAuthService(t *testing.T) {
 			t.Errorf("UpdateDisplayName should fail with empty name")
 		}
 	})
+}
+
+func TestUserSettingsService(t *testing.T) {
+	cfg := Config{
+		Secret:        base64.StdEncoding.EncodeToString([]byte("server-secret")),
+		TokenExpiry:   time.Hour,
+		RPDisplayName: "Besedka Test",
+		RPID:          "localhost",
+		RPOrigin:      "http://localhost",
+	}
+	store := &MockStorage{
+		creds:     make(map[string]UserCredentials),
+		tokens:    make(map[string]string),
+		regTokens: make(map[string]string),
+	}
+	svc, err := NewAuthService(context.Background(), cfg, store)
+	if err != nil {
+		t.Fatalf("Failed to create service: %v", err)
+	}
+
+	if _, err := svc.AddUser("user1", "User One"); err != nil {
+		t.Fatalf("AddUser failed: %v", err)
+	}
+	id, err := svc.usernames.Get("user1")
+	if err != nil {
+		t.Fatalf("failed to resolve username: %v", err)
+	}
+
+	// Unknown user -> ErrNotFound.
+	if _, err := svc.GetUserSettings("nope"); err != models.ErrNotFound {
+		t.Errorf("expected ErrNotFound for unknown user, got %v", err)
+	}
+
+	// No stored settings -> defaults.
+	got, err := svc.GetUserSettings(id)
+	if err != nil {
+		t.Fatalf("GetUserSettings failed: %v", err)
+	}
+	if got != models.DefaultUserSettings() {
+		t.Errorf("expected defaults, got %+v", got)
+	}
+
+	// Persist and read back.
+	want := models.DefaultUserSettings()
+	want.Notifications.SoundAllMessages = true
+	want.Notifications.SuppressWhenChatOpen = false
+	if err := svc.UpdateUserSettings(id, want); err != nil {
+		t.Fatalf("UpdateUserSettings failed: %v", err)
+	}
+	got, err = svc.GetUserSettings(id)
+	if err != nil {
+		t.Fatalf("GetUserSettings failed: %v", err)
+	}
+	if got != want {
+		t.Errorf("settings mismatch: got %+v, want %+v", got, want)
+	}
+
+	// Updating an unknown user fails.
+	if err := svc.UpdateUserSettings("nope", want); err != models.ErrNotFound {
+		t.Errorf("expected ErrNotFound updating unknown user, got %v", err)
+	}
 }
