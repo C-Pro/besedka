@@ -317,6 +317,20 @@
     font-size: var(--font-size-sm);
 }
 
+.placeholder-box.has-image {
+    padding: 0;
+    border-style: solid;
+    cursor: pointer;
+    overflow: hidden;
+}
+
+.placeholder-box.has-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
 /* Profile Menu */
 .profile-menu-container {
     position: relative;

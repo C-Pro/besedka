@@ -1,4 +1,5 @@
 import { store } from '../state.js';
+import { imageOverlay } from './ImageOverlay.js';
 
 export function createChatWindow(container) {
     const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -40,67 +41,6 @@ export function createChatWindow(container) {
         svg.appendChild(createSvgElement('polyline', { points: '10 9 9 9 8 9' }));
         return svg;
     };
-
-    // Overlay Elements (created once)
-    let overlay = document.getElementById('image-overlay');
-    if (!overlay) {
-        overlay = document.createElement('div');
-        overlay.id = 'image-overlay';
-        overlay.className = 'image-overlay';
-        overlay.innerHTML = `
-            <div class="overlay-controls" id="overlay-controls">
-                <div class="overlay-info">
-                    <span class="overlay-sender" id="overlay-sender"></span>
-                    <span class="overlay-time" id="overlay-time"></span>
-                </div>
-                <div class="overlay-actions">
-                    <button class="overlay-btn" id="overlay-download" title="Download">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                            <polyline points="7 10 12 15 17 10"></polyline>
-                            <line x1="12" y1="15" x2="12" y2="3"></line>
-                        </svg>
-                    </button>
-                    <button class="overlay-btn" id="overlay-close" title="Close">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <line x1="18" y1="6" x2="6" y2="18"></line>
-                            <line x1="6" y1="6" x2="18" y2="18"></line>
-                        </svg>
-                    </button>
-                </div>
-            </div>
-            <img id="overlay-image" src="" alt="Full view">
-        `;
-        document.body.appendChild(overlay);
-
-        const closeOverlay = () => {
-            overlay.classList.remove('active');
-            overlay.querySelector('#overlay-image').src = '';
-        };
-
-        overlay.querySelector('#overlay-close').addEventListener('click', closeOverlay);
-        overlay.addEventListener('click', (e) => {
-            if (e.target === overlay) closeOverlay();
-        });
-
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && overlay.classList.contains('active')) {
-                closeOverlay();
-            }
-        });
-
-        let fadeTimer;
-        const resetFade = () => {
-            const controls = overlay.querySelector('#overlay-controls');
-            controls.classList.remove('faded');
-            clearTimeout(fadeTimer);
-            fadeTimer = setTimeout(() => {
-                controls.classList.add('faded');
-            }, 3000);
-        };
-        overlay.addEventListener('mousemove', resetFade);
-        overlay.addEventListener('click', resetFade);
-    }
 
     const handleEscape = (e) => {
         if (e.key === 'Escape' && isUploading) {
@@ -188,9 +128,9 @@ export function createChatWindow(container) {
                     const imageUrl = `/api/images/${encodeURIComponent(att.fileId)}`;
                     const imageWrap = document.createElement('div');
                     imageWrap.className = 'message-attachment';
-                    imageWrap.dataset.src = imageUrl;
-                    imageWrap.dataset.sender = isMe ? 'You' : senderDisplayName;
-                    imageWrap.dataset.time = msg.timestamp;
+                    // fileId lets the click handler open the shared overlay,
+                    // which rebuilds the navigable gallery from the store.
+                    imageWrap.dataset.fileId = att.fileId;
 
                     const placeholder = document.createElement('div');
                     placeholder.className = 'attachment-placeholder';
@@ -199,8 +139,8 @@ export function createChatWindow(container) {
 
                     const img = document.createElement('img');
                     // Chat shows the thumbnail; the overlay loads the full
-                    // image via dataset.src. Falls back to the original when
-                    // no thumbnail exists (SVG, small images).
+                    // image. Falls back to the original when no thumbnail
+                    // exists (SVG, small images).
                     img.src = `${imageUrl}?thumb=1`;
                     img.alt = att.name || '';
                     img.loading = 'lazy';
@@ -257,27 +197,7 @@ export function createChatWindow(container) {
         // Handle Image Clicks
         div.querySelectorAll('.message-attachment').forEach(el => {
             el.addEventListener('click', () => {
-                const src = el.dataset.src;
-                const sender = el.dataset.sender;
-                const time = el.dataset.time;
-
-                const img = overlay.querySelector('#overlay-image');
-                img.src = src;
-                overlay.querySelector('#overlay-sender').textContent = sender;
-                overlay.querySelector('#overlay-time').textContent = time;
-
-                const dBtn = overlay.querySelector('#overlay-download');
-                dBtn.onclick = (e) => {
-                    e.stopPropagation();
-                    const a = document.createElement('a');
-                    a.href = src;
-                    a.download = `image-${Date.now()}.png`;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                };
-
-                overlay.classList.add('active');
+                imageOverlay.open(lastChatId, el.dataset.fileId);
             });
         });
 

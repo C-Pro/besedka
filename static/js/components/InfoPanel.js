@@ -1,4 +1,5 @@
 import { LocationMap } from './LocationMap.js';
+import { imageOverlay, getChatImages } from './ImageOverlay.js';
 
 export function createInfoPanel(container, store) {
     container.innerHTML = `
@@ -15,9 +16,9 @@ export function createInfoPanel(container, store) {
         </div>
         <div class="info-content">
             <div class="info-section">
-                <div class="section-title">Last Document</div>
-                <div class="placeholder-box">
-                    No documents yet
+                <div class="section-title">Last Image</div>
+                <div class="placeholder-box" id="last-image-box">
+                    No images yet
                 </div>
             </div>
             <div class="info-section">
@@ -38,6 +39,33 @@ export function createInfoPanel(container, store) {
     locationToggle.addEventListener('change', (e) => {
         store.toggleLocationSharing(e.target.checked);
     });
+
+    // Last Image preview: shows the most recent image of the active chat and
+    // opens the shared overlay (with navigation) when clicked.
+    const lastImageBox = container.querySelector('#last-image-box');
+    let lastImageKey = null;
+    const renderLastImage = (state) => {
+        const images = getChatImages(state, state.activeChatId);
+        const last = images.length > 0 ? images[images.length - 1] : null;
+        const key = `${state.activeChatId || ''}:${last ? last.fileId : ''}`;
+        if (key === lastImageKey) return; // avoid needless DOM churn
+        lastImageKey = key;
+        lastImageBox.replaceChildren();
+        lastImageBox.onclick = null;
+        if (!last) {
+            lastImageBox.classList.remove('has-image');
+            lastImageBox.textContent = 'No images yet';
+            return;
+        }
+        lastImageBox.classList.add('has-image');
+        const img = document.createElement('img');
+        img.src = `${last.src}?thumb=1`; // preview uses the thumbnail
+        img.alt = 'Last image';
+        lastImageBox.appendChild(img);
+        lastImageBox.onclick = () => imageOverlay.open(state.activeChatId, last.fileId);
+    };
+    renderLastImage(store.state);
+    store.subscribe(renderLastImage);
 
     const mapContainer = container.querySelector('#location-map');
     
