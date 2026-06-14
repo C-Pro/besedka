@@ -1,4 +1,4 @@
-const CACHE_VERSION = '{{CACHE_VERSION}}';
+const CACHE_VERSION = '{{.CacheVersion}}';
 const CACHE_FILES = [
     '/js/app.js',
     '/js/state.js',
@@ -81,7 +81,7 @@ self.addEventListener('push', function (event) {
     } catch (e) {
         console.warn('Push payload was not JSON:', event.data.text());
         data = {
-            title: '{{CHATNAME}}',
+            title: '{{.ChatName}}',
             body: event.data.text()
         };
     }
@@ -102,7 +102,7 @@ self.addEventListener('push', function (event) {
         }
     };
     event.waitUntil(
-        self.registration.showNotification(data.title || '{{CHATNAME}}', options)
+        self.registration.showNotification(data.title || '{{.ChatName}}', options)
             .then(() => syncBadge())
     );
 });

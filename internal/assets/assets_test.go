@@ -8,21 +8,27 @@ import (
 )
 
 func TestLoad(t *testing.T) {
+	adminRaw := "{{.ChatName}} Admin{{range .Users}}{{.Name}}{{end}}"
 	mockFS := fstest.MapFS{
 		"index.html": {
-			Data: []byte("Welcome to {{CHATNAME}}"),
+			Data: []byte("Welcome to {{.ChatName}}"),
 		},
 		"config.js": {
-			Data: []byte("const app = '{{CHATNAME}}';"),
+			Data: []byte("const app = '{{.ChatName}}';"),
 		},
 		"site.webmanifest": {
-			Data: []byte(`{"name": "{{CHATNAME}}"}`),
+			Data: []byte(`{"name": "{{.ChatName}}"}`),
 		},
 		"style.css": {
 			Data: []byte(".body { color: red; }"),
 		},
 		"sw.js": {
-			Data: []byte("const CACHE_VERSION = '{{CACHE_VERSION}}';"),
+			Data: []byte("const CACHE_VERSION = '{{.CacheVersion}}';"),
+		},
+		// admin.html is owned by the admin server; the overlay must serve it raw,
+		// leaving its Go template directives (e.g. {{range .Users}}) untouched.
+		"admin.html": {
+			Data: []byte(adminRaw),
 		},
 	}
 
@@ -42,6 +48,8 @@ func TestLoad(t *testing.T) {
 		{"site.webmanifest", `{"name": "MyCustomChat"}`},
 		{"style.css", ".body { color: red; }"},
 		{"sw.js", "const CACHE_VERSION = '" + expectedVersion + "';"},
+		// Served raw — no substitution applied.
+		{"admin.html", adminRaw},
 	}
 
 	for _, tt := range tests {
@@ -55,6 +63,20 @@ func TestLoad(t *testing.T) {
 			t.Errorf("for %s, expected %q, got %q", tt.path, tt.expected, string(content))
 		}
 		_ = file.Close()
+	}
+}
+
+func TestLoadMalformedTemplate(t *testing.T) {
+	mockFS := fstest.MapFS{
+		"broken.html": {
+			Data: []byte("oops {{.ChatName"),
+		},
+	}
+
+	processedFS, _ := Load("TestChat", mockFS)
+
+	if _, err := processedFS.Open("broken.html"); err == nil {
+		t.Error("expected error opening malformed template, got nil")
 	}
 }
 
@@ -101,7 +123,7 @@ func TestDirectoryListing(t *testing.T) {
 func TestSeek(t *testing.T) {
 	mockFS := fstest.MapFS{
 		"site.webmanifest": {
-			Data: []byte(`{"name": "{{CHATNAME}}"}`),
+			Data: []byte(`{"name": "{{.ChatName}}"}`),
 		},
 		"unmodified.txt": {
 			Data: []byte(`hello`),
