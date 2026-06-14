@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // LocalFileStore implements FileStore using the local filesystem.
@@ -12,7 +13,7 @@ type LocalFileStore struct {
 	root string
 }
 
-func  NewLocalFileStore(root string) (*LocalFileStore, error) {
+func NewLocalFileStore(root string) (*LocalFileStore, error) {
 	if err := os.MkdirAll(root, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create root directory: %w", err)
 	}
@@ -106,4 +107,23 @@ func (s *LocalFileStore) Get(hash string) (io.ReadCloser, error) {
 		return nil, fmt.Errorf("failed to open file %s: %w", hash, err)
 	}
 	return f, nil
+}
+
+// Walk calls fn with the hash (filename) of every stored blob. It walks the
+// two-level prefix layout (root/<hash[:2]>/<hash>), skipping in-progress temp
+// files. Iteration stops if fn returns an error.
+func (s *LocalFileStore) Walk(fn func(hash string) error) error {
+	return filepath.WalkDir(s.root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		name := d.Name()
+		if strings.HasPrefix(name, "upload-") {
+			return nil // temp file from an in-flight Save/Replace
+		}
+		return fn(name)
+	})
 }

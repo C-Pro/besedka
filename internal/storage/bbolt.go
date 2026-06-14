@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"time"
 
@@ -141,6 +142,40 @@ func NewBboltStorage(path string, key []byte, fs filestore.FileStore) (*BboltSto
 
 func (s *BboltStorage) Close() error {
 	return s.db.Close()
+}
+
+// SnapshotTo writes a consistent snapshot of the entire database to w within a
+// read transaction. It is safe to call concurrently with writers (bbolt readers
+// do not block writers). It returns the number of bytes written.
+func (s *BboltStorage) SnapshotTo(w io.Writer) (int64, error) {
+	var n int64
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		var err error
+		n, err = tx.WriteTo(w)
+		return err
+	})
+	return n, err
+}
+
+// EncryptForBackup encrypts a backup payload with the storage's data-at-rest
+// key when encryption is enabled. It returns the (possibly encrypted) bytes,
+// the salt needed to reconstruct the key for decryption, and whether encryption
+// was applied. When encryption is disabled it returns the input unchanged with
+// ok=false and a nil salt.
+func (s *BboltStorage) EncryptForBackup(data []byte) (out []byte, salt []byte, ok bool, err error) {
+	if !s.isEncrypted {
+		return data, nil, false, nil
+	}
+	enc, err := s.crypter.Encrypt(data)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	return enc, s.crypter.Salt(), true, nil
+}
+
+// IsEncrypted reports whether data-at-rest encryption is enabled.
+func (s *BboltStorage) IsEncrypted() bool {
+	return s.isEncrypted
 }
 
 // GetConfig returns the config value by key.
@@ -859,7 +894,7 @@ func (s *BboltStorage) ListPasskeys(userID string) ([]auth.Passkey, error) {
 				slog.Error("Failed to unmarshal passkey credential", "error", err, "userId", userID)
 				return nil // skip
 			}
-			
+
 			results = append(results, auth.Passkey{
 				ID:              dbCred.ID,
 				UserID:          dbCred.UserID,

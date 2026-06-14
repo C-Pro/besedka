@@ -29,12 +29,33 @@ type Config struct {
 	EnableHTTPChallenge bool
 	HTTPChallengePort   string
 	ChatName            string
+
+	// S3-compatible object storage (optional). Empty bucket or endpoint
+	// disables the feature entirely.
+	S3Endpoint       string
+	S3Region         string
+	S3Bucket         string
+	S3AccessKey      string
+	S3SecretKey      string
+	S3PathStyle      bool
+	S3BackupInterval time.Duration
+	S3BackupKeep     int64
+}
+
+// S3Enabled reports whether object-storage backup/mirroring is configured.
+func (c *Config) S3Enabled() bool {
+	return c.S3Bucket != "" && c.S3Endpoint != ""
 }
 
 func Load(cliMode bool) (*Config, error) {
 	tokenExpiry, err := time.ParseDuration(getEnv("TOKEN_EXPIRY", "24h"))
 	if err != nil {
 		return nil, err
+	}
+
+	backupInterval, err := time.ParseDuration(getEnv("S3_BACKUP_INTERVAL", "24h"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid S3_BACKUP_INTERVAL: %w", err)
 	}
 
 	apiAddr := os.Getenv("API_ADDR")
@@ -69,6 +90,15 @@ func Load(cliMode bool) (*Config, error) {
 		EnableHTTPChallenge: getEnv("ENABLE_HTTP_CHALLENGE", "false") == "true" || getEnv("ENABLE_HTTP_CHALLENGE", "false") == "1",
 		HTTPChallengePort:   getEnv("HTTP_CHALLENGE_PORT", "80"),
 		ChatName:            getEnv("CHAT_NAME", "Besedka"),
+
+		S3Endpoint:       os.Getenv("S3_ENDPOINT"),
+		S3Region:         getEnv("S3_REGION", "us-east-1"),
+		S3Bucket:         os.Getenv("S3_BUCKET"),
+		S3AccessKey:      os.Getenv("S3_ACCESS_KEY"),
+		S3SecretKey:      os.Getenv("S3_SECRET_KEY"),
+		S3PathStyle:      getEnv("S3_PATH_STYLE", "true") == "true" || getEnv("S3_PATH_STYLE", "true") == "1",
+		S3BackupInterval: backupInterval,
+		S3BackupKeep:     getEnvInt64("S3_BACKUP_KEEP", 7),
 	}
 
 	if err := cfg.Validate(cliMode); err != nil {
@@ -101,6 +131,24 @@ func (c *Config) Validate(cliMode bool) error {
 
 	if !chatNameRegex.MatchString(c.ChatName) {
 		return fmt.Errorf("CHAT_NAME must be 3-32 alphanumeric characters or dashes")
+	}
+
+	// Object storage: bucket and endpoint must be set together. When enabled,
+	// credentials are required, and so is AUTH_SECRET — backups and mirrored
+	// files would otherwise be stored unencrypted in the bucket.
+	if (c.S3Bucket == "") != (c.S3Endpoint == "") {
+		return fmt.Errorf("S3_BUCKET and S3_ENDPOINT must be set together")
+	}
+	if c.S3Enabled() {
+		if c.S3AccessKey == "" || c.S3SecretKey == "" {
+			return fmt.Errorf("S3_ACCESS_KEY and S3_SECRET_KEY are required when object storage is enabled")
+		}
+		if c.AuthSecret == "" && !cliMode {
+			return fmt.Errorf("AUTH_SECRET is required when object storage is enabled (backups must be encrypted)")
+		}
+		if c.S3BackupInterval <= 0 {
+			return fmt.Errorf("S3_BACKUP_INTERVAL must be greater than 0")
+		}
 	}
 
 	return nil
