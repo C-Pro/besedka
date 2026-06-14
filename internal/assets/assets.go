@@ -8,8 +8,19 @@ import (
 	"path"
 	"runtime/debug"
 	"strings"
+	// text/template (not html/template) is intentional: these static files include
+	// .js/.css/.webmanifest where HTML escaping would corrupt output, and the only
+	// substituted value, ChatName, is validated to ^[a-zA-Z0-9-]{3,32}$ in config.go,
+	// so no HTML metacharacters can reach the output.
+	"text/template" // nosemgrep: go.lang.security.audit.xss.import-text-template.import-text-template
 	"time"
 )
+
+// vars holds the values substituted into static template files.
+type vars struct {
+	ChatName     string
+	CacheVersion string
+}
 
 var compileTime = func() time.Time {
 	if info, ok := debug.ReadBuildInfo(); ok {
@@ -25,8 +36,11 @@ var compileTime = func() time.Time {
 	return time.Now()
 }()
 
-// Load returns an fs.FS that substitutes {{CHATNAME}} and {{CACHE_VERSION}} in
-// .html, .js, .css, and .webmanifest files, delegating all other file reads to originalFS.
+// Load returns an fs.FS that renders .html, .js, .css, and .webmanifest files as
+// text/template templates, substituting {{.ChatName}} and {{.CacheVersion}}, and
+// delegating all other file reads to originalFS. admin.html is excluded: it is a full
+// Go template owned by the admin server (see internal/http/adminServer.go) and is served
+// raw here.
 func Load(chatName string, originalFS fs.FS) (fs.FS, error) {
 	cacheVersion := compileTime.UTC().Format("20060102150405")
 	return &overlayFS{original: originalFS, chatName: chatName, cacheVersion: cacheVersion}, nil
@@ -59,19 +73,33 @@ func (o *overlayFS) Open(name string) (fs.File, error) {
 		f:      f,
 	}
 
-	// Only substitute .html, .js, .css and .webmanifest files
-	if !stats.IsDir() && (strings.HasSuffix(name, ".html") ||
-		strings.HasSuffix(name, ".js") ||
-		strings.HasSuffix(name, ".css") ||
-		strings.HasSuffix(name, ".webmanifest")) {
+	// Render .html, .js, .css and .webmanifest files as templates. admin.html is
+	// excluded: it is a full Go template owned by the admin server and is served raw.
+	if !stats.IsDir() && path.Base(name) != "admin.html" &&
+		(strings.HasSuffix(name, ".html") ||
+			strings.HasSuffix(name, ".js") ||
+			strings.HasSuffix(name, ".css") ||
+			strings.HasSuffix(name, ".webmanifest")) {
 
 		content, err := io.ReadAll(f)
 		if err != nil {
 			_ = f.Close()
 			return nil, err
 		}
-		content = bytes.ReplaceAll(content, []byte("{{CHATNAME}}"), []byte(o.chatName))
-		content = bytes.ReplaceAll(content, []byte("{{CACHE_VERSION}}"), []byte(o.cacheVersion))
+
+		tmpl, err := template.New(name).Parse(string(content))
+		if err != nil {
+			_ = f.Close()
+			return nil, err
+		}
+
+		var buf bytes.Buffer
+		if err := tmpl.Execute(&buf, vars{ChatName: o.chatName, CacheVersion: o.cacheVersion}); err != nil {
+			_ = f.Close()
+			return nil, err
+		}
+
+		content = buf.Bytes()
 		mf.Reader = bytes.NewReader(content)
 		mf.size = int64(len(content))
 	}

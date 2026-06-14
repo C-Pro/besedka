@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - {{CHATNAME}}</title>
+    <title>Login - {{.ChatName}}</title>
     <meta name="description" content="Log in to your Besedka chat account.">
 
     <link rel="stylesheet" href="css/style.css">
@@ -16,7 +16,7 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="{{CHATNAME}}">
+    <meta name="apple-mobile-web-app-title" content="{{.ChatName}}">
 </head>
 
 <body>
@@ -25,7 +25,7 @@
             <div class="login-card">
                 <div class="login-header">
                     <img src="/besedka.png" alt="Logo" class="login-logo" width="80" height="80">
-                    <h1>Login - {{CHATNAME}}</h1>
+                    <h1>Login - {{.ChatName}}</h1>
                 </div>
                 <div id="error-message" class="error-message" style="display: none;"></div>
 
