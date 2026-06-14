@@ -27,6 +27,7 @@ type AdminServer struct {
 	tmpl         *template.Template
 	adminHandler *api.AdminHandler
 	baseURL      string
+	chatName     string
 }
 
 func NewAdminServer(cfg *config.Config, authService *auth.AuthService, hub *ws.Hub, assets fs.FS) *AdminServer {
@@ -63,6 +64,7 @@ func NewAdminServer(cfg *config.Config, authService *auth.AuthService, hub *ws.H
 		tmpl:         tmpl,
 		adminHandler: adminHandler,
 		baseURL:      cfg.BaseURL,
+		chatName:     cfg.ChatName,
 	}
 
 	// UI Handlers
@@ -97,7 +99,8 @@ func (s *AdminServer) handleListUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := map[string]any{
-		"Users": users,
+		"ChatName": s.chatName,
+		"Users":    users,
 	}
 	if err := s.tmpl.Execute(w, data); err != nil {
 		slog.Error("failed to execute template", "error", err)
@@ -131,7 +134,7 @@ func (s *AdminServer) handleAddUser(w http.ResponseWriter, r *http.Request) {
 
 	token, err := s.authService.AddUser(username, username)
 
-	data := map[string]any{}
+	data := map[string]any{"ChatName": s.chatName}
 	if err != nil {
 		data["Error"] = err.Error()
 	} else {
@@ -160,7 +163,7 @@ func (s *AdminServer) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 
 func (s *AdminServer) handleResetUser(w http.ResponseWriter, r *http.Request) {
 	userID := r.FormValue("id")
-	data := map[string]any{}
+	data := map[string]any{"ChatName": s.chatName}
 	if userID == "" {
 		data["Error"] = "User ID is required"
 	} else {

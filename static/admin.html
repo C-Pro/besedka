@@ -4,8 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{CHATNAME}} Admin</title>
-    <meta name="description" content="Administration panel for {{CHATNAME}}.">
+    <title>{{.ChatName}} Admin</title>
+    <meta name="description" content="Administration panel for {{.ChatName}}.">
     <style>
         body {
             font-family: sans-serif;
@@ -79,7 +79,7 @@
 </head>
 
 <body>
-    <h1>{{CHATNAME}} Admin</h1>
+    <h1>{{.ChatName}} Admin</h1>
 
     {{if .NewLink}}
     <div class="alert">

@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Complete Registration - {{CHATNAME}}</title>
+    <title>Complete Registration - {{.ChatName}}</title>
     <meta name="description" content="Complete your registration to the Besedka chat application.">
 
     <link rel="stylesheet" href="css/style.css">
@@ -16,7 +16,7 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="{{CHATNAME}}">
+    <meta name="apple-mobile-web-app-title" content="{{.ChatName}}">
     <style>
         #qr-code-container {
             display: flex;
@@ -144,7 +144,7 @@
             document.getElementById('displayName').value = data.displayName || data.username;
 
             // Generate QR Code
-            const otpUrl = `otpauth://totp/{{CHATNAME}}:${data.username}?secret=${data.totpSecret}&issuer={{CHATNAME}}`;
+            const otpUrl = `otpauth://totp/{{.ChatName}}:${data.username}?secret=${data.totpSecret}&issuer={{.ChatName}}`;
             const qrContainer = document.getElementById('qr-code-container');
             qrContainer.innerHTML = '';
             new QRCode(qrContainer, {
