@@ -60,16 +60,13 @@ func RecoverDBIfMissing(ctx context.Context, dbPath, secret, prefix string, obj 
 		return false, fmt.Errorf("invalid backup artifact %s: %w", newest, err)
 	}
 
-	dbBytes := payload
-	if hdr.encrypted {
-		crypter, err := storage.NewCrypter([]byte(secret), hdr.salt)
-		if err != nil {
-			return false, fmt.Errorf("failed to derive backup decryption key: %w", err)
-		}
-		dbBytes, err = crypter.Decrypt(payload)
-		if err != nil {
-			return false, fmt.Errorf("failed to decrypt backup %s (wrong AUTH_SECRET?): %w", newest, err)
-		}
+	crypter, err := storage.NewCrypter([]byte(secret), hdr.salt)
+	if err != nil {
+		return false, fmt.Errorf("failed to derive backup decryption key: %w", err)
+	}
+	dbBytes, err := crypter.Decrypt(payload)
+	if err != nil {
+		return false, fmt.Errorf("failed to decrypt backup %s (wrong AUTH_SECRET?): %w", newest, err)
 	}
 
 	if err := writeFileAtomic(dbPath, dbBytes, 0600); err != nil {

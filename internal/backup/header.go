@@ -8,37 +8,31 @@ import (
 
 // Backup artifacts are self-describing so they can be decrypted at recovery
 // time — before the database (which normally holds the encryption salt) exists.
+// Backups are always encrypted, so the salt is always present.
 //
 // Layout:
 //
 //	magic   [4]byte = "BSKB"
 //	version 1 byte  = 1
-//	encFlag 1 byte  = 0 (plaintext) | 1 (encrypted)
-//	saltLen 1 byte  = length of salt (0 when plaintext)
+//	saltLen 1 byte  = length of salt
 //	salt    saltLen bytes
-//	payload remaining bytes (bbolt snapshot, possibly encrypted)
+//	payload remaining bytes (encrypted bbolt snapshot)
 var magic = [4]byte{'B', 'S', 'K', 'B'}
 
 const headerVersion = 1
 
 type header struct {
-	encrypted bool
-	salt      []byte
+	salt []byte
 }
 
 // writeHeader writes the artifact header followed by the payload to w.
 func writeHeader(w io.Writer, h header, payload []byte) error {
-	var buf bytes.Buffer
-	buf.Write(magic[:])
-	buf.WriteByte(headerVersion)
-	if h.encrypted {
-		buf.WriteByte(1)
-	} else {
-		buf.WriteByte(0)
-	}
 	if len(h.salt) > 255 {
 		return fmt.Errorf("backup: salt too long: %d", len(h.salt))
 	}
+	var buf bytes.Buffer
+	buf.Write(magic[:])
+	buf.WriteByte(headerVersion)
 	buf.WriteByte(byte(len(h.salt)))
 	buf.Write(h.salt)
 	if _, err := w.Write(buf.Bytes()); err != nil {
@@ -51,7 +45,7 @@ func writeHeader(w io.Writer, h header, payload []byte) error {
 // readHeader parses the header from data and returns it along with the payload
 // (the remaining bytes).
 func readHeader(data []byte) (header, []byte, error) {
-	const fixed = 4 + 1 + 1 + 1
+	const fixed = 4 + 1 + 1
 	if len(data) < fixed {
 		return header{}, nil, fmt.Errorf("backup: artifact too short")
 	}
@@ -61,11 +55,9 @@ func readHeader(data []byte) (header, []byte, error) {
 	if data[4] != headerVersion {
 		return header{}, nil, fmt.Errorf("backup: unsupported version %d", data[4])
 	}
-	h := header{encrypted: data[5] == 1}
-	saltLen := int(data[6])
+	saltLen := int(data[5])
 	if len(data) < fixed+saltLen {
 		return header{}, nil, fmt.Errorf("backup: truncated salt")
 	}
-	h.salt = data[fixed : fixed+saltLen]
-	return h, data[fixed+saltLen:], nil
+	return header{salt: data[fixed : fixed+saltLen]}, data[fixed+saltLen:], nil
 }

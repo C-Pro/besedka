@@ -33,10 +33,9 @@ var (
 )
 
 type BboltStorage struct {
-	db          *bbolt.DB
-	crypter     *Crypter
-	isEncrypted bool
-	fs          filestore.FileStore
+	db      *bbolt.DB
+	crypter *Crypter
+	fs      filestore.FileStore
 }
 
 func NewBboltStorage(path string, key []byte, fs filestore.FileStore) (*BboltStorage, error) {
@@ -89,53 +88,45 @@ func NewBboltStorage(path string, key []byte, fs filestore.FileStore) (*BboltSto
 		return nil, fmt.Errorf("failed to create buckets: %w", err)
 	}
 
+	if len(key) == 0 {
+		_ = db.Close()
+		return nil, fmt.Errorf("encryption key is required")
+	}
+
 	bs := &BboltStorage{db: db, fs: fs}
 
-	if len(key) > 0 {
-		b64salt, err := bs.GetConfig("salt")
+	b64salt, err := bs.GetConfig("salt")
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("failed to get salt: %w", err)
+	}
+
+	var salt []byte
+	if b64salt != "" {
+		salt, err = base64.StdEncoding.DecodeString(b64salt)
 		if err != nil {
 			_ = db.Close()
-			return nil, fmt.Errorf("failed to get salt: %w", err)
+			return nil, fmt.Errorf("failed to decode salt: %w", err)
 		}
-
-		// Empty salt is expected for old versions of the application.
-		if b64salt != "" {
-			salt, err := base64.StdEncoding.DecodeString(b64salt)
-			if err != nil {
-				_ = db.Close()
-				return nil, fmt.Errorf("failed to decode salt: %w", err)
-			}
-
-			crypter, err := NewCrypter(key, salt)
-			if err != nil {
-				_ = db.Close()
-				return nil, fmt.Errorf("failed to create crypter: %w", err)
-			}
-			bs.crypter = crypter
-			bs.isEncrypted = true
-		} else {
-			// Generate random salt and persist it
-			salt, err := genSalt()
-			if err != nil {
-				_ = db.Close()
-				return nil, fmt.Errorf("failed to generate salt: %w", err)
-			}
-			b64salt = base64.StdEncoding.EncodeToString(salt)
-
-			if err := bs.SetConfig("salt", b64salt); err != nil {
-				_ = db.Close()
-				return nil, fmt.Errorf("failed to persist new salt: %w", err)
-			}
-
-			crypter, err := NewCrypter(key, salt)
-			if err != nil {
-				_ = db.Close()
-				return nil, fmt.Errorf("failed to recreate crypter with new salt: %w", err)
-			}
-			bs.crypter = crypter
-			bs.isEncrypted = true
+	} else {
+		// First run (or a DB created before salts were persisted): generate one.
+		salt, err = genSalt()
+		if err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("failed to generate salt: %w", err)
+		}
+		if err := bs.SetConfig("salt", base64.StdEncoding.EncodeToString(salt)); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("failed to persist new salt: %w", err)
 		}
 	}
+
+	crypter, err := NewCrypter(key, salt)
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("failed to create crypter: %w", err)
+	}
+	bs.crypter = crypter
 
 	return bs, nil
 }
@@ -157,25 +148,14 @@ func (s *BboltStorage) SnapshotTo(w io.Writer) (int64, error) {
 	return n, err
 }
 
-// EncryptForBackup encrypts a backup payload with the storage's data-at-rest
-// key when encryption is enabled. It returns the (possibly encrypted) bytes,
-// the salt needed to reconstruct the key for decryption, and whether encryption
-// was applied. When encryption is disabled it returns the input unchanged with
-// ok=false and a nil salt.
-func (s *BboltStorage) EncryptForBackup(data []byte) (out []byte, salt []byte, ok bool, err error) {
-	if !s.isEncrypted {
-		return data, nil, false, nil
-	}
+// EncryptBackup encrypts a backup payload with the data-at-rest key and returns
+// the ciphertext together with the salt needed to derive the key on recovery.
+func (s *BboltStorage) EncryptBackup(data []byte) (ciphertext []byte, salt []byte, err error) {
 	enc, err := s.crypter.Encrypt(data)
 	if err != nil {
-		return nil, nil, false, err
+		return nil, nil, err
 	}
-	return enc, s.crypter.Salt(), true, nil
-}
-
-// IsEncrypted reports whether data-at-rest encryption is enabled.
-func (s *BboltStorage) IsEncrypted() bool {
-	return s.isEncrypted
+	return enc, s.crypter.Salt(), nil
 }
 
 // GetConfig returns the config value by key.
@@ -218,12 +198,9 @@ func (s *BboltStorage) UpsertCredentials(credentials auth.UserCredentials) error
 			return err
 		}
 
-		if s.isEncrypted {
-			var err error
-			data, err = s.crypter.Encrypt(data)
-			if err != nil {
-				return fmt.Errorf("failed to encrypt user record: %w", err)
-			}
+		data, err = s.crypter.Encrypt(data)
+		if err != nil {
+			return fmt.Errorf("failed to encrypt user record: %w", err)
 		}
 
 		return b.Put(dbUser.Key(), data)
@@ -241,11 +218,9 @@ func (s *BboltStorage) UpsertUserSettings(userID string, settings models.UserSet
 			return err
 		}
 
-		if s.isEncrypted {
-			data, err = s.crypter.Encrypt(data)
-			if err != nil {
-				return fmt.Errorf("failed to encrypt user settings: %w", err)
-			}
+		data, err = s.crypter.Encrypt(data)
+		if err != nil {
+			return fmt.Errorf("failed to encrypt user settings: %w", err)
 		}
 
 		return b.Put(dbSettings.Key(), data)
@@ -267,12 +242,9 @@ func (s *BboltStorage) GetUserSettings(userID string) (models.UserSettings, bool
 			return nil
 		}
 
-		if s.isEncrypted {
-			var err error
-			data, err = s.crypter.Decrypt(data)
-			if err != nil {
-				return fmt.Errorf("failed to decrypt user settings: %w", err)
-			}
+		data, err := s.crypter.Decrypt(data)
+		if err != nil {
+			return fmt.Errorf("failed to decrypt user settings: %w", err)
 		}
 
 		var dbSettings DBUserSettings
@@ -308,12 +280,9 @@ func (s *BboltStorage) ListAllCredentials() ([]auth.UserCredentials, error) {
 		return b.ForEach(func(k, v []byte) error {
 			var dbUser DBUser
 
-			if s.isEncrypted {
-				var err error
-				v, err = s.crypter.Decrypt(v)
-				if err != nil {
-					return fmt.Errorf("failed to decrypt user record: %w", err)
-				}
+			v, err := s.crypter.Decrypt(v)
+			if err != nil {
+				return fmt.Errorf("failed to decrypt user record: %w", err)
 			}
 
 			if err := dbUser.UnmarshalBinary(v); err != nil {
@@ -441,12 +410,9 @@ func (s *BboltStorage) UpsertMessage(message models.Message) error {
 			return fmt.Errorf("failed to marshal message: %w", err)
 		}
 
-		if s.isEncrypted {
-			var err error
-			data, err = s.crypter.Encrypt(data)
-			if err != nil {
-				return fmt.Errorf("failed to encrypt message record: %w", err)
-			}
+		data, err = s.crypter.Encrypt(data)
+		if err != nil {
+			return fmt.Errorf("failed to encrypt message record: %w", err)
 		}
 
 		if err := chatBucket.Put(dbMessage.Key(), data); err != nil {
@@ -502,12 +468,9 @@ func (s *BboltStorage) ListMessages(chatID string, from, to int64) ([]models.Mes
 		binary.BigEndian.PutUint64(maxKey, uint64(to))
 
 		for k, v := c.Seek(minKey); k != nil && bytes.Compare(k, maxKey) <= 0; k, v = c.Next() {
-			if s.isEncrypted {
-				var err error
-				v, err = s.crypter.Decrypt(v)
-				if err != nil {
-					return fmt.Errorf("failed to decrypt message record: %w", err)
-				}
+			v, err := s.crypter.Decrypt(v)
+			if err != nil {
+				return fmt.Errorf("failed to decrypt message record: %w", err)
 			}
 
 			var dbMsg DBMessage
@@ -550,12 +513,9 @@ func (s *BboltStorage) UpsertToken(userID string, tokenHash string) error {
 		if err != nil {
 			return err
 		}
-		if s.isEncrypted {
-			var err error
-			data, err = s.crypter.Encrypt(data)
-			if err != nil {
-				return fmt.Errorf("failed to encrypt token record: %w", err)
-			}
+		data, err = s.crypter.Encrypt(data)
+		if err != nil {
+			return fmt.Errorf("failed to encrypt token record: %w", err)
 		}
 		// Key is now tokenHash
 		return b.Put(dbToken.Key(), data)
@@ -575,12 +535,9 @@ func (s *BboltStorage) ListTokens() (map[string]string, error) {
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketTokensV2)
 		return b.ForEach(func(k, v []byte) error {
-			if s.isEncrypted {
-				var err error
-				v, err = s.crypter.Decrypt(v)
-				if err != nil {
-					return fmt.Errorf("failed to decrypt token record: %w", err)
-				}
+			v, err := s.crypter.Decrypt(v)
+			if err != nil {
+				return fmt.Errorf("failed to decrypt token record: %w", err)
 			}
 
 			var dbToken DBToken
@@ -606,12 +563,9 @@ func (s *BboltStorage) UpsertRegistrationToken(userID string, token string) erro
 		if err != nil {
 			return err
 		}
-		if s.isEncrypted {
-			var err error
-			data, err = s.crypter.Encrypt(data)
-			if err != nil {
-				return fmt.Errorf("failed to encrypt token record: %w", err)
-			}
+		data, err = s.crypter.Encrypt(data)
+		if err != nil {
+			return fmt.Errorf("failed to encrypt token record: %w", err)
 		}
 
 		// Use UserID as key
@@ -631,12 +585,9 @@ func (s *BboltStorage) ListRegistrationTokens() (map[string]string, error) {
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketRegistrationTokens)
 		return b.ForEach(func(k, v []byte) error {
-			if s.isEncrypted {
-				var err error
-				v, err = s.crypter.Decrypt(v)
-				if err != nil {
-					return fmt.Errorf("failed to decrypt token record: %w", err)
-				}
+			v, err := s.crypter.Decrypt(v)
+			if err != nil {
+				return fmt.Errorf("failed to decrypt token record: %w", err)
 			}
 
 			var dbToken DBToken
@@ -658,12 +609,9 @@ func (s *BboltStorage) GetVAPIDKeys() (privateKey, publicKey string, err error) 
 			return models.ErrNotFound
 		}
 
-		if s.isEncrypted {
-			var err error
-			data, err = s.crypter.Decrypt(data)
-			if err != nil {
-				return fmt.Errorf("failed to decrypt vapid keys: %w", err)
-			}
+		data, err := s.crypter.Decrypt(data)
+		if err != nil {
+			return fmt.Errorf("failed to decrypt vapid keys: %w", err)
 		}
 
 		var keys DBVAPIDKeys
@@ -690,12 +638,9 @@ func (s *BboltStorage) SaveVAPIDKeys(privateKey, publicKey string) error {
 			return err
 		}
 
-		if s.isEncrypted {
-			var err error
-			data, err = s.crypter.Encrypt(data)
-			if err != nil {
-				return fmt.Errorf("failed to encrypt vapid keys: %w", err)
-			}
+		data, err = s.crypter.Encrypt(data)
+		if err != nil {
+			return fmt.Errorf("failed to encrypt vapid keys: %w", err)
 		}
 
 		return b.Put(keys.Key(), data)
@@ -721,12 +666,9 @@ func (s *BboltStorage) UpsertPushSubscription(userID string, endpoint string, su
 			return err
 		}
 
-		if s.isEncrypted {
-			var err error
-			data, err = s.crypter.Encrypt(data)
-			if err != nil {
-				return fmt.Errorf("failed to encrypt push subscription: %w", err)
-			}
+		data, err = s.crypter.Encrypt(data)
+		if err != nil {
+			return fmt.Errorf("failed to encrypt push subscription: %w", err)
 		}
 
 		return userBucket.Put(dbSub.Key(), data)
@@ -743,14 +685,11 @@ func (s *BboltStorage) GetPushSubscriptions(userID string) ([][]byte, error) {
 		}
 
 		return userBucket.ForEach(func(k, v []byte) error {
-			if s.isEncrypted {
-				var err error
-				v, err = s.crypter.Decrypt(v)
-				if err != nil {
-					// Log and skip if decryption fails for a single record instead of failing everything
-					slog.Warn("failed to decrypt push subscription record, skipping", "userID", userID, "error", err)
-					return nil
-				}
+			v, err := s.crypter.Decrypt(v)
+			if err != nil {
+				// Log and skip if decryption fails for a single record instead of failing everything
+				slog.Warn("failed to decrypt push subscription record, skipping", "userID", userID, "error", err)
+				return nil
 			}
 
 			var dbSub DBPushSubscription
@@ -853,11 +792,9 @@ func (s *BboltStorage) UpsertPasskey(cred auth.Passkey) error {
 			return err
 		}
 
-		if s.isEncrypted {
-			data, err = s.crypter.Encrypt(data)
-			if err != nil {
-				return err
-			}
+		data, err = s.crypter.Encrypt(data)
+		if err != nil {
+			return err
 		}
 
 		return userBucket.Put(dbCred.Key(), data)
@@ -879,14 +816,10 @@ func (s *BboltStorage) ListPasskeys(userID string) ([]auth.Passkey, error) {
 		}
 
 		return userBucket.ForEach(func(k, v []byte) error {
-			data := v
-			if s.isEncrypted {
-				var err error
-				data, err = s.crypter.Decrypt(v)
-				if err != nil {
-					slog.Error("Failed to decrypt passkey credential", "error", err, "userId", userID)
-					return nil // skip
-				}
+			data, err := s.crypter.Decrypt(v)
+			if err != nil {
+				slog.Error("Failed to decrypt passkey credential", "error", err, "userId", userID)
+				return nil // skip
 			}
 
 			var dbCred DBPasskeyCredential

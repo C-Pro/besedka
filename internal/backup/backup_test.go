@@ -154,7 +154,7 @@ func TestBackupAndRecover(t *testing.T) {
 
 	// Reopen and verify the data survived the round-trip.
 	st2, _ := newStorage(t, dir, secret)
-	defer st2.Close()
+	defer func() { _ = st2.Close() }()
 	got, err := st2.GetConfig("greeting")
 	if err != nil {
 		t.Fatal(err)
@@ -178,7 +178,7 @@ func TestBackupArtifactIsEncrypted(t *testing.T) {
 	fake := newFakeS3("b")
 	client := newClient(t, fake)
 	st, _ := newStorage(t, dir, "secret")
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	sched := NewScheduler(st, client, "backups/", time.Hour, 7)
 	if err := sched.BackupOnce(context.Background()); err != nil {
@@ -197,8 +197,8 @@ func TestBackupArtifactIsEncrypted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !hdr.encrypted {
-		t.Fatal("expected encrypted backup when storage is encrypted")
+	if len(hdr.salt) == 0 {
+		t.Fatal("expected backup header to carry a salt")
 	}
 	// bbolt files begin with a meta page; encrypted payload should not.
 	if bytes.HasPrefix(payload, []byte{0, 0, 0, 0}) {
@@ -211,7 +211,7 @@ func TestRetentionPrunesOldest(t *testing.T) {
 	fake := newFakeS3("b")
 	client := newClient(t, fake)
 	st, _ := newStorage(t, dir, "secret")
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	sched := NewScheduler(st, client, "backups/", time.Hour, 2)
 

@@ -257,11 +257,9 @@ func TestStorage(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			if store.isEncrypted {
-				data, err = store.crypter.Encrypt(data)
-				if err != nil {
-					return err
-				}
+			data, err = store.crypter.Encrypt(data)
+			if err != nil {
+				return err
 			}
 			if err := b.Put(oldCreatedUser.Key(), data); err != nil {
 				return err
@@ -281,11 +279,9 @@ func TestStorage(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			if store.isEncrypted {
-				data, err = store.crypter.Encrypt(data)
-				if err != nil {
-					return err
-				}
+			data, err = store.crypter.Encrypt(data)
+			if err != nil {
+				return err
 			}
 			return b.Put(oldActiveUser.Key(), data)
 		})

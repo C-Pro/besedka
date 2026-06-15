@@ -18,10 +18,9 @@ import (
 type Snapshotter interface {
 	// SnapshotTo writes a consistent database snapshot to w.
 	SnapshotTo(w io.Writer) (int64, error)
-	// EncryptForBackup encrypts a payload when at-rest encryption is enabled,
-	// returning the (possibly encrypted) bytes, the salt to reconstruct the key,
-	// and whether encryption was applied.
-	EncryptForBackup(data []byte) (out []byte, salt []byte, ok bool, err error)
+	// EncryptBackup encrypts a payload with the data-at-rest key, returning the
+	// ciphertext and the salt needed to derive the key on recovery.
+	EncryptBackup(data []byte) (ciphertext []byte, salt []byte, err error)
 }
 
 // Scheduler periodically uploads database snapshots to object storage.
@@ -67,21 +66,21 @@ func (s *Scheduler) Run(ctx context.Context) error {
 	}
 }
 
-// BackupOnce takes a snapshot, encrypts it if enabled, uploads it under a
-// timestamped key, and prunes old backups beyond the retention count.
+// BackupOnce takes a snapshot, encrypts it, uploads it under a timestamped key,
+// and prunes old backups beyond the retention count.
 func (s *Scheduler) BackupOnce(ctx context.Context) error {
 	var snap bytes.Buffer
 	if _, err := s.store.SnapshotTo(&snap); err != nil {
 		return fmt.Errorf("snapshot failed: %w", err)
 	}
 
-	payload, salt, encrypted, err := s.store.EncryptForBackup(snap.Bytes())
+	payload, salt, err := s.store.EncryptBackup(snap.Bytes())
 	if err != nil {
 		return fmt.Errorf("backup encryption failed: %w", err)
 	}
 
 	var artifact bytes.Buffer
-	if err := writeHeader(&artifact, header{encrypted: encrypted, salt: salt}, payload); err != nil {
+	if err := writeHeader(&artifact, header{salt: salt}, payload); err != nil {
 		return fmt.Errorf("failed to assemble backup artifact: %w", err)
 	}
 
@@ -90,7 +89,7 @@ func (s *Scheduler) BackupOnce(ctx context.Context) error {
 	if err := s.obj.Put(ctx, key, bytes.NewReader(data), int64(len(data))); err != nil {
 		return fmt.Errorf("backup upload failed: %w", err)
 	}
-	slog.Info("database backup uploaded", "key", key, "bytes", len(data), "encrypted", encrypted)
+	slog.Info("database backup uploaded", "key", key, "bytes", len(data))
 
 	if err := s.prune(ctx); err != nil {
 		// Pruning failure is non-fatal; the backup itself succeeded.

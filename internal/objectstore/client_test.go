@@ -84,7 +84,7 @@ func TestPutGetRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 	got, _ := io.ReadAll(rc)
 	if !bytes.Equal(got, payload) {
 		t.Errorf("got %q, want %q", got, payload)
@@ -121,7 +121,7 @@ func TestListPagination(t *testing.T) {
 			if q.Get("continuation-token") != "" {
 				t.Errorf("first page should have no token")
 			}
-			fmt.Fprint(w, `<ListBucketResult><IsTruncated>true</IsTruncated>`+
+			_, _ = fmt.Fprint(w, `<ListBucketResult><IsTruncated>true</IsTruncated>`+
 				`<NextContinuationToken>TOKEN2</NextContinuationToken>`+
 				`<Contents><Key>backups/a.db</Key><Size>10</Size>`+
 				`<LastModified>2026-01-01T00:00:00.000Z</LastModified><ETag>"e1"</ETag></Contents>`+
@@ -130,7 +130,7 @@ func TestListPagination(t *testing.T) {
 			if q.Get("continuation-token") != "TOKEN2" {
 				t.Errorf("second page token = %q", q.Get("continuation-token"))
 			}
-			fmt.Fprint(w, `<ListBucketResult><IsTruncated>false</IsTruncated>`+
+			_, _ = fmt.Fprint(w, `<ListBucketResult><IsTruncated>false</IsTruncated>`+
 				`<Contents><Key>backups/b.db</Key><Size>20</Size>`+
 				`<LastModified>2026-01-02T00:00:00.000Z</LastModified><ETag>"e2"</ETag></Contents>`+
 				`</ListBucketResult>`)
