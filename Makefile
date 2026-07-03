@@ -1,4 +1,4 @@
-.PHONY: all check test lint lint-go lint-js test-go test-js e2e docker-build
+.PHONY: all check test lint lint-go lint-js test-go test-js e2e test-objectstore-integration docker-build
 
 all: check
 
@@ -28,6 +28,11 @@ test-go:
 
 e2e:
 	go test -v -tags e2e ./e2e/...
+
+# Object storage integration test against a real S3-compatible server (MinIO).
+# Requires S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY, S3_SECRET_KEY in the env.
+test-objectstore-integration:
+	go test -v -tags integration ./internal/objectstore/...
 
 semgrep:
 	docker run --rm -v $(PWD):/src returntocorp/semgrep:1.106.0 semgrep scan --config=p/default
