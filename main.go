@@ -32,7 +32,7 @@ import (
 )
 
 func run(ctx context.Context, addUser string) error {
-	cfg, err := config.Load(addUser != "")
+	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}

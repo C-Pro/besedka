@@ -47,7 +47,7 @@ func (c *Config) S3Enabled() bool {
 	return c.S3Bucket != "" && c.S3Endpoint != ""
 }
 
-func Load(cliMode bool) (*Config, error) {
+func Load() (*Config, error) {
 	tokenExpiry, err := time.ParseDuration(getEnv("TOKEN_EXPIRY", "24h"))
 	if err != nil {
 		return nil, err
@@ -101,15 +101,17 @@ func Load(cliMode bool) (*Config, error) {
 		S3BackupKeep:     getEnvInt64("S3_BACKUP_KEEP", 7),
 	}
 
-	if err := cfg.Validate(cliMode); err != nil {
+	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 
 	return cfg, nil
 }
 
-func (c *Config) Validate(cliMode bool) error {
-	if c.AuthSecret == "" && !cliMode {
+func (c *Config) Validate() error {
+	// The database is always encrypted, so the secret is required even for
+	// CLI invocations like --add-user.
+	if c.AuthSecret == "" {
 		return fmt.Errorf("AUTH_SECRET is required")
 	}
 
@@ -134,17 +136,14 @@ func (c *Config) Validate(cliMode bool) error {
 	}
 
 	// Object storage: bucket and endpoint must be set together. When enabled,
-	// credentials are required, and so is AUTH_SECRET — backups and mirrored
-	// files would otherwise be stored unencrypted in the bucket.
+	// credentials are required. Backups and mirrored files are encrypted with
+	// the (always-required) AUTH_SECRET.
 	if (c.S3Bucket == "") != (c.S3Endpoint == "") {
 		return fmt.Errorf("S3_BUCKET and S3_ENDPOINT must be set together")
 	}
 	if c.S3Enabled() {
 		if c.S3AccessKey == "" || c.S3SecretKey == "" {
 			return fmt.Errorf("S3_ACCESS_KEY and S3_SECRET_KEY are required when object storage is enabled")
-		}
-		if c.AuthSecret == "" && !cliMode {
-			return fmt.Errorf("AUTH_SECRET is required when object storage is enabled (backups must be encrypted)")
 		}
 		if c.S3BackupInterval <= 0 {
 			return fmt.Errorf("S3_BACKUP_INTERVAL must be greater than 0")

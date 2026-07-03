@@ -18,6 +18,9 @@ const (
 	mirrorQueueSize = 256
 	// mirrorGetTimeout bounds an on-demand download triggered by a local miss.
 	mirrorGetTimeout = 60 * time.Second
+	// backfillInterval is how often the backfill re-scans local files, which
+	// also retries uploads dropped earlier because the queue was full.
+	backfillInterval = time.Hour
 )
 
 // MirrorFileStore decorates a local FileStore with an S3-compatible object
@@ -104,9 +107,9 @@ func (m *MirrorFileStore) Get(hash string) (io.ReadCloser, error) {
 	return m.local.Get(hash)
 }
 
-// Start launches the upload worker pool and a one-time backfill of existing
-// local files, then blocks until ctx is cancelled and the workers exit. It is
-// intended to run inside the application's errgroup.
+// Start launches the upload worker pool and the periodic backfill of local
+// files missing from object storage, then blocks until ctx is cancelled and
+// the workers exit. It is intended to run inside the application's errgroup.
 func (m *MirrorFileStore) Start(ctx context.Context) {
 	var wg sync.WaitGroup
 	for i := 0; i < mirrorWorkers; i++ {
@@ -116,8 +119,24 @@ func (m *MirrorFileStore) Start(ctx context.Context) {
 			m.worker(ctx)
 		}()
 	}
-	go m.backfill(ctx)
+	go m.backfillLoop(ctx)
 	wg.Wait()
+}
+
+// backfillLoop backfills once at startup and then every backfillInterval, so
+// uploads dropped from a full queue are retried without waiting for a restart.
+func (m *MirrorFileStore) backfillLoop(ctx context.Context) {
+	m.backfill(ctx)
+	ticker := time.NewTicker(backfillInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			m.backfill(ctx)
+		}
+	}
 }
 
 func (m *MirrorFileStore) worker(ctx context.Context) {
@@ -133,7 +152,7 @@ func (m *MirrorFileStore) worker(ctx context.Context) {
 
 // enqueue schedules a non-blocking upload from the request hot path. It dedups
 // in-flight hashes and drops (with a warning) if the queue is full — the local
-// copy still exists and startup backfill will re-upload it later.
+// copy still exists and the next periodic backfill will re-upload it.
 func (m *MirrorFileStore) enqueue(hash string) {
 	if !m.markInflight(hash) {
 		return
@@ -154,18 +173,37 @@ func (m *MirrorFileStore) upload(ctx context.Context, hash string) {
 		slog.Error("mirror: failed to read local blob for upload", "hash", hash, "error", err)
 		return
 	}
-	data, err := io.ReadAll(rc)
-	_ = rc.Close()
+	defer func() { _ = rc.Close() }()
+
+	body, size, err := uploadBody(rc)
 	if err != nil {
 		slog.Error("mirror: failed to read local blob for upload", "hash", hash, "error", err)
 		return
 	}
 
-	if err := m.obj.Put(ctx, m.prefix+hash, bytes.NewReader(data), int64(len(data))); err != nil {
+	if err := m.obj.Put(ctx, m.prefix+hash, body, size); err != nil {
 		if ctx.Err() == nil {
 			slog.Error("mirror: failed to upload blob to object storage", "hash", hash, "error", err)
 		}
 	}
+}
+
+// uploadBody returns r and its size directly when r is seekable (a local
+// file), letting Put stream it without buffering the blob in memory; otherwise
+// it falls back to reading r fully.
+func uploadBody(r io.Reader) (io.Reader, int64, error) {
+	if rs, ok := r.(io.ReadSeeker); ok {
+		size, err := rs.Seek(0, io.SeekEnd)
+		if err != nil {
+			return nil, 0, err
+		}
+		return rs, size, nil
+	}
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bytes.NewReader(data), int64(len(data)), nil
 }
 
 // backfill enqueues every local blob not already present in object storage.

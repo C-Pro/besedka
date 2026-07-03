@@ -49,8 +49,15 @@ func NewScheduler(store Snapshotter, obj *objectstore.Client, prefix string, int
 	}
 }
 
-// Run performs a backup every interval until ctx is cancelled.
+// Run performs a backup every interval until ctx is cancelled. It also backs
+// up immediately on start unless the newest backup in the bucket is younger
+// than the interval, so servers that restart more often than the interval
+// still produce backups.
 func (s *Scheduler) Run(ctx context.Context) error {
+	if err := s.backupIfStale(ctx); err != nil {
+		slog.Error("initial database backup failed", "error", err)
+	}
+
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
 
@@ -66,17 +73,32 @@ func (s *Scheduler) Run(ctx context.Context) error {
 	}
 }
 
+// backupIfStale backs up unless the newest backup in the bucket is younger
+// than the interval. If listing fails it backs up anyway: a redundant backup
+// is cheaper than silently having none.
+func (s *Scheduler) backupIfStale(ctx context.Context) error {
+	objs, err := s.obj.List(ctx, s.prefix)
+	if err != nil {
+		slog.Warn("could not list existing backups, backing up anyway", "error", err)
+	}
+	var newest time.Time
+	for _, o := range objs {
+		if o.LastModified.After(newest) {
+			newest = o.LastModified
+		}
+	}
+	if s.now().Sub(newest) < s.interval {
+		return nil
+	}
+	return s.BackupOnce(ctx)
+}
+
 // BackupOnce takes a snapshot, encrypts it, uploads it under a timestamped key,
 // and prunes old backups beyond the retention count.
 func (s *Scheduler) BackupOnce(ctx context.Context) error {
-	var snap bytes.Buffer
-	if _, err := s.store.SnapshotTo(&snap); err != nil {
-		return fmt.Errorf("snapshot failed: %w", err)
-	}
-
-	payload, salt, err := s.store.EncryptBackup(snap.Bytes())
+	payload, salt, err := s.encryptedSnapshot()
 	if err != nil {
-		return fmt.Errorf("backup encryption failed: %w", err)
+		return err
 	}
 
 	var artifact bytes.Buffer
@@ -96,6 +118,20 @@ func (s *Scheduler) BackupOnce(ctx context.Context) error {
 		slog.Error("backup retention prune failed", "error", err)
 	}
 	return nil
+}
+
+// encryptedSnapshot snapshots the database and encrypts it. The plaintext
+// buffer goes out of scope on return, keeping peak memory near 2x the DB size.
+func (s *Scheduler) encryptedSnapshot() (payload, salt []byte, err error) {
+	var snap bytes.Buffer
+	if _, err := s.store.SnapshotTo(&snap); err != nil {
+		return nil, nil, fmt.Errorf("snapshot failed: %w", err)
+	}
+	payload, salt, err = s.store.EncryptBackup(snap.Bytes())
+	if err != nil {
+		return nil, nil, fmt.Errorf("backup encryption failed: %w", err)
+	}
+	return payload, salt, nil
 }
 
 // prune deletes all but the newest s.keep backups under the prefix.

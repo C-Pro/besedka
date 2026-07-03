@@ -206,6 +206,43 @@ func TestBackupArtifactIsEncrypted(t *testing.T) {
 	}
 }
 
+func TestBackupIfStale(t *testing.T) {
+	dir := t.TempDir()
+	fake := newFakeS3("b")
+	client := newClient(t, fake)
+	st, _ := newStorage(t, dir, "secret")
+	defer func() { _ = st.Close() }()
+
+	// fakeS3 reports LastModified 2026-01-01T00:00:00Z for every object.
+	sched := NewScheduler(st, client, "backups/", time.Hour, 7)
+	sched.now = func() time.Time { return time.Date(2026, 1, 1, 0, 30, 0, 0, time.UTC) }
+
+	// Empty bucket: backs up immediately.
+	if err := sched.backupIfStale(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := fake.count("backups/"); got != 1 {
+		t.Fatalf("expected 1 backup, got %d", got)
+	}
+
+	// Newest backup is younger than the interval: no new backup.
+	if err := sched.backupIfStale(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := fake.count("backups/"); got != 1 {
+		t.Fatalf("expected still 1 backup, got %d", got)
+	}
+
+	// Past the interval: a new backup is taken.
+	sched.now = func() time.Time { return time.Date(2026, 1, 1, 2, 0, 0, 0, time.UTC) }
+	if err := sched.backupIfStale(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := fake.count("backups/"); got != 2 {
+		t.Fatalf("expected 2 backups, got %d", got)
+	}
+}
+
 func TestRetentionPrunesOldest(t *testing.T) {
 	dir := t.TempDir()
 	fake := newFakeS3("b")
