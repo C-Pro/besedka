@@ -510,6 +510,23 @@
     max-width: 95%;
     max-height: 95%;
     box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+    transform-origin: center center;
+    transition: transform 0.2s ease;
+    touch-action: none;
+    will-change: transform;
+}
+
+/* No transition while a pinch / drag is actively updating the transform. */
+.image-overlay.panning img {
+    transition: none;
+}
+
+.image-overlay.zoomed img {
+    cursor: grab;
+}
+
+.image-overlay.zoomed.panning img {
+    cursor: grabbing;
 }
 
 .overlay-controls {
@@ -569,17 +586,51 @@
     background: rgba(255, 255, 255, 0.2);
 }
 
+#attachments-indicator-container {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    max-height: 120px;
+    overflow-y: auto;
+}
+
 .attach-indicator {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 4px 10px;
+    padding: 4px 6px 4px 10px;
     background: var(--bg-secondary);
     border-radius: 12px;
     font-size: 0.85em;
-    margin-right: 10px;
     color: var(--text-primary);
     border: 1px solid var(--border-color);
+}
+
+.attach-indicator .attach-name {
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.attach-remove {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    padding: 2px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-radius: 50%;
+    transition: color 0.2s, background 0.2s;
+}
+
+.attach-remove:hover {
+    color: var(--text-primary);
+    background: rgba(128, 128, 128, 0.2);
 }
 
 .attach-btn {

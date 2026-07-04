@@ -235,3 +235,72 @@ func TestE2EPasteFile(t *testing.T) {
 
 	require.Equal(t, "clipboard_document.txt", download.SuggestedFilename())
 }
+
+func TestE2ERemoveAttachment(t *testing.T) {
+	t.Parallel()
+	server := startServer(t)
+	defer server.Stop()
+
+	pw, browser := setupPlaywright(t)
+	defer func() { _ = pw.Stop() }()
+	defer func() { _ = browser.Close() }()
+
+	aliceSetupLink := server.CreateUser(t, "alice")
+	aliceContext := createBrowserContext(t, browser)
+	alicePage, err := aliceContext.NewPage()
+	require.NoError(t, err)
+
+	registerUser(t, alicePage, aliceSetupLink, "Alice Smith", "password123")
+
+	err = alicePage.Locator(".app-layout").WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	})
+	require.NoError(t, err)
+
+	// Open Town Hall chat
+	err = alicePage.Locator(".chat-item:has-text(\"Town Hall\")").Click()
+	require.NoError(t, err)
+
+	// Programmatically dispatch paste event with plain text file
+	pasteJs := `() => {
+		const textarea = document.getElementById('message-input');
+		const blob = new Blob(['pasted file content bytes'], { type: 'text/plain' });
+		const file = new File([blob], 'removable_document.txt', { type: 'text/plain' });
+		const dt = new DataTransfer();
+		dt.items.add(file);
+		const ev = new ClipboardEvent('paste', {
+			clipboardData: dt,
+			bubbles: true,
+			cancelable: true
+		});
+		textarea.dispatchEvent(ev);
+	}`
+
+	_, err = alicePage.Evaluate(pasteJs)
+	require.NoError(t, err)
+
+	// Verify attachment chip appears with the filename
+	chip := alicePage.Locator(".attach-indicator:has-text('removable_document.txt')")
+	err = chip.WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	})
+	require.NoError(t, err)
+
+	// Click the remove "x" button
+	err = chip.Locator(".attach-remove").Click()
+	require.NoError(t, err)
+
+	// Chip should be gone
+	err = chip.WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateDetached,
+	})
+	require.NoError(t, err)
+
+	// Sending with no text and no attachments should not create a message
+	err = alicePage.Locator("#send-btn").Click()
+	require.NoError(t, err)
+
+	count, err := alicePage.Locator(".message-attachment-file[data-name='removable_document.txt']").Count()
+	require.NoError(t, err)
+	require.Equal(t, 0, count)
+}
