@@ -44,6 +44,43 @@ export function createChatWindow(container) {
         return svg;
     };
 
+    const createAttachChipIcon = () => {
+        const svg = createSvgElement('svg', {
+            width: '16',
+            height: '16',
+            viewBox: '0 0 24 24',
+            fill: 'none',
+            stroke: 'currentColor',
+            'stroke-width': '2',
+            'stroke-linecap': 'round',
+            'stroke-linejoin': 'round'
+        });
+        svg.appendChild(createSvgElement('path', { d: 'M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z' }));
+        svg.appendChild(createSvgElement('polyline', { points: '13 2 13 9 20 9' }));
+        return svg;
+    };
+
+    const createCloseIcon = () => {
+        const svg = createSvgElement('svg', {
+            width: '14',
+            height: '14',
+            viewBox: '0 0 24 24',
+            fill: 'none',
+            stroke: 'currentColor',
+            'stroke-width': '2',
+            'stroke-linecap': 'round',
+            'stroke-linejoin': 'round'
+        });
+        svg.appendChild(createSvgElement('line', { x1: '18', y1: '6', x2: '6', y2: '18' }));
+        svg.appendChild(createSvgElement('line', { x1: '6', y1: '6', x2: '18', y2: '18' }));
+        return svg;
+    };
+
+    const removeAttachment = (index) => {
+        filesToAttach.splice(index, 1);
+        updateUI(store.state);
+    };
+
     const handleEscape = (e) => {
         if (e.key === 'Escape' && isUploading) {
             if (uploadAbortController) {
@@ -414,11 +451,31 @@ export function createChatWindow(container) {
             elements.attachBtn.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>`;
         }
 
-        elements.attachmentsContainer.innerHTML = filesToAttach.length > 0 ? `
-            <div class="attach-indicator">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>
-                ${filesToAttach.length} attached
-            </div>` : '';
+        // Build filename → removable "x" chips (textContent keeps user-supplied names safe).
+        elements.attachmentsContainer.replaceChildren();
+        filesToAttach.forEach((att, index) => {
+            const chip = document.createElement('div');
+            chip.className = 'attach-indicator';
+
+            chip.appendChild(createAttachChipIcon());
+
+            const name = document.createElement('span');
+            name.className = 'attach-name';
+            name.title = att.name || '';
+            name.textContent = att.name || 'file';
+            chip.appendChild(name);
+
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'attach-remove';
+            removeBtn.title = 'Remove attachment';
+            removeBtn.setAttribute('aria-label', `Remove attachment ${att.name || ''}`.trim());
+            removeBtn.appendChild(createCloseIcon());
+            removeBtn.addEventListener('click', () => removeAttachment(index));
+            chip.appendChild(removeBtn);
+
+            elements.attachmentsContainer.appendChild(chip);
+        });
     };
 
     // Event Listeners
