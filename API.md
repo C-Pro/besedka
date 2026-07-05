@@ -444,3 +444,46 @@ The Admin API runs on a separate port (default 8081) and is used for management 
 }
 ```
 
+### Trigger Backup
+**Endpoint:** `POST /api/backup`
+
+**Description:** Triggers an out-of-schedule full database backup to object storage without stopping the server. Requires S3 backup to be enabled.
+
+**Response:**
+- **Success (200 OK):**
+  ```json
+  {
+    "success": true,
+    "message": "backup completed"
+  }
+  ```
+- **Disabled (400 Bad Request):** If S3 backup is not configured.
+  ```json
+  {
+    "success": false,
+    "message": "S3 backup not enabled"
+  }
+  ```
+- **Error (500 Internal Server Error):** If the backup fails (e.g. object storage is unreachable). The `message` contains the failure detail.
+
+### Shutdown Server
+**Endpoint:** `POST /api/shutdown`
+
+**Description:** Gracefully shuts the service down for migration. In order: stops the primary chat HTTP server (so no further writes reach the database), takes a final full backup (only when S3 backup is enabled), then stops the process. The request blocks until the backup completes, so a successful response guarantees the final state was captured before exit.
+
+**Response:**
+- **Success (200 OK):** The primary server has stopped and, when S3 is enabled, the final backup succeeded. The process then exits with code 0.
+  ```json
+  {
+    "success": true,
+    "message": "primary server stopped; final backup complete; shutting down"
+  }
+  ```
+- **Backup Failed (500 Internal Server Error):** The final backup failed after retries. The process still exits, but with a **non-zero code**, signalling the shutdown was not clean and the service must not be treated as migrated.
+  ```json
+  {
+    "success": false,
+    "message": "shutdown aborted: shutdown backup failed after 3 attempts: <detail>"
+  }
+  ```
+
