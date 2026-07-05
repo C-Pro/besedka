@@ -16,6 +16,7 @@ import (
 	"besedka/internal/api"
 	"besedka/internal/auth"
 	"besedka/internal/config"
+	"besedka/internal/models"
 	"besedka/internal/ws"
 )
 
@@ -28,6 +29,29 @@ type AdminServer struct {
 	adminHandler *api.AdminHandler
 	baseURL      string
 	chatName     string
+
+	// Server-control ops, injected via SetOps once the API server and backup
+	// scheduler exist. Any of them may be nil when the corresponding capability
+	// is unavailable (e.g. onBackup is nil when S3 backup is disabled).
+	onBackup    func(ctx context.Context) error
+	onShutdown  func(ctx context.Context) (backedUp bool, err error)
+	triggerExit func(err error)
+}
+
+// SetOps injects the server-control callbacks used by the /api/backup and
+// /api/shutdown endpoints. onBackup runs a single full backup without stopping
+// the server (nil when S3 backup is disabled). onShutdown stops the primary
+// server and takes a final backup, returning an error only when that backup
+// ultimately fails. triggerExit stops the process; a non-nil error makes the
+// process exit non-zero.
+func (s *AdminServer) SetOps(
+	onBackup func(ctx context.Context) error,
+	onShutdown func(ctx context.Context) (bool, error),
+	triggerExit func(err error),
+) {
+	s.onBackup = onBackup
+	s.onShutdown = onShutdown
+	s.triggerExit = triggerExit
 }
 
 func NewAdminServer(cfg *config.Config, authService *auth.AuthService, hub *ws.Hub, assets fs.FS) *AdminServer {
@@ -79,6 +103,10 @@ func NewAdminServer(cfg *config.Config, authService *auth.AuthService, hub *ws.H
 	mux.HandleFunc("DELETE /api/users", withBasicAuth(adminHandler.DeleteUserHandler))
 	mux.HandleFunc("POST /api/users/reset-password", withBasicAuth(adminHandler.ResetUserPasswordHandler))
 
+	// Server-control handlers
+	mux.HandleFunc("POST /api/backup", withBasicAuth(s.handleBackup))
+	mux.HandleFunc("POST /api/shutdown", withBasicAuth(s.handleShutdown))
+
 	addr := cfg.AdminAddr
 	if addr == "" {
 		addr = "localhost:8081"
@@ -116,6 +144,77 @@ func (s *AdminServer) handleListUsersJSON(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(users); err != nil {
 		slog.Error("failed to encode users", "error", err)
+	}
+}
+
+// writeJSONResp writes an APIResponse with the given status code.
+func writeJSONResp(w http.ResponseWriter, status int, resp models.APIResponse) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		slog.Error("failed to encode response", "error", err)
+	}
+}
+
+// handleBackup triggers a single full backup without stopping the server.
+func (s *AdminServer) handleBackup(w http.ResponseWriter, r *http.Request) {
+	if s.onBackup == nil {
+		writeJSONResp(w, http.StatusBadRequest, models.APIResponse{
+			Success: false,
+			Message: "S3 backup not enabled",
+		})
+		return
+	}
+
+	if err := s.onBackup(r.Context()); err != nil {
+		slog.Error("on-demand backup failed", "error", err)
+		writeJSONResp(w, http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Message: fmt.Sprintf("backup failed: %v", err),
+		})
+		return
+	}
+
+	writeJSONResp(w, http.StatusOK, models.APIResponse{Success: true, Message: "backup completed"})
+}
+
+// handleShutdown stops the primary server, takes a final backup, and then stops
+// the process. On backup failure it responds 500 and still exits the process
+// with a non-zero code so the operator knows the shutdown was not clean.
+func (s *AdminServer) handleShutdown(w http.ResponseWriter, r *http.Request) {
+	if s.onShutdown == nil || s.triggerExit == nil {
+		writeJSONResp(w, http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Message: "shutdown not available",
+		})
+		return
+	}
+
+	backedUp, err := s.onShutdown(r.Context())
+	if err != nil {
+		writeJSONResp(w, http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Message: fmt.Sprintf("shutdown aborted: %v", err),
+		})
+		flush(w)
+		s.triggerExit(err)
+		return
+	}
+
+	msg := "primary server stopped; shutting down"
+	if backedUp {
+		msg = "primary server stopped; final backup complete; shutting down"
+	}
+	writeJSONResp(w, http.StatusOK, models.APIResponse{Success: true, Message: msg})
+	flush(w)
+	s.triggerExit(nil)
+}
+
+// flush best-effort flushes the response so the CLI receives it before the
+// process begins tearing down.
+func flush(w http.ResponseWriter) {
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
 	}
 }
 

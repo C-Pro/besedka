@@ -1,15 +1,21 @@
 package commands
 
 import (
-	"besedka/internal/api"
 	"besedka/internal/config"
+	"besedka/internal/models"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 )
 
-func AddUser(username string, cfg *config.Config) error {
-	resp, err := adminRequest(cfg, http.MethodPost, "/admin/users", api.AddUserRequest{Username: username})
+func ResetPassword(username string, cfg *config.Config) error {
+	userID, err := resolveUserID(cfg, username)
+	if err != nil {
+		return err
+	}
+
+	resp, err := adminRequest(cfg, http.MethodPost, "/api/users/reset-password?id="+url.QueryEscape(userID), nil)
 	if err != nil {
 		return err
 	}
@@ -18,16 +24,15 @@ func AddUser(username string, cfg *config.Config) error {
 	}()
 
 	if resp.StatusCode != http.StatusOK {
-		return httpError("add user", resp)
+		return httpError("reset password", resp)
 	}
 
-	var result api.AddUserResponse
+	var result models.ResetPasswordResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	fmt.Printf("\nUser Created Successfully!\n")
-	fmt.Printf("Username:          %s\n", result.Username)
+	fmt.Printf("\nPassword reset for user %s.\n", username)
 	fmt.Printf("Setup Link:         %s\n\n", result.SetupLink)
 	fmt.Println("Please share this link with the user to complete registration.")
 	return nil

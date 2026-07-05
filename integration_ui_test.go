@@ -36,7 +36,7 @@ func TestIntegrationUI(t *testing.T) {
 	defer cancel()
 
 	go func() {
-		if err := run(ctx, ""); err != nil {
+		if err := run(ctx, cliOptions{}); err != nil {
 			if err != context.Canceled {
 				t.Errorf("Server error: %v", err)
 			}

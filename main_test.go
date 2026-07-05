@@ -49,7 +49,7 @@ func TestIntegration(t *testing.T) {
 	defer cancel()
 
 	go func() {
-		if err := run(ctx, ""); err != nil {
+		if err := run(ctx, cliOptions{}); err != nil {
 			// run returns context.Canceled on shutdown, ignore it
 			if err != context.Canceled {
 				t.Errorf("Server error: %v", err)

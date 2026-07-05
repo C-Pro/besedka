@@ -83,6 +83,66 @@ Besedka is configured entirely via environment variables.
 | `ENABLE_HTTP_CHALLENGE` | Set to `true` to enable an HTTP-01 challenge server for Let's Encrypt. | `false` |
 | `HTTP_CHALLENGE_PORT` | Port for the HTTP-01 challenge server to listen on. | `80` |
 
+## CLI Commands
+
+Besedka's binary doubles as an admin CLI. Passing any of the flags below runs a
+single command against the **already-running** server's admin API and exits,
+instead of starting the server.
+
+Because these commands call the admin API over HTTP, the server must be running
+and reachable at `ADMIN_ADDR`, and the same `ADMIN_USER` / `ADMIN_PASSWORD`
+credentials are used for authentication. Run the command with the same
+environment (at least `ADMIN_ADDR`, `ADMIN_USER`, `ADMIN_PASSWORD`) as the
+server. `AUTH_SECRET` is not required for CLI commands.
+
+| Command | Description |
+| :--- | :--- |
+| `--add-user <username>` | Create a user and print a registration setup link. |
+| `--list-users` | List all users with their status (`created` / `active` / `deleted`) and online state. |
+| `--delete-user <username>` | Delete a user. Prompts for confirmation unless `--yes` is also given. |
+| `--reset-password <username>` | Reset a user's password and print a new setup link. |
+| `--backup` | Trigger an out-of-schedule full backup **without** stopping the server. Requires S3 backup to be enabled. |
+| `--shutdown` | Stop the primary chat server, take a final full backup, then stop the process (see below). |
+
+Users are identified by username for `--delete-user` and `--reset-password`; the
+name is resolved to the matching non-deleted user server-side of the call.
+
+Examples:
+
+```bash
+# Create a user
+ADMIN_ADDR=localhost:8081 go run . --add-user alice
+
+# List users
+go run . --list-users
+
+# Reset a password
+go run . --reset-password alice
+
+# Delete a user without the confirmation prompt (e.g. in scripts)
+go run . --delete-user alice --yes
+
+# Take an ad-hoc backup while the server keeps running
+go run . --backup
+```
+
+### Graceful shutdown with backup
+
+`--shutdown` is intended for migrating the service to another host without data
+loss. It runs, in order:
+
+1. Immediately stop the primary (chat) HTTP server so no further writes reach the
+   database.
+2. Take a full backup to object storage (only when S3 backup is enabled).
+3. Stop the process.
+
+The command blocks until the backup completes, so a successful return guarantees
+the final state was captured before exit. If the backup keeps failing after
+retries, the process **exits with a non-zero code** (and the command reports the
+error) instead of exiting cleanly — signalling that the shutdown was *not* safe
+and the service should not be treated as migrated. When S3 backup is disabled,
+`--shutdown` simply stops the process cleanly with no backup step.
+
 ## Encryption
 
 Besedka supports at-rest encryption for the database and uploaded files. When `AUTH_SECRET` is provided, all sensitive data (users, messages, tokens, files) will be encrypted.

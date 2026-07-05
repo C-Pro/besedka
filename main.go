@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -31,15 +32,42 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func run(ctx context.Context, addUser string) error {
+// cliOptions holds the parsed CLI-mode flags. When any is set, run() dispatches
+// to the matching command and returns instead of booting the servers.
+type cliOptions struct {
+	addUser       string
+	listUsers     bool
+	deleteUser    string
+	resetPassword string
+	backup        bool
+	shutdown      bool
+	yes           bool
+}
+
+func run(ctx context.Context, cli cliOptions) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
 
-	if addUser != "" {
-		return commands.AddUser(addUser, cfg)
+	switch {
+	case cli.addUser != "":
+		return commands.AddUser(cli.addUser, cfg)
+	case cli.listUsers:
+		return commands.ListUsers(cfg)
+	case cli.deleteUser != "":
+		return commands.DeleteUser(cli.deleteUser, cli.yes, cfg)
+	case cli.resetPassword != "":
+		return commands.ResetPassword(cli.resetPassword, cfg)
+	case cli.backup:
+		return commands.Backup(cfg)
+	case cli.shutdown:
+		return commands.Shutdown(cfg)
 	}
+
+	// Own a cancel so the /api/shutdown endpoint can stop the whole process.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	baseURL, err := url.Parse(cfg.BaseURL)
 	if err != nil {
@@ -126,13 +154,14 @@ func run(ctx context.Context, addUser string) error {
 
 	// Start object-storage background work: mirror upload workers (with backfill
 	// of existing files) and the periodic database backup scheduler.
+	var scheduler *backup.Scheduler
 	if objClient != nil {
 		g.Go(func() error {
 			mirror.Start(gCtx)
 			return nil
 		})
 
-		scheduler := backup.NewScheduler(bbStorage, objClient, "backups/", cfg.S3BackupInterval, int(cfg.S3BackupKeep))
+		scheduler = backup.NewScheduler(bbStorage, objClient, "backups/", cfg.S3BackupInterval, int(cfg.S3BackupKeep))
 		g.Go(func() error {
 			if err := scheduler.Run(gCtx); err != nil && !errors.Is(err, context.Canceled) {
 				return err
@@ -140,6 +169,59 @@ func run(ctx context.Context, addUser string) error {
 			return nil
 		})
 	}
+
+	// Wire the admin server's backup/shutdown ops. shutdownErr records a backup
+	// failure during graceful shutdown so run() returns non-nil and the process
+	// exits non-zero.
+	var (
+		shutdownMu  sync.Mutex
+		shutdownErr error
+	)
+	triggerExit := func(err error) {
+		shutdownMu.Lock()
+		if err != nil {
+			shutdownErr = err
+		}
+		shutdownMu.Unlock()
+		cancel()
+	}
+
+	var onBackup func(context.Context) error
+	if scheduler != nil {
+		onBackup = func(ctx context.Context) error { return scheduler.BackupOnce(ctx) }
+	}
+
+	adminServer.SetOps(
+		onBackup,
+		func(reqCtx context.Context) (bool, error) {
+			// 1. Stop the primary server so no further writes reach the DB. It is
+			// bounded: long-lived WebSocket connections won't drain, so we log and
+			// proceed to the backup regardless.
+			sctx, c := context.WithTimeout(context.Background(), 10*time.Second)
+			defer c()
+			if err := apiServer.Shutdown(sctx); err != nil {
+				slog.Error("primary server shutdown during graceful shutdown", "error", err)
+			}
+
+			// 2. Take a final full backup, only when S3 is enabled, with retries.
+			if scheduler == nil {
+				return false, nil
+			}
+			const attempts = 3
+			var err error
+			for i := range attempts {
+				if err = scheduler.BackupOnce(context.Background()); err == nil {
+					return true, nil
+				}
+				slog.Error("shutdown backup attempt failed", "attempt", i+1, "error", err)
+				if i < attempts-1 {
+					time.Sleep(time.Duration(i+1) * 2 * time.Second)
+				}
+			}
+			return false, fmt.Errorf("shutdown backup failed after %d attempts: %w", attempts, err)
+		},
+		triggerExit,
+	)
 
 	// Start Admin Server
 	g.Go(func() error {
@@ -176,17 +258,40 @@ func run(ctx context.Context, addUser string) error {
 		return nil
 	})
 
-	return g.Wait()
+	if err := g.Wait(); err != nil {
+		return err
+	}
+	// Surface a backup failure from a graceful /api/shutdown so the process
+	// exits non-zero.
+	shutdownMu.Lock()
+	defer shutdownMu.Unlock()
+	return shutdownErr
 }
 
 func main() {
-	addUser := flag.String("add-user", "", "Username to create (creates user with random password and prints details)")
+	addUser := flag.String("add-user", "", "Create a user (prints a registration setup link)")
+	listUsers := flag.Bool("list-users", false, "List all users with their statuses")
+	deleteUser := flag.String("delete-user", "", "Delete a user by username")
+	resetPassword := flag.String("reset-password", "", "Reset a user's password by username (prints a new setup link)")
+	backupFlag := flag.Bool("backup", false, "Trigger an out-of-schedule full backup (requires S3 backup enabled)")
+	shutdown := flag.Bool("shutdown", false, "Stop the primary server, take a final backup, and stop the process")
+	yes := flag.Bool("yes", false, "Skip confirmation prompts (e.g. for --delete-user)")
 	flag.Parse()
+
+	cli := cliOptions{
+		addUser:       *addUser,
+		listUsers:     *listUsers,
+		deleteUser:    *deleteUser,
+		resetPassword: *resetPassword,
+		backup:        *backupFlag,
+		shutdown:      *shutdown,
+		yes:           *yes,
+	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	if err := run(ctx, *addUser); err != nil && !errors.Is(err, context.Canceled) {
+	if err := run(ctx, cli); err != nil && !errors.Is(err, context.Canceled) {
 		slog.Error("Application stopped with error", "error", err)
 		os.Exit(1)
 	}
