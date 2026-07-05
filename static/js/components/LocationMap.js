@@ -144,6 +144,11 @@ export class LocationMap {
 
     updateProjection() {
         const minScale = this.width / (2 * Math.PI);
+        // The vendored world.geojson is low-resolution (Natural Earth 110m), so
+        // zooming in tighter than this makes the coarse coastlines look blocky.
+        // Cap the fit-to-members zoom at the same close-up level used for a
+        // single user, so nearby members never zoom past the map's resolution.
+        const maxScale = Math.max(minScale, Math.min(this.width, this.height) * 1.5);
 
         if (!this.usersLastLocations || this.usersLastLocations.length === 0) {
             this.projection
@@ -163,19 +168,19 @@ export class LocationMap {
         // If only one user, center on them and zoom in
         if (this.usersLastLocations.length === 1) {
              this.projection
-                .scale(Math.max(minScale, Math.min(this.width, this.height) * 1.5))
+                .scale(maxScale)
                 .translate([this.width / 2, this.height / 2])
                 .center([this.usersLastLocations[0].lng, this.usersLastLocations[0].lat]);
         } else {
              // Reset center before fitting
              this.projection.center([0, 0]);
-             
+
              // We fit the projection using fitExtent with some padding
              this.projection.fitExtent([
-                 [this.width * 0.15, this.height * 0.15], 
+                 [this.width * 0.15, this.height * 0.15],
                  [this.width * 0.85, this.height * 0.85]
              ], points);
-             
+
              // Enforce that scale is at least minScale to fill container width
              let currentScale = this.projection.scale();
              if (currentScale < minScale) {
@@ -184,10 +189,12 @@ export class LocationMap {
                      .translate([this.width / 2, this.height / 2])
                      .center([0, 0]);
              }
-             // Cap it at a reasonable max to not zoom in too deeply.
+             // Cap the zoom so close-together members don't zoom past the
+             // vendored map's resolution. Reducing scale keeps the fitted
+             // bounding-box centre (already at the container centre) in place.
              currentScale = this.projection.scale();
-             if (currentScale > this.width * 2) {
-                 this.projection.scale(this.width * 2);
+             if (currentScale > maxScale) {
+                 this.projection.scale(maxScale);
              }
         }
 

@@ -67,9 +67,58 @@ function createImageOverlay() {
     let gallery = [];
     let currentIndex = 0;
 
+    // --- Zoom / pan state -------------------------------------------------
+    const MAX_SCALE = 4;
+    let scale = 1;
+    let translateX = 0;
+    let translateY = 0;
+
+    const applyTransform = () => {
+        imgEl.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+        overlay.classList.toggle('zoomed', scale > 1);
+    };
+
+    // Keep the image from being panned entirely out of view. Bounds are based on
+    // the unscaled layout size (offsetWidth/Height) grown by the current scale.
+    const clampPan = () => {
+        const overflowX = Math.max(0, (imgEl.offsetWidth * scale - window.innerWidth) / 2);
+        const overflowY = Math.max(0, (imgEl.offsetHeight * scale - window.innerHeight) / 2);
+        translateX = Math.max(-overflowX, Math.min(overflowX, translateX));
+        translateY = Math.max(-overflowY, Math.min(overflowY, translateY));
+    };
+
+    // Zoom to newScale while keeping the point (focalX, focalY) in viewport
+    // coordinates stationary under the fingers / cursor.
+    const zoomTo = (newScale, focalX, focalY) => {
+        newScale = Math.max(1, Math.min(MAX_SCALE, newScale));
+        const cx = window.innerWidth / 2;
+        const cy = window.innerHeight / 2;
+        const fx = focalX - cx;
+        const fy = focalY - cy;
+        const ratio = newScale / scale;
+        translateX = fx - ratio * (fx - translateX);
+        translateY = fy - ratio * (fy - translateY);
+        scale = newScale;
+        if (scale === 1) {
+            translateX = 0;
+            translateY = 0;
+        } else {
+            clampPan();
+        }
+        applyTransform();
+    };
+
+    const resetZoom = () => {
+        scale = 1;
+        translateX = 0;
+        translateY = 0;
+        applyTransform();
+    };
+
     const show = (index) => {
         if (gallery.length === 0) return;
         currentIndex = Math.max(0, Math.min(index, gallery.length - 1));
+        resetZoom();
         const item = gallery[currentIndex];
         imgEl.src = item.src;
         senderEl.textContent = item.sender;
@@ -102,6 +151,7 @@ function createImageOverlay() {
         imgEl.src = '';
         gallery = [];
         currentIndex = 0;
+        resetZoom();
     };
 
     const isActive = () => overlay.classList.contains('active');
@@ -120,23 +170,134 @@ function createImageOverlay() {
         else if (e.key === 'ArrowLeft') prev();
     });
 
-    // Touch swipe navigation (mobile). stopPropagation keeps the app-level
-    // tab-swipe in app.js from also reacting to the gesture.
+    // Touch gestures (mobile): pinch to zoom, drag to pan when zoomed, and
+    // single-finger swipe to navigate when at 1x. stopPropagation keeps the
+    // app-level tab-swipe in app.js from also reacting to the gesture.
     let touchStartX = 0;
     let touchStartY = 0;
+    let panLastX = 0;
+    let panLastY = 0;
+    let isPanning = false;
+    let isPinching = false;
+    let pinchStartDist = 0;
+    let pinchStartScale = 1;
+    let lastTapTime = 0;
+
+    const touchDistance = (t0, t1) => Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
+    const touchMidpoint = (t0, t1) => ({ x: (t0.clientX + t1.clientX) / 2, y: (t0.clientY + t1.clientY) / 2 });
+
     overlay.addEventListener('touchstart', (e) => {
         e.stopPropagation();
-        touchStartX = e.changedTouches[0].screenX;
-        touchStartY = e.changedTouches[0].screenY;
+        if (e.touches.length === 2) {
+            isPinching = true;
+            isPanning = false;
+            pinchStartDist = touchDistance(e.touches[0], e.touches[1]);
+            pinchStartScale = scale;
+        } else if (e.touches.length === 1) {
+            touchStartX = e.changedTouches[0].screenX;
+            touchStartY = e.changedTouches[0].screenY;
+            panLastX = e.changedTouches[0].clientX;
+            panLastY = e.changedTouches[0].clientY;
+            isPanning = scale > 1;
+        }
     });
+
+    overlay.addEventListener('touchmove', (e) => {
+        if (isPinching && e.touches.length === 2) {
+            e.preventDefault();
+            overlay.classList.add('panning');
+            const dist = touchDistance(e.touches[0], e.touches[1]);
+            if (pinchStartDist > 0) {
+                const mid = touchMidpoint(e.touches[0], e.touches[1]);
+                zoomTo(pinchStartScale * (dist / pinchStartDist), mid.x, mid.y);
+            }
+        } else if (isPanning && e.touches.length === 1) {
+            e.preventDefault();
+            overlay.classList.add('panning');
+            const t = e.touches[0];
+            translateX += t.clientX - panLastX;
+            translateY += t.clientY - panLastY;
+            panLastX = t.clientX;
+            panLastY = t.clientY;
+            clampPan();
+            applyTransform();
+        }
+    }, { passive: false });
+
     overlay.addEventListener('touchend', (e) => {
         e.stopPropagation();
+        if (e.touches.length === 0) {
+            isPanning = false;
+            overlay.classList.remove('panning');
+        }
+        if (isPinching) {
+            // Wait until all fingers lift before clearing the pinch flag.
+            if (e.touches.length === 0) isPinching = false;
+            return;
+        }
+
         const distanceX = e.changedTouches[0].screenX - touchStartX;
         const distanceY = e.changedTouches[0].screenY - touchStartY;
+        const moved = Math.abs(distanceX) > 10 || Math.abs(distanceY) > 10;
+
+        // Double-tap toggles between 1x and 2x, centered on the tap.
+        if (!moved) {
+            const now = e.timeStamp;
+            if (now - lastTapTime < 300) {
+                lastTapTime = 0;
+                const tap = e.changedTouches[0];
+                zoomTo(scale > 1 ? 1 : 2, tap.clientX, tap.clientY);
+                return;
+            }
+            lastTapTime = now;
+        }
+
+        // When zoomed in, a single-finger drag pans instead of navigating.
+        if (scale > 1) return;
         if (Math.abs(distanceX) < MIN_SWIPE_DISTANCE) return;
         if (Math.abs(distanceY) > Math.abs(distanceX)) return;
         if (distanceX < 0) next(); // swipe left -> next
         else prev();               // swipe right -> previous
+    });
+
+    // Desktop: wheel / trackpad-pinch zooms toward the cursor, double-click
+    // toggles zoom, and click-drag pans while zoomed.
+    overlay.addEventListener('wheel', (e) => {
+        if (!isActive()) return;
+        e.preventDefault();
+        const factor = Math.exp(-e.deltaY * 0.002);
+        zoomTo(scale * factor, e.clientX, e.clientY);
+    }, { passive: false });
+
+    imgEl.addEventListener('dblclick', (e) => {
+        e.preventDefault();
+        zoomTo(scale > 1 ? 1 : 2, e.clientX, e.clientY);
+    });
+
+    let mouseDragging = false;
+    let mouseLastX = 0;
+    let mouseLastY = 0;
+    imgEl.addEventListener('mousedown', (e) => {
+        if (scale <= 1) return;
+        e.preventDefault();
+        mouseDragging = true;
+        mouseLastX = e.clientX;
+        mouseLastY = e.clientY;
+        overlay.classList.add('panning');
+    });
+    document.addEventListener('mousemove', (e) => {
+        if (!mouseDragging) return;
+        translateX += e.clientX - mouseLastX;
+        translateY += e.clientY - mouseLastY;
+        mouseLastX = e.clientX;
+        mouseLastY = e.clientY;
+        clampPan();
+        applyTransform();
+    });
+    document.addEventListener('mouseup', () => {
+        if (!mouseDragging) return;
+        mouseDragging = false;
+        overlay.classList.remove('panning');
     });
 
     // Auto-fade the controls after a few seconds of inactivity.
