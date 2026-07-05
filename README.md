@@ -82,6 +82,29 @@ Besedka is configured entirely via environment variables.
 | `TLS_AUTO_CERT_PATH` | Directory to cache Let's Encrypt certificates. Enables automatic Let's Encrypt integration. | |
 | `ENABLE_HTTP_CHALLENGE` | Set to `true` to enable an HTTP-01 challenge server for Let's Encrypt. | `false` |
 | `HTTP_CHALLENGE_PORT` | Port for the HTTP-01 challenge server to listen on. | `80` |
+| `S3_ENDPOINT` | Endpoint URL of an S3-compatible object storage service. Set together with `S3_BUCKET` to enable backup & mirroring. | |
+| `S3_BUCKET` | Bucket used for database backups and file mirroring. Set together with `S3_ENDPOINT` to enable the feature. | |
+| `S3_REGION` | Region for the object storage service. | `us-east-1` |
+| `S3_ACCESS_KEY` | Access key for the object storage service. | |
+| `S3_SECRET_KEY` | Secret key for the object storage service. | |
+| `S3_PATH_STYLE` | Use path-style addressing (`true` for MinIO/self-hosted; `false` for AWS virtual-host). | `true` |
+| `S3_BACKUP_INTERVAL` | How often the database is backed up to object storage. | `24h` |
+| `S3_BACKUP_KEEP` | Number of most-recent backups to retain (older ones are pruned). | `7` |
+
+### Object storage (S3-compatible) backup & mirroring
+
+Object storage is optional and disabled by default. Leave `S3_BUCKET` and
+`S3_ENDPOINT` empty to keep it off. When both are set, Besedka:
+
+- mirrors every uploaded file to the bucket,
+- backs up the database on the `S3_BACKUP_INTERVAL` schedule (and via the
+  `--backup` / `--shutdown` CLI commands),
+- recovers a missing database from the newest backup on startup, and
+- fetches files from the bucket when they are missing locally.
+
+Backups and mirrored files are encrypted at rest using `AUTH_SECRET`, so it must
+be set when object storage is enabled — startup fails otherwise. Access and
+secret keys are required whenever the feature is enabled.
 
 ## CLI Commands
 
