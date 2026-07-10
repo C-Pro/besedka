@@ -1,6 +1,6 @@
 module besedka
 
-go 1.26.4
+go 1.26.5
 
 require (
 	github.com/SherClockHolmes/webpush-go v1.4.0

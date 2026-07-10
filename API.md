@@ -469,7 +469,7 @@ The Admin API runs on a separate port (default 8081) and is used for management 
 ### Shutdown Server
 **Endpoint:** `POST /api/shutdown`
 
-**Description:** Gracefully shuts the service down for migration. In order: stops the primary chat HTTP server (so no further writes reach the database), takes a final full backup (only when S3 backup is enabled), then stops the process. The request blocks until the backup completes, so a successful response guarantees the final state was captured before exit.
+**Description:** Gracefully shuts the service down for migration. In order: stops the primary chat HTTP server (so no further writes reach the database), takes a final backup (only when S3 backup is enabled; incremental when a backup chain exists, full otherwise) and flushes pending attachment uploads, then stops the process. The request blocks until the backup completes, so a successful response guarantees the final state was captured before exit. A normal termination signal (`SIGTERM`/`SIGINT`) triggers the same stop-primary → backup → exit sequence.
 
 **Response:**
 - **Success (200 OK):** The primary server has stopped and, when S3 is enabled, the final backup succeeded. The process then exits with code 0.

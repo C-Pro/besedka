@@ -49,7 +49,7 @@ func (s *BboltStorage) UpsertFileMetadata(meta FileMetadata) error {
 		if err != nil {
 			return fmt.Errorf("failed to encrypt file metadata: %w", err)
 		}
-		return b.Put(meta.Key(), data)
+		return dirtyPut(tx, b, [][]byte{bucketFiles}, meta.Key(), data)
 	})
 }
 

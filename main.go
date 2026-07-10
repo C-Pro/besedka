@@ -161,7 +161,7 @@ func run(ctx context.Context, cli cliOptions) error {
 			return nil
 		})
 
-		scheduler = backup.NewScheduler(bbStorage, objClient, "backups/", cfg.S3BackupInterval, int(cfg.S3BackupKeep))
+		scheduler = backup.NewScheduler(bbStorage, objClient, "backups/", cfg.S3BackupInterval, cfg.S3BackupIncrInterval, int(cfg.S3BackupKeep), mirror.Flush)
 		g.Go(func() error {
 			if err := scheduler.Run(gCtx); err != nil && !errors.Is(err, context.Canceled) {
 				return err
@@ -191,35 +191,51 @@ func run(ctx context.Context, cli cliOptions) error {
 		onBackup = func(ctx context.Context) error { return scheduler.BackupOnce(ctx) }
 	}
 
-	adminServer.SetOps(
-		onBackup,
-		func(reqCtx context.Context) (bool, error) {
-			// 1. Stop the primary server so no further writes reach the DB. It is
-			// bounded: long-lived WebSocket connections won't drain, so we log and
-			// proceed to the backup regardless.
+	// finalizeShutdown stops the primary server so no further writes reach the
+	// DB, then takes a final backup (with retries, only when S3 is enabled).
+	// The final backup is incremental when a chain exists — small enough to fit
+	// a spot instance's termination grace period — and full otherwise.
+	// It runs at most once, so a signal (SIGTERM/SIGINT) and the /api/shutdown
+	// endpoint share a single stop-then-backup sequence and never double-back-up.
+	var (
+		finalizeOnce     sync.Once
+		finalizeBackedUp bool
+		finalizeErr      error
+	)
+	finalizeShutdown := func() (bool, error) {
+		finalizeOnce.Do(func() {
+			// Stop the primary server. Bounded: long-lived WebSocket connections
+			// won't drain, so we log and proceed to the backup regardless.
 			sctx, c := context.WithTimeout(context.Background(), 10*time.Second)
 			defer c()
 			if err := apiServer.Shutdown(sctx); err != nil {
 				slog.Error("primary server shutdown during graceful shutdown", "error", err)
 			}
 
-			// 2. Take a final full backup, only when S3 is enabled, with retries.
+			// Take a final backup, only when S3 is enabled, with retries.
 			if scheduler == nil {
-				return false, nil
+				return
 			}
 			const attempts = 3
 			var err error
 			for i := range attempts {
-				if err = scheduler.BackupOnce(context.Background()); err == nil {
-					return true, nil
+				if err = scheduler.FinalBackup(context.Background()); err == nil {
+					finalizeBackedUp = true
+					return
 				}
 				slog.Error("shutdown backup attempt failed", "attempt", i+1, "error", err)
 				if i < attempts-1 {
 					time.Sleep(time.Duration(i+1) * 2 * time.Second)
 				}
 			}
-			return false, fmt.Errorf("shutdown backup failed after %d attempts: %w", attempts, err)
-		},
+			finalizeErr = fmt.Errorf("shutdown backup failed after %d attempts: %w", attempts, err)
+		})
+		return finalizeBackedUp, finalizeErr
+	}
+
+	adminServer.SetOps(
+		onBackup,
+		func(context.Context) (bool, error) { return finalizeShutdown() },
 		triggerExit,
 	)
 
@@ -241,19 +257,25 @@ func run(ctx context.Context, cli cliOptions) error {
 		return nil
 	})
 
-	// Wait for context cancellation (signal)
+	// On context cancellation (a SIGTERM/SIGINT signal or the /api/shutdown
+	// endpoint), stop the primary server and take a final backup, then stop the
+	// admin server. A backup failure is recorded so the process exits non-zero.
 	g.Go(func() error {
 		<-gCtx.Done()
 		slog.Info("Shutting down servers...")
 
+		if _, err := finalizeShutdown(); err != nil {
+			shutdownMu.Lock()
+			if shutdownErr == nil {
+				shutdownErr = err
+			}
+			shutdownMu.Unlock()
+		}
+
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-
 		if err := adminServer.Shutdown(shutdownCtx); err != nil {
 			slog.Error("Admin server shutdown error", "error", err)
-		}
-		if err := apiServer.Shutdown(shutdownCtx); err != nil {
-			slog.Error("API server shutdown error", "error", err)
 		}
 		return nil
 	})

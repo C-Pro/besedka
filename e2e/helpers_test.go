@@ -71,15 +71,11 @@ func startServer(t *testing.T) *TestServer {
 	err = cmd.Start()
 	require.NoError(t, err)
 
-	// Wait for server to be ready
-	require.Eventually(t, func() bool {
-		conn, err := net.DialTimeout("tcp", apiAddr, 100*time.Millisecond)
-		if err == nil {
-			_ = conn.Close()
-			return true
-		}
-		return false
-	}, 5*time.Second, 200*time.Millisecond, "Server failed to start")
+	// Wait for both listeners. The API and admin servers start as independent
+	// goroutines, so gating only on the API port races the admin port that the
+	// CLI (CreateUser) talks to.
+	waitForListening(t, apiAddr, 5*time.Second, "API server failed to start")
+	waitForListening(t, adminAddr, 5*time.Second, "Admin server failed to start")
 
 	return &TestServer{
 		APIAddr:     apiAddr,
@@ -126,15 +122,23 @@ func (s *TestServer) Restart(t *testing.T) {
 	require.NoError(t, err)
 	s.Cmd = cmd
 
-	// Wait for server to be ready
+	// Wait for both listeners (see startServer).
+	waitForListening(t, s.APIAddr, 10*time.Second, "API server failed to start after restart")
+	waitForListening(t, s.AdminAddr, 10*time.Second, "Admin server failed to start after restart")
+}
+
+// waitForListening blocks until addr accepts a TCP connection or the timeout
+// elapses, failing the test in the latter case.
+func waitForListening(t *testing.T, addr string, timeout time.Duration, msg string) {
+	t.Helper()
 	require.Eventually(t, func() bool {
-		conn, err := net.DialTimeout("tcp", s.APIAddr, 100*time.Millisecond)
+		conn, err := net.DialTimeout("tcp", addr, 100*time.Millisecond)
 		if err == nil {
 			_ = conn.Close()
 			return true
 		}
 		return false
-	}, 10*time.Second, 200*time.Millisecond, "Server failed to start after restart")
+	}, timeout, 200*time.Millisecond, msg)
 }
 
 func (s *TestServer) CreateUser(t *testing.T, username string) string {

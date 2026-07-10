@@ -37,9 +37,10 @@ type Config struct {
 	S3Bucket         string
 	S3AccessKey      string
 	S3SecretKey      string
-	S3PathStyle      bool
-	S3BackupInterval time.Duration
-	S3BackupKeep     int64
+	S3PathStyle          bool
+	S3BackupInterval     time.Duration
+	S3BackupIncrInterval time.Duration
+	S3BackupKeep         int64
 }
 
 // S3Enabled reports whether object-storage backup/mirroring is configured.
@@ -56,6 +57,14 @@ func Load() (*Config, error) {
 	backupInterval, err := time.ParseDuration(getEnv("S3_BACKUP_INTERVAL", "24h"))
 	if err != nil {
 		return nil, fmt.Errorf("invalid S3_BACKUP_INTERVAL: %w", err)
+	}
+
+	// Incremental backups upload only the records changed since the previous
+	// backup, so they can run far more often than full snapshots. 0 disables
+	// them (full backups only).
+	backupIncrInterval, err := time.ParseDuration(getEnv("S3_BACKUP_INCREMENTAL_INTERVAL", "15m"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid S3_BACKUP_INCREMENTAL_INTERVAL: %w", err)
 	}
 
 	apiAddr := os.Getenv("API_ADDR")
@@ -96,9 +105,10 @@ func Load() (*Config, error) {
 		S3Bucket:         os.Getenv("S3_BUCKET"),
 		S3AccessKey:      os.Getenv("S3_ACCESS_KEY"),
 		S3SecretKey:      os.Getenv("S3_SECRET_KEY"),
-		S3PathStyle:      getEnv("S3_PATH_STYLE", "true") == "true" || getEnv("S3_PATH_STYLE", "true") == "1",
-		S3BackupInterval: backupInterval,
-		S3BackupKeep:     getEnvInt64("S3_BACKUP_KEEP", 7),
+		S3PathStyle:          getEnv("S3_PATH_STYLE", "true") == "true" || getEnv("S3_PATH_STYLE", "true") == "1",
+		S3BackupInterval:     backupInterval,
+		S3BackupIncrInterval: backupIncrInterval,
+		S3BackupKeep:         getEnvInt64("S3_BACKUP_KEEP", 7),
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -147,6 +157,12 @@ func (c *Config) Validate() error {
 		}
 		if c.S3BackupInterval <= 0 {
 			return fmt.Errorf("S3_BACKUP_INTERVAL must be greater than 0")
+		}
+		if c.S3BackupIncrInterval < 0 {
+			return fmt.Errorf("S3_BACKUP_INCREMENTAL_INTERVAL must be 0 (disabled) or greater")
+		}
+		if c.S3BackupIncrInterval > 0 && c.S3BackupIncrInterval >= c.S3BackupInterval {
+			return fmt.Errorf("S3_BACKUP_INCREMENTAL_INTERVAL must be less than S3_BACKUP_INTERVAL")
 		}
 	}
 

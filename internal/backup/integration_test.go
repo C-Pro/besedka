@@ -77,19 +77,27 @@ func TestIntegrationBackupAndRecover(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sched := NewScheduler(st, client, prefix, time.Hour, 7)
+	sched := NewScheduler(st, client, prefix, time.Hour, 10*time.Minute, 7, nil)
 	if err := sched.BackupOnce(ctx); err != nil {
 		t.Fatalf("BackupOnce: %v", err)
 	}
+
+	// Extend the chain with an incremental before recovering.
+	if err := st.SetConfig("motto2", "incrementals-work"); err != nil {
+		t.Fatal(err)
+	}
+	if err := sched.IncrementalOnce(ctx); err != nil {
+		t.Fatalf("IncrementalOnce: %v", err)
+	}
 	_ = st.Close()
 
-	// Verify the backup object actually exists in the bucket.
+	// Verify both artifacts actually exist in the bucket.
 	objs, err := client.List(ctx, prefix)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(objs) != 1 {
-		t.Fatalf("expected 1 backup object, got %d", len(objs))
+	if len(objs) != 2 {
+		t.Fatalf("expected 2 backup objects (full + incremental), got %d", len(objs))
 	}
 	t.Cleanup(func() {
 		for _, o := range objs {
@@ -119,6 +127,9 @@ func TestIntegrationBackupAndRecover(t *testing.T) {
 	if got != "besedka-rules" {
 		t.Errorf("recovered value = %q, want besedka-rules", got)
 	}
+	if got, _ := st2.GetConfig("motto2"); got != "incrementals-work" {
+		t.Errorf("value from incremental = %q, want incrementals-work", got)
+	}
 }
 
 // TestIntegrationWrongSecret verifies decryption fails against a real backup
@@ -130,7 +141,7 @@ func TestIntegrationWrongSecret(t *testing.T) {
 
 	dir := t.TempDir()
 	st, dbPath := openStorage(t, dir, "correct-secret")
-	sched := NewScheduler(st, client, prefix, time.Hour, 7)
+	sched := NewScheduler(st, client, prefix, time.Hour, 0, 7, nil)
 	if err := sched.BackupOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +174,7 @@ func TestIntegrationRetention(t *testing.T) {
 	st, _ := openStorage(t, dir, "secret")
 	defer st.Close()
 
-	sched := NewScheduler(st, client, prefix, time.Hour, 2)
+	sched := NewScheduler(st, client, prefix, time.Hour, 0, 2, nil)
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	for i := 0; i < 4; i++ {
 		ts := base.Add(time.Duration(i) * time.Hour)

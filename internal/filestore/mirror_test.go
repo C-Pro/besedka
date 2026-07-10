@@ -205,3 +205,59 @@ func TestMirrorBackfill(t *testing.T) {
 		return a && c
 	})
 }
+
+func TestMirrorFlush(t *testing.T) {
+	fake := newFakeS3("testbucket")
+	m, local := newMirrorForTest(t, fake)
+	// Note: no Start — Flush alone must perform the uploads, synchronously.
+
+	for _, h := range []string{"aa11", "bb22", "cc33"} {
+		if err := local.Save(bytes.NewReader([]byte("blob-"+h)), h); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Already mirrored: must not be disturbed.
+	fake.put("files/bb22", []byte("blob-bb22"))
+
+	if err := m.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range []string{"aa11", "bb22", "cc33"} {
+		data, ok := fake.get("files/" + h)
+		if !ok || !bytes.Equal(data, []byte("blob-"+h)) {
+			t.Errorf("blob %s missing or corrupt after flush", h)
+		}
+	}
+}
+
+func TestMirrorFlushSurfacesUploadErrors(t *testing.T) {
+	// A backend that lists fine but refuses every PUT.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "PUT" {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_, _ = io.WriteString(w, `<ListBucketResult><IsTruncated>false</IsTruncated></ListBucketResult>`)
+	}))
+	t.Cleanup(srv.Close)
+
+	local, err := NewLocalFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	obj, err := objectstore.New(objectstore.Config{
+		Endpoint: srv.URL, Region: "us-east-1", Bucket: "testbucket",
+		AccessKey: "A", SecretKey: "S", PathStyle: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := NewMirrorFileStore(local, obj, "files/")
+
+	if err := local.Save(bytes.NewReader([]byte("blob")), "dead"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Flush(context.Background()); err == nil {
+		t.Error("expected Flush to surface the upload failure")
+	}
+}
