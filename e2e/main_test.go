@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/mxschmitt/playwright-go"
 )
 
 var (
@@ -15,6 +17,11 @@ var (
 )
 
 func TestMain(m *testing.M) {
+	// 0. Install playwright
+	if err := playwright.Install(); err != nil {
+		log.Fatalf("Failed to install playwright: %v", err)
+	}
+
 	// 1. Build the binary
 	var err error
 	serverBinPath, err = buildServer()

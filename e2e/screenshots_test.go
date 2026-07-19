@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/playwright-community/playwright-go"
+	"github.com/mxschmitt/playwright-go"
 	"github.com/stretchr/testify/require"
 )
 
@@ -217,7 +217,7 @@ func TestScreenshots(t *testing.T) {
 
 	if os.Getenv("CI") == "" {
 		_, err = bobPage.Screenshot(playwright.PageScreenshotOptions{
-			Path: playwright.String("../static/screenshot_desktop.webp"),
+			Path: playwright.String("../static/screenshot_desktop.png"),
 		})
 		require.NoError(t, err)
 		t.Log("Desktop screenshot saved.")
@@ -289,7 +289,7 @@ func TestScreenshots(t *testing.T) {
 
 	if os.Getenv("CI") == "" {
 		_, err = mobilePage.Screenshot(playwright.PageScreenshotOptions{
-			Path: playwright.String("../static/screenshot_mobile.webp"),
+			Path: playwright.String("../static/screenshot_mobile.png"),
 		})
 		require.NoError(t, err)
 		t.Log("Mobile screenshot saved.")

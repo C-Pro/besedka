@@ -178,7 +178,13 @@ func (s *Scheduler) fullBackup(ctx context.Context) error {
 		return fmt.Errorf("failed to assemble backup artifact: %w", err)
 	}
 
-	key := s.prefix + "besedka-" + s.now().UTC().Format("20060102T150405Z") + fullSuffix
+	lastKey, _, _ := s.store.BackupState()
+	ts := s.now().UTC()
+	key := s.prefix + "besedka-" + ts.Format("20060102T150405Z") + fullSuffix
+	for key <= lastKey {
+		ts = ts.Add(time.Second)
+		key = s.prefix + "besedka-" + ts.Format("20060102T150405Z") + fullSuffix
+	}
 	data := artifact.Bytes()
 	if err := s.obj.Put(ctx, key, bytes.NewReader(data), int64(len(data))); err != nil {
 		return fmt.Errorf("backup upload failed: %w", err)

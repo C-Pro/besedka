@@ -113,10 +113,11 @@ func (s *Scheduler) incrementalBackup(ctx context.Context, parent string) error 
 
 	ts := s.now().UTC()
 	key := s.prefix + "besedka-" + ts.Format("20060102T150405Z") + incrSuffix
-	if key == parent {
+	for key <= parent {
 		// Same-second as the parent (e.g. shutdown racing the ticker): reusing
 		// the key would overwrite the parent and break the chain.
-		key = s.prefix + "besedka-" + ts.Add(time.Second).Format("20060102T150405Z") + incrSuffix
+		ts = ts.Add(time.Second)
+		key = s.prefix + "besedka-" + ts.Format("20060102T150405Z") + incrSuffix
 	}
 	data := artifact.Bytes()
 	if err := s.obj.Put(ctx, key, bytes.NewReader(data), int64(len(data))); err != nil {

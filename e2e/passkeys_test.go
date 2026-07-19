@@ -3,7 +3,7 @@
 package e2e
 
 import (
-	"github.com/playwright-community/playwright-go"
+	"github.com/mxschmitt/playwright-go"
 	"testing"
 )
 

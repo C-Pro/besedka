@@ -219,7 +219,10 @@ func run(ctx context.Context, cli cliOptions) error {
 			const attempts = 3
 			var err error
 			for i := range attempts {
-				if err = scheduler.FinalBackup(context.Background()); err == nil {
+				bCtx, bCancel := context.WithTimeout(context.Background(), 15*time.Second)
+				err = scheduler.FinalBackup(bCtx)
+				bCancel()
+				if err == nil {
 					finalizeBackedUp = true
 					return
 				}
