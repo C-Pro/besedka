@@ -188,7 +188,7 @@ func run(ctx context.Context, cli cliOptions) error {
 
 	var onBackup func(context.Context) error
 	if scheduler != nil {
-		onBackup = func(ctx context.Context) error { return scheduler.BackupOnce(ctx) }
+		onBackup = func(ctx context.Context) error { return scheduler.DoBackup(ctx) }
 	}
 
 	// finalizeShutdown stops the primary server so no further writes reach the

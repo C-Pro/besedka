@@ -9,11 +9,11 @@ import (
 	"time"
 )
 
-// IncrementalOnce uploads the changes since the previous backup as an
+// DoIncrementalBackup uploads the changes since the previous backup as an
 // incremental artifact chained onto it, then flushes pending attachment
 // uploads and prunes. When the chain cannot be extended safely it promotes to
 // a full backup instead (see chainParent).
-func (s *Scheduler) IncrementalOnce(ctx context.Context) error {
+func (s *Scheduler) DoIncrementalBackup(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.incremental(ctx, false)

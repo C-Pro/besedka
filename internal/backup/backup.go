@@ -90,14 +90,8 @@ func NewScheduler(store Store, obj *objectstore.Client, prefix string, interval,
 	}
 }
 
-// Run performs backups on both cadences until ctx is cancelled. It also backs
-// up immediately on start unless the newest backup in the bucket is fresh, so
-// servers that restart more often than the interval still produce backups.
+// Run performs backups on both cadences until ctx is cancelled.
 func (s *Scheduler) Run(ctx context.Context) error {
-	if err := s.backupIfStale(ctx); err != nil {
-		slog.Error("initial database backup failed", "error", err)
-	}
-
 	full := time.NewTicker(s.interval)
 	defer full.Stop()
 
@@ -113,49 +107,21 @@ func (s *Scheduler) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-full.C:
-			if err := s.BackupOnce(ctx); err != nil {
+			if err := s.DoBackup(ctx); err != nil {
 				slog.Error("database backup failed", "error", err)
 			}
 		case <-incrC:
-			if err := s.IncrementalOnce(ctx); err != nil {
+			if err := s.DoIncrementalBackup(ctx); err != nil {
 				slog.Error("incremental database backup failed", "error", err)
 			}
 		}
 	}
 }
 
-// backupIfStale backs up on start: a full backup when the newest full is older
-// than the full interval, otherwise an incremental when the newest artifact of
-// any kind is older than the incremental interval. If listing fails it takes a
-// full backup anyway: a redundant backup is cheaper than silently having none.
-func (s *Scheduler) backupIfStale(ctx context.Context) error {
-	objs, err := s.obj.List(ctx, s.prefix)
-	if err != nil {
-		slog.Warn("could not list existing backups, backing up anyway", "error", err)
-		return s.BackupOnce(ctx)
-	}
-	var newestFull, newestAny time.Time
-	for _, o := range objs {
-		if o.LastModified.After(newestAny) {
-			newestAny = o.LastModified
-		}
-		if isFullKey(o.Key) && o.LastModified.After(newestFull) {
-			newestFull = o.LastModified
-		}
-	}
-	if s.now().Sub(newestFull) >= s.interval {
-		return s.BackupOnce(ctx)
-	}
-	if s.incrInterval > 0 && s.now().Sub(newestAny) >= s.incrInterval {
-		return s.IncrementalOnce(ctx)
-	}
-	return nil
-}
-
-// BackupOnce takes a full snapshot, encrypts it, uploads it under a
+// DoBackup takes a full snapshot, encrypts it, uploads it under a
 // timestamped key, then flushes pending attachment uploads and prunes old
 // backups beyond the retention count.
-func (s *Scheduler) BackupOnce(ctx context.Context) error {
+func (s *Scheduler) DoBackup(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.fullBackup(ctx); err != nil {
@@ -238,9 +204,9 @@ func (s *Scheduler) encryptedSnapshot() (payload, salt []byte, txid uint64, err 
 	return payload, salt, txid, nil
 }
 
-// prune retains the s.keep newest full backups together with the incrementals
-// that chain off them, deleting everything older than the oldest retained
-// full. A retained full therefore never loses incrementals that depend on it.
+// prune retains the s.keep newest full backups and only the incremental backups
+// that chain off the single newest full backup. Incremental backups for older
+// full backups are deleted, as are full backups beyond s.keep.
 func (s *Scheduler) prune(ctx context.Context) error {
 	objs, err := s.obj.List(ctx, s.prefix)
 	if err != nil {
@@ -258,16 +224,34 @@ func (s *Scheduler) prune(ctx context.Context) error {
 			fullIdx = append(fullIdx, i)
 		}
 	}
-	if len(fullIdx) <= s.keep {
+	if len(fullIdx) == 0 {
 		return nil
 	}
 
-	cutoff := fullIdx[len(fullIdx)-s.keep] // index of the oldest retained full
-	for _, key := range keys[:cutoff] {
-		if err := s.obj.Delete(ctx, key); err != nil {
-			return fmt.Errorf("failed to delete old backup %s: %w", key, err)
+	retainedFullCutoff := 0
+	if len(fullIdx) > s.keep {
+		retainedFullCutoff = fullIdx[len(fullIdx)-s.keep]
+	}
+	latestFullIdx := fullIdx[len(fullIdx)-1]
+
+	for i, key := range keys {
+		shouldDelete := false
+		if isFullKey(key) {
+			if i < retainedFullCutoff {
+				shouldDelete = true
+			}
+		} else {
+			if i < latestFullIdx {
+				shouldDelete = true
+			}
 		}
-		slog.Info("pruned old backup", "key", key)
+
+		if shouldDelete {
+			if err := s.obj.Delete(ctx, key); err != nil {
+				return fmt.Errorf("failed to delete old backup %s: %w", key, err)
+			}
+			slog.Info("pruned old backup", "key", key)
+		}
 	}
 	return nil
 }

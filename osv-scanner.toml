@@ -1,3 +1,1 @@
-[[IgnoredVulns]]
-id = "GHSA-78h2-9frx-2jm8"
-reason = "transitive test dependency via go-cmp, not used at runtime"
+# No ignored vulnerabilities

@@ -78,16 +78,16 @@ func TestIntegrationBackupAndRecover(t *testing.T) {
 	}
 
 	sched := NewScheduler(st, client, prefix, time.Hour, 10*time.Minute, 7, nil)
-	if err := sched.BackupOnce(ctx); err != nil {
-		t.Fatalf("BackupOnce: %v", err)
+	if err := sched.DoBackup(ctx); err != nil {
+		t.Fatalf("DoBackup: %v", err)
 	}
 
 	// Extend the chain with an incremental before recovering.
 	if err := st.SetConfig("motto2", "incrementals-work"); err != nil {
 		t.Fatal(err)
 	}
-	if err := sched.IncrementalOnce(ctx); err != nil {
-		t.Fatalf("IncrementalOnce: %v", err)
+	if err := sched.DoIncrementalBackup(ctx); err != nil {
+		t.Fatalf("DoIncrementalBackup: %v", err)
 	}
 	_ = st.Close()
 
@@ -142,7 +142,7 @@ func TestIntegrationWrongSecret(t *testing.T) {
 	dir := t.TempDir()
 	st, dbPath := openStorage(t, dir, "correct-secret")
 	sched := NewScheduler(st, client, prefix, time.Hour, 0, 7, nil)
-	if err := sched.BackupOnce(ctx); err != nil {
+	if err := sched.DoBackup(ctx); err != nil {
 		t.Fatal(err)
 	}
 	_ = st.Close()
@@ -179,7 +179,7 @@ func TestIntegrationRetention(t *testing.T) {
 	for i := 0; i < 4; i++ {
 		ts := base.Add(time.Duration(i) * time.Hour)
 		sched.now = func() time.Time { return ts }
-		if err := sched.BackupOnce(ctx); err != nil {
+		if err := sched.DoBackup(ctx); err != nil {
 			t.Fatal(err)
 		}
 	}

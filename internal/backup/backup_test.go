@@ -132,7 +132,7 @@ func TestBackupAndRecover(t *testing.T) {
 	}
 
 	sched := NewScheduler(st, client, "backups/", time.Hour, 0, 7, nil)
-	if err := sched.BackupOnce(context.Background()); err != nil {
+	if err := sched.DoBackup(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if fake.count("backups/") != 1 {
@@ -182,7 +182,7 @@ func TestBackupArtifactIsEncrypted(t *testing.T) {
 	defer func() { _ = st.Close() }()
 
 	sched := NewScheduler(st, client, "backups/", time.Hour, 0, 7, nil)
-	if err := sched.BackupOnce(context.Background()); err != nil {
+	if err := sched.DoBackup(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	// The artifact payload must not contain the raw bbolt magic ("\x00... LCK"
@@ -207,59 +207,7 @@ func TestBackupArtifactIsEncrypted(t *testing.T) {
 	}
 }
 
-func TestBackupIfStale(t *testing.T) {
-	dir := t.TempDir()
-	fake := newFakeS3("b")
-	client := newClient(t, fake)
-	st, _ := newStorage(t, dir, "secret")
-	defer func() { _ = st.Close() }()
 
-	// fakeS3 reports LastModified 2026-01-01T00:00:00Z for every object.
-	sched := NewScheduler(st, client, "backups/", time.Hour, 10*time.Minute, 7, nil)
-	sched.now = func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) }
-
-	// Empty bucket: takes a full backup immediately.
-	if err := sched.backupIfStale(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if got := fake.count("backups/"); got != 1 {
-		t.Fatalf("expected 1 backup, got %d", got)
-	}
-
-	// Both cadences fresh: no new backup.
-	sched.now = func() time.Time { return time.Date(2026, 1, 1, 0, 5, 0, 0, time.UTC) }
-	if err := sched.backupIfStale(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if got := fake.count("backups/"); got != 1 {
-		t.Fatalf("expected still 1 backup, got %d", got)
-	}
-
-	// Full is fresh but the incremental cadence lapsed, and there are changes to
-	// ship: an incremental is taken.
-	if err := st.SetConfig("k", "v"); err != nil {
-		t.Fatal(err)
-	}
-	sched.now = func() time.Time { return time.Date(2026, 1, 1, 0, 30, 0, 0, time.UTC) }
-	if err := sched.backupIfStale(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if got := fake.count("backups/"); got != 2 {
-		t.Fatalf("expected 2 backups, got %d", got)
-	}
-	if _, ok := fake.objects["backups/besedka-20260101T003000Z-incr.bak"]; !ok {
-		t.Error("expected an incremental artifact for a lapsed incremental cadence")
-	}
-
-	// Past the full interval: a full backup is taken.
-	sched.now = func() time.Time { return time.Date(2026, 1, 1, 2, 0, 0, 0, time.UTC) }
-	if err := sched.backupIfStale(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := fake.objects["backups/besedka-20260101T020000Z-full.bak"]; !ok {
-		t.Error("expected a full artifact past the full interval")
-	}
-}
 
 func TestRetentionPrunesOldest(t *testing.T) {
 	dir := t.TempDir()
@@ -275,7 +223,7 @@ func TestRetentionPrunesOldest(t *testing.T) {
 	for i := 0; i < 4; i++ {
 		ts := base.Add(time.Duration(i) * time.Hour)
 		sched.now = func() time.Time { return ts }
-		if err := sched.BackupOnce(context.Background()); err != nil {
+		if err := sched.DoBackup(context.Background()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -299,7 +247,7 @@ func TestRecoverWrongSecretFails(t *testing.T) {
 	st, dbPath := newStorage(t, dir, "right-secret")
 
 	sched := NewScheduler(st, client, "backups/", time.Hour, 0, 7, nil)
-	if err := sched.BackupOnce(context.Background()); err != nil {
+	if err := sched.DoBackup(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	_ = st.Close()
@@ -376,7 +324,7 @@ func TestIncrementalBackupAndRecover(t *testing.T) {
 	sched := NewScheduler(st, client, "backups/", time.Hour, 10*time.Minute, 7, nil)
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	sched.now = func() time.Time { return base }
-	if err := sched.BackupOnce(context.Background()); err != nil {
+	if err := sched.DoBackup(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -394,7 +342,7 @@ func TestIncrementalBackupAndRecover(t *testing.T) {
 		t.Fatal(err)
 	}
 	sched.now = func() time.Time { return base.Add(10 * time.Minute) }
-	if err := sched.IncrementalOnce(context.Background()); err != nil {
+	if err := sched.DoIncrementalBackup(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := fake.objects["backups/besedka-20260101T001000Z-incr.bak"]; !ok {
@@ -406,7 +354,7 @@ func TestIncrementalBackupAndRecover(t *testing.T) {
 		t.Fatal(err)
 	}
 	sched.now = func() time.Time { return base.Add(20 * time.Minute) }
-	if err := sched.IncrementalOnce(context.Background()); err != nil {
+	if err := sched.DoIncrementalBackup(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -462,7 +410,7 @@ func TestIncrementalPromotesToFullWhenNoBackups(t *testing.T) {
 	defer func() { _ = st.Close() }()
 
 	sched := NewScheduler(st, client, "backups/", time.Hour, 10*time.Minute, 7, nil)
-	if err := sched.IncrementalOnce(context.Background()); err != nil {
+	if err := sched.DoIncrementalBackup(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if got := fake.count("backups/"); got != 1 {
@@ -485,7 +433,7 @@ func TestIncrementalPromotesToFullOnDivergence(t *testing.T) {
 	sched := NewScheduler(st, client, "backups/", time.Hour, 10*time.Minute, 7, nil)
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	sched.now = func() time.Time { return base }
-	if err := sched.BackupOnce(context.Background()); err != nil {
+	if err := sched.DoBackup(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -493,7 +441,7 @@ func TestIncrementalPromotesToFullOnDivergence(t *testing.T) {
 	fake.objects["backups/besedka-20260101T000500Z-incr.bak"] = []byte("foreign")
 
 	sched.now = func() time.Time { return base.Add(10 * time.Minute) }
-	if err := sched.IncrementalOnce(context.Background()); err != nil {
+	if err := sched.DoIncrementalBackup(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	fulls := 0
@@ -518,7 +466,7 @@ func TestBrokenChainFailsRecovery(t *testing.T) {
 	sched := NewScheduler(st, client, "backups/", time.Hour, 10*time.Minute, 7, nil)
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	sched.now = func() time.Time { return base }
-	if err := sched.BackupOnce(context.Background()); err != nil {
+	if err := sched.DoBackup(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	for i, content := range []string{"world", "again"} {
@@ -527,7 +475,7 @@ func TestBrokenChainFailsRecovery(t *testing.T) {
 		}
 		delay := time.Duration(i+1) * 10 * time.Minute
 		sched.now = func() time.Time { return base.Add(delay) }
-		if err := sched.IncrementalOnce(context.Background()); err != nil {
+		if err := sched.DoIncrementalBackup(context.Background()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -595,9 +543,9 @@ func TestLegacyV1ArtifactRestores(t *testing.T) {
 	}
 }
 
-// TestPruneKeepsChains: retention counts full backups, and incrementals are
-// pruned together with the full they chain onto — never out from under it.
-func TestPruneKeepsChains(t *testing.T) {
+// TestPruneKeepsLatestIncrementalsOnly: retention counts full backups, and
+// incrementals are kept only for the latest full backup.
+func TestPruneKeepsLatestIncrementalsOnly(t *testing.T) {
 	dir := t.TempDir()
 	fake := newFakeS3("b")
 	client := newClient(t, fake)
@@ -611,6 +559,7 @@ func TestPruneKeepsChains(t *testing.T) {
 		"backups/besedka-20260102T000000Z.bak", // legacy key counts as full
 		"backups/besedka-20260102T001000Z-incr.bak",
 		"backups/besedka-20260103T000000Z-full.bak",
+		"backups/besedka-20260103T001000Z-incr.bak",
 	}
 	for _, k := range keys {
 		fake.objects[k] = []byte("x")
@@ -623,8 +572,8 @@ func TestPruneKeepsChains(t *testing.T) {
 
 	want := map[string]bool{
 		"backups/besedka-20260102T000000Z.bak":      true,
-		"backups/besedka-20260102T001000Z-incr.bak": true,
 		"backups/besedka-20260103T000000Z-full.bak": true,
+		"backups/besedka-20260103T001000Z-incr.bak": true,
 	}
 	for k := range fake.objects {
 		if !want[k] {
@@ -697,13 +646,13 @@ func TestEmptyIncrementalSkipped(t *testing.T) {
 	})
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	sched.now = func() time.Time { return base }
-	if err := sched.BackupOnce(context.Background()); err != nil {
+	if err := sched.DoBackup(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 
 	// No writes since the full backup: the incremental has nothing to ship.
 	sched.now = func() time.Time { return base.Add(10 * time.Minute) }
-	if err := sched.IncrementalOnce(context.Background()); err != nil {
+	if err := sched.DoIncrementalBackup(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if got := fake.count("backups/"); got != 1 {
@@ -734,7 +683,7 @@ func TestAttachmentFlushOrdering(t *testing.T) {
 	})
 
 	// Scheduled backup: flush failure is logged, not returned.
-	if err := sched.BackupOnce(context.Background()); err != nil {
+	if err := sched.DoBackup(context.Background()); err != nil {
 		t.Fatalf("scheduled backup must tolerate a flush failure, got %v", err)
 	}
 	if uploadedBeforeFlush != 1 {
