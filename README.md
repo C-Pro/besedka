@@ -88,8 +88,9 @@ Besedka is configured entirely via environment variables.
 | `S3_ACCESS_KEY` | Access key for the object storage service. | |
 | `S3_SECRET_KEY` | Secret key for the object storage service. | |
 | `S3_PATH_STYLE` | Use path-style addressing (`true` for MinIO/self-hosted; `false` for AWS virtual-host). | `true` |
-| `S3_BACKUP_INTERVAL` | How often the database is backed up to object storage. | `24h` |
-| `S3_BACKUP_KEEP` | Number of most-recent backups to retain (older ones are pruned). | `7` |
+| `S3_BACKUP_INTERVAL` | How often a **full** database backup is taken. | `24h` |
+| `S3_BACKUP_INCREMENTAL_INTERVAL` | How often an **incremental** backup (changes since the previous backup) is taken. Must be shorter than `S3_BACKUP_INTERVAL`; `0` disables incrementals. | `15m` |
+| `S3_BACKUP_KEEP` | Number of most-recent **full** backups to retain; each is pruned together with the incrementals that chain onto it. | `7` |
 
 ### Object storage (S3-compatible) backup & mirroring
 
@@ -97,10 +98,23 @@ Object storage is optional and disabled by default. Leave `S3_BUCKET` and
 `S3_ENDPOINT` empty to keep it off. When both are set, Besedka:
 
 - mirrors every uploaded file to the bucket,
-- backs up the database on the `S3_BACKUP_INTERVAL` schedule (and via the
-  `--backup` / `--shutdown` CLI commands),
-- recovers a missing database from the newest backup on startup, and
+- takes a full database backup on the `S3_BACKUP_INTERVAL` schedule (and via
+  the `--backup` CLI command),
+- takes an incremental backup — a small artifact holding only the records that
+  changed since the previous backup — on the `S3_BACKUP_INCREMENTAL_INTERVAL`
+  schedule and on shutdown (skipped when nothing changed since the last backup),
+- recovers a missing database on startup from the newest full backup plus the
+  incrementals taken after it, and
 - fetches files from the bucket when they are missing locally.
+
+Full backups are stored as `besedka-<timestamp>-full.bak`, incrementals as
+`besedka-<timestamp>-incr.bak`; backups made by older versions
+(`besedka-<timestamp>.bak`) are still recognized as full backups. During every
+backup the database artifact is uploaded first and any not-yet-mirrored
+attachment files after it, so messages are never less durable than the files
+they reference. The backup prefix assumes a single server instance; if another
+writer touches it, Besedka detects the divergence and falls back to a full
+backup.
 
 Backups and mirrored files are encrypted at rest using `AUTH_SECRET`, so it must
 be set when object storage is enabled — startup fails otherwise. Access and
@@ -125,7 +139,7 @@ server. `AUTH_SECRET` is not required for CLI commands.
 | `--delete-user <username>` | Delete a user. Prompts for confirmation unless `--yes` is also given. |
 | `--reset-password <username>` | Reset a user's password and print a new setup link. |
 | `--backup` | Trigger an out-of-schedule full backup **without** stopping the server. Requires S3 backup to be enabled. |
-| `--shutdown` | Stop the primary chat server, take a final full backup, then stop the process (see below). |
+| `--shutdown` | Stop the primary chat server, take a final backup, then stop the process (see below). |
 
 Users are identified by username for `--delete-user` and `--reset-password`; the
 name is resolved to the matching non-deleted user server-side of the call.
@@ -156,7 +170,11 @@ loss. It runs, in order:
 
 1. Immediately stop the primary (chat) HTTP server so no further writes reach the
    database.
-2. Take a full backup to object storage (only when S3 backup is enabled).
+2. Take a final backup to object storage (only when S3 backup is enabled). The
+   final backup is incremental whenever a healthy backup chain already exists —
+   it uploads only the recent changes, fast enough to fit a cloud spot
+   instance's termination grace period — and a full backup otherwise. Pending
+   attachment uploads are flushed right after the database artifact.
 3. Stop the process.
 
 The command blocks until the backup completes, so a successful return guarantees
@@ -165,6 +183,11 @@ retries, the process **exits with a non-zero code** (and the command reports the
 error) instead of exiting cleanly — signalling that the shutdown was *not* safe
 and the service should not be treated as migrated. When S3 backup is disabled,
 `--shutdown` simply stops the process cleanly with no backup step.
+
+A normal termination signal (`SIGTERM` / `SIGINT`, e.g. `Ctrl-C` or a container
+stop) runs the **same** sequence: the primary server is stopped, a final backup
+is taken (when S3 is enabled, with the same retries), and only then does the
+process exit — with a non-zero code if that final backup fails.
 
 ## Encryption
 

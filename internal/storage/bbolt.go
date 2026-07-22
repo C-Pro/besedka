@@ -30,6 +30,9 @@ var (
 	bucketLastSeen           = []byte("last_seen")
 	bucketPasskeyCredentials = []byte("passkey_credentials")
 	bucketUserSettings       = []byte("user_settings")
+	// bucketBackupDirty journals which keys changed since the last backup so
+	// incremental backups can ship only the delta. See dirty.go.
+	bucketBackupDirty = []byte("backup_dirty")
 )
 
 type BboltStorage struct {
@@ -81,6 +84,9 @@ func NewBboltStorage(path string, key []byte, fs filestore.FileStore) (*BboltSto
 		if _, err := tx.CreateBucketIfNotExists(bucketUserSettings); err != nil {
 			return err
 		}
+		if _, err := tx.CreateBucketIfNotExists(bucketBackupDirty); err != nil {
+			return err
+		}
 		return nil
 	})
 	if err != nil {
@@ -115,7 +121,7 @@ func NewBboltStorage(path string, key []byte, fs filestore.FileStore) (*BboltSto
 			_ = db.Close()
 			return nil, fmt.Errorf("failed to generate salt: %w", err)
 		}
-		if err := bs.SetConfig("salt", base64.StdEncoding.EncodeToString(salt)); err != nil {
+		if err := bs.setConfigRaw("salt", base64.StdEncoding.EncodeToString(salt)); err != nil {
 			_ = db.Close()
 			return nil, fmt.Errorf("failed to persist new salt: %w", err)
 		}
@@ -173,6 +179,16 @@ func (s *BboltStorage) GetConfig(key string) (string, error) {
 func (s *BboltStorage) SetConfig(key string, value string) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketSettings)
+		return dirtyPut(tx, b, [][]byte{bucketSettings}, []byte(key), []byte(value))
+	})
+}
+
+// setConfigRaw sets a config value without journaling it for incremental
+// backups. Only for backup bookkeeping (salt, backup_state): the chain state
+// must not dirty itself, or every backup would beget another.
+func (s *BboltStorage) setConfigRaw(key string, value string) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketSettings)
 		return b.Put([]byte(key), []byte(value))
 	})
 }
@@ -203,7 +219,7 @@ func (s *BboltStorage) UpsertCredentials(credentials auth.UserCredentials) error
 			return fmt.Errorf("failed to encrypt user record: %w", err)
 		}
 
-		return b.Put(dbUser.Key(), data)
+		return dirtyPut(tx, b, [][]byte{bucketUsers}, dbUser.Key(), data)
 	})
 }
 
@@ -223,7 +239,7 @@ func (s *BboltStorage) UpsertUserSettings(userID string, settings models.UserSet
 			return fmt.Errorf("failed to encrypt user settings: %w", err)
 		}
 
-		return b.Put(dbSettings.Key(), data)
+		return dirtyPut(tx, b, [][]byte{bucketUserSettings}, dbSettings.Key(), data)
 	})
 }
 
@@ -344,7 +360,7 @@ func (s *BboltStorage) UpsertChat(chat models.Chat) error {
 		// and sequence number can be inferred by number of messages anyway.
 		// Encrypting chat metadata would require decrypting/encrypting it for every message upsert,
 		// which is too much fuss.
-		return b.Put(dbChat.Key(), data)
+		return dirtyPut(tx, b, [][]byte{bucketChats}, dbChat.Key(), data)
 	})
 }
 
@@ -415,7 +431,7 @@ func (s *BboltStorage) UpsertMessage(message models.Message) error {
 			return fmt.Errorf("failed to encrypt message record: %w", err)
 		}
 
-		if err := chatBucket.Put(dbMessage.Key(), data); err != nil {
+		if err := dirtyPut(tx, chatBucket, [][]byte{bucketMessages, []byte(message.ChatID)}, dbMessage.Key(), data); err != nil {
 			return fmt.Errorf("failed to put message: %w", err)
 		}
 
@@ -440,7 +456,7 @@ func (s *BboltStorage) UpsertMessage(message models.Message) error {
 			if err != nil {
 				return err
 			}
-			if err := chatBucketStats.Put(chatKey, newData); err != nil {
+			if err := dirtyPut(tx, chatBucketStats, [][]byte{bucketChats}, chatKey, newData); err != nil {
 				return err
 			}
 		}
@@ -518,7 +534,7 @@ func (s *BboltStorage) UpsertToken(userID string, tokenHash string) error {
 			return fmt.Errorf("failed to encrypt token record: %w", err)
 		}
 		// Key is now tokenHash
-		return b.Put(dbToken.Key(), data)
+		return dirtyPut(tx, b, [][]byte{bucketTokensV2}, dbToken.Key(), data)
 	})
 }
 
@@ -526,7 +542,7 @@ func (s *BboltStorage) UpsertToken(userID string, tokenHash string) error {
 func (s *BboltStorage) DeleteToken(tokenHash string) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketTokensV2)
-		return b.Delete([]byte(tokenHash))
+		return dirtyDelete(tx, b, [][]byte{bucketTokensV2}, []byte(tokenHash))
 	})
 }
 
@@ -569,14 +585,14 @@ func (s *BboltStorage) UpsertRegistrationToken(userID string, token string) erro
 		}
 
 		// Use UserID as key
-		return b.Put([]byte(userID), data)
+		return dirtyPut(tx, b, [][]byte{bucketRegistrationTokens}, []byte(userID), data)
 	})
 }
 
 func (s *BboltStorage) DeleteRegistrationToken(userID string) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketRegistrationTokens)
-		return b.Delete([]byte(userID))
+		return dirtyDelete(tx, b, [][]byte{bucketRegistrationTokens}, []byte(userID))
 	})
 }
 
@@ -643,7 +659,7 @@ func (s *BboltStorage) SaveVAPIDKeys(privateKey, publicKey string) error {
 			return fmt.Errorf("failed to encrypt vapid keys: %w", err)
 		}
 
-		return b.Put(keys.Key(), data)
+		return dirtyPut(tx, b, [][]byte{bucketVAPIDKeys}, keys.Key(), data)
 	})
 }
 
@@ -671,7 +687,7 @@ func (s *BboltStorage) UpsertPushSubscription(userID string, endpoint string, su
 			return fmt.Errorf("failed to encrypt push subscription: %w", err)
 		}
 
-		return userBucket.Put(dbSub.Key(), data)
+		return dirtyPut(tx, userBucket, [][]byte{bucketPushSubscriptions, []byte(userID)}, dbSub.Key(), data)
 	})
 }
 
@@ -711,7 +727,7 @@ func (s *BboltStorage) DeletePushSubscription(userID string, endpoint string) er
 		if userBucket == nil {
 			return nil
 		}
-		return userBucket.Delete([]byte(endpoint))
+		return dirtyDelete(tx, userBucket, [][]byte{bucketPushSubscriptions, []byte(userID)}, []byte(endpoint))
 	})
 }
 
@@ -732,7 +748,7 @@ func (s *BboltStorage) SaveLastSeenBatch(batch []models.LastSeenEntry) error {
 			if err != nil {
 				return err
 			}
-			if err := b.Put(dbLS.Key(), val); err != nil {
+			if err := dirtyPut(tx, b, [][]byte{bucketLastSeen}, dbLS.Key(), val); err != nil {
 				return err
 			}
 		}
@@ -797,7 +813,7 @@ func (s *BboltStorage) UpsertPasskey(cred auth.Passkey) error {
 			return err
 		}
 
-		return userBucket.Put(dbCred.Key(), data)
+		return dirtyPut(tx, userBucket, [][]byte{bucketPasskeyCredentials, []byte(cred.UserID)}, dbCred.Key(), data)
 	})
 }
 
@@ -860,7 +876,7 @@ func (s *BboltStorage) DeletePasskey(userID string, credentialID []byte) error {
 			return nil
 		}
 
-		return userBucket.Delete(credentialID)
+		return dirtyDelete(tx, userBucket, [][]byte{bucketPasskeyCredentials, []byte(userID)}, credentialID)
 	})
 }
 
@@ -872,7 +888,7 @@ func (s *BboltStorage) DeleteAllPasskeys(userID string) error {
 		}
 
 		if mainBucket.Bucket([]byte(userID)) != nil {
-			return mainBucket.DeleteBucket([]byte(userID))
+			return dirtyDeleteBucket(tx, mainBucket, [][]byte{bucketPasskeyCredentials, []byte(userID)})
 		}
 		return nil
 	})

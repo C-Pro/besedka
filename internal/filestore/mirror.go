@@ -3,6 +3,7 @@ package filestore
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -11,6 +12,8 @@ import (
 	"time"
 
 	"besedka/internal/objectstore"
+
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -168,24 +171,85 @@ func (m *MirrorFileStore) enqueue(hash string) {
 func (m *MirrorFileStore) upload(ctx context.Context, hash string) {
 	m.clearInflight(hash)
 
+	if err := m.uploadHash(ctx, hash); err != nil {
+		if ctx.Err() == nil {
+			slog.Error("mirror: failed to upload blob to object storage", "hash", hash, "error", err)
+		}
+	}
+}
+
+// uploadHash reads a local blob and uploads it to object storage.
+func (m *MirrorFileStore) uploadHash(ctx context.Context, hash string) error {
 	rc, err := m.local.Get(hash)
 	if err != nil {
-		slog.Error("mirror: failed to read local blob for upload", "hash", hash, "error", err)
-		return
+		return fmt.Errorf("read local blob: %w", err)
 	}
 	defer func() { _ = rc.Close() }()
 
 	body, size, err := uploadBody(rc)
 	if err != nil {
-		slog.Error("mirror: failed to read local blob for upload", "hash", hash, "error", err)
-		return
+		return fmt.Errorf("read local blob: %w", err)
 	}
 
-	if err := m.obj.Put(ctx, m.prefix+hash, body, size); err != nil {
-		if ctx.Err() == nil {
-			slog.Error("mirror: failed to upload blob to object storage", "hash", hash, "error", err)
-		}
+	return m.obj.Put(ctx, m.prefix+hash, body, size)
+}
+
+// Flush synchronously uploads every local blob missing from object storage and
+// reports any failure, unlike the fire-and-forget queue and backfill. Backups
+// call it after the database artifact is uploaded, so messages are never less
+// durable than the attachments they reference. Racing the background workers
+// is harmless: blobs are content-addressed, so a duplicate upload writes the
+// same bytes to the same key.
+func (m *MirrorFileStore) Flush(ctx context.Context) error {
+	walker, ok := m.local.(hashWalker)
+	if !ok {
+		return nil
 	}
+
+	objs, err := m.obj.List(ctx, m.prefix)
+	if err != nil {
+		return fmt.Errorf("mirror flush: failed to list object storage: %w", err)
+	}
+	existing := make(map[string]struct{}, len(objs))
+	for _, o := range objs {
+		existing[strings.TrimPrefix(o.Key, m.prefix)] = struct{}{}
+	}
+
+	var missing []string
+	if err := walker.Walk(func(hash string) error {
+		if _, ok := existing[hash]; !ok {
+			missing = append(missing, hash)
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("mirror flush: failed to walk local files: %w", err)
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+
+	var (
+		g    errgroup.Group
+		mu   sync.Mutex
+		errs []error
+	)
+	g.SetLimit(mirrorWorkers)
+	for _, hash := range missing {
+		g.Go(func() error {
+			if err := m.uploadHash(ctx, hash); err != nil {
+				mu.Lock()
+				errs = append(errs, fmt.Errorf("blob %s: %w", hash, err))
+				mu.Unlock()
+			}
+			return nil
+		})
+	}
+	_ = g.Wait()
+	if len(errs) > 0 {
+		return fmt.Errorf("mirror flush: %w", errors.Join(errs...))
+	}
+	slog.Info("mirror flush uploaded pending files", "count", len(missing))
+	return nil
 }
 
 // uploadBody returns r and its size directly when r is seekable (a local

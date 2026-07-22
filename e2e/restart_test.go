@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/playwright-community/playwright-go"
+	"github.com/mxschmitt/playwright-go"
 	"github.com/stretchr/testify/require"
 )
 
@@ -142,6 +142,7 @@ func TestE2ERestartRecovery(t *testing.T) {
 
 	// C. Bob logs in using recovered TOTP
 	t.Log("Logging Bob in...")
+	time.Sleep(time.Duration(30-time.Now().Unix()%30) * time.Second)
 	bobRestartContext := createBrowserContext(t, browser)
 	bobRestartPage, err := bobRestartContext.NewPage()
 	require.NoError(t, err)
@@ -159,15 +160,14 @@ func TestE2ERestartRecovery(t *testing.T) {
 	err = bobRestartPage.Locator("#login-btn").Click()
 	require.NoError(t, err)
 
-	require.Eventually(t, func() bool {
-		errTxt, _ := bobRestartPage.Locator("#error-message").InnerText()
-		isVisible, _ := bobRestartPage.Locator("#error-message").IsVisible()
-		if errTxt != "" && isVisible {
-			t.Logf("Bob login error-message: %s", errTxt)
-		}
-		visible, _ := bobRestartPage.Locator(".app-layout").IsVisible()
-		return visible
-	}, 10*time.Second, 200*time.Millisecond, "Bob should be able to log in")
+	err = bobRestartPage.Locator(".app-layout").WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	})
+	if err != nil {
+		bobRestartPage.Screenshot(playwright.PageScreenshotOptions{Path: playwright.String("../debug_bob.png")})
+		t.Fatalf("Bob failed to log in: %v", err)
+	}
 
 	// Verify Bob sees DM from Alice
 	err = bobRestartPage.Locator(fmt.Sprintf(".chat-item:has-text(%q)", "Alice Smith")).Click()

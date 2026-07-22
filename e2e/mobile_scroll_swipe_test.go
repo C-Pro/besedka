@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/playwright-community/playwright-go"
+	"github.com/mxschmitt/playwright-go"
 	"github.com/stretchr/testify/require"
 )
 
@@ -69,7 +69,7 @@ func TestE2EMobileScrollSwipe(t *testing.T) {
 	t.Log("Sending 10 messages with images...")
 	for i := 0; i < 10; i++ {
 		// Attach image
-		err = page.Locator("#file-input").SetInputFiles([]string{"../static/screenshot_mobile.webp"})
+		err = page.Locator("#file-input").SetInputFiles([]string{"../static/screenshot_mobile.png"})
 		require.NoError(t, err)
 
 		// Wait for attached indicator
