@@ -69,3 +69,25 @@ func ValidateUsername(username string) error {
 	}
 	return nil
 }
+
+var mentionRegex = regexp.MustCompile(`@([a-zA-Z0-9._-]+)`)
+
+// ExtractMentions extracts all @username mentions from a message string.
+func ExtractMentions(message string) []string {
+	matches := mentionRegex.FindAllStringSubmatch(message, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(matches))
+	mentions := make([]string, 0, len(matches))
+	for _, m := range matches {
+		if len(m) > 1 {
+			username := m[1]
+			if _, exists := seen[username]; !exists {
+				seen[username] = struct{}{}
+				mentions = append(mentions, username)
+			}
+		}
+	}
+	return mentions
+}

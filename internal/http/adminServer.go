@@ -102,6 +102,7 @@ func NewAdminServer(cfg *config.Config, authService *auth.AuthService, hub *ws.H
 	mux.HandleFunc("POST /api/users", withBasicAuth(adminHandler.AddUserHandler))
 	mux.HandleFunc("DELETE /api/users", withBasicAuth(adminHandler.DeleteUserHandler))
 	mux.HandleFunc("POST /api/users/reset-password", withBasicAuth(adminHandler.ResetUserPasswordHandler))
+	mux.HandleFunc("POST /api/users/reset-key", withBasicAuth(adminHandler.ResetAPIKeyHandler))
 
 	// Server-control handlers
 	mux.HandleFunc("POST /api/backup", withBasicAuth(s.handleBackup))

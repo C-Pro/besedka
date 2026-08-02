@@ -14,6 +14,7 @@ type MockStorage struct {
 	// tokens maps TokenHash -> UserID
 	tokens    map[string]string
 	regTokens map[string]string
+	apiKeys   map[string]string
 	passkeys  []Passkey
 	settings  map[string]models.UserSettings
 }
@@ -82,6 +83,28 @@ func (m *MockStorage) MigrateTokens(hasher func(string) string) error {
 
 func (m *MockStorage) ListTokens() (map[string]string, error) {
 	return m.tokens, nil
+}
+
+func (m *MockStorage) UpsertAPIKey(userID string, keyHash string) error {
+	if m.apiKeys == nil {
+		m.apiKeys = make(map[string]string)
+	}
+	m.apiKeys[keyHash] = userID
+	return nil
+}
+
+func (m *MockStorage) DeleteAPIKey(keyHash string) error {
+	if m.apiKeys != nil {
+		delete(m.apiKeys, keyHash)
+	}
+	return nil
+}
+
+func (m *MockStorage) ListAPIKeys() (map[string]string, error) {
+	if m.apiKeys == nil {
+		m.apiKeys = make(map[string]string)
+	}
+	return m.apiKeys, nil
 }
 
 func (m *MockStorage) UpsertRegistrationToken(userID string, token string) error {

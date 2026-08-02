@@ -35,13 +35,17 @@ import (
 // cliOptions holds the parsed CLI-mode flags. When any is set, run() dispatches
 // to the matching command and returns instead of booting the servers.
 type cliOptions struct {
-	addUser       string
-	listUsers     bool
-	deleteUser    string
-	resetPassword string
-	backup        bool
-	shutdown      bool
-	yes           bool
+	addUser        string
+	displayName    string
+	userType       string
+	botPermissions string
+	target         string
+	listUsers      bool
+	deleteUser     string
+	resetPassword  string
+	backup         bool
+	shutdown       bool
+	yes            bool
 }
 
 func run(ctx context.Context, cli cliOptions) error {
@@ -52,7 +56,7 @@ func run(ctx context.Context, cli cliOptions) error {
 
 	switch {
 	case cli.addUser != "":
-		return commands.AddUser(cli.addUser, cfg)
+		return commands.AddUser(cli.addUser, cli.displayName, cli.userType, cli.botPermissions, cli.target, cfg)
 	case cli.listUsers:
 		return commands.ListUsers(cfg)
 	case cli.deleteUser != "":
@@ -295,6 +299,11 @@ func run(ctx context.Context, cli cliOptions) error {
 
 func main() {
 	addUser := flag.String("add-user", "", "Create a user (prints a registration setup link)")
+	displayName := flag.String("display-name", "", "Display name for user, bot, or webhook")
+	userType := flag.String("type", "user", "User type (user, bot, webhook)")
+	botPermissions := flag.String("bot-permissions", "read_all,write", "Bot permissions comma-separated (read_mentions, read_all, write)")
+	target := flag.String("target", "townhall", "Target for webhook ('townhall' or a target user's username)")
+	targetChat := flag.String("target-chat", "", "Deprecated alias for --target")
 	listUsers := flag.Bool("list-users", false, "List all users with their statuses")
 	deleteUser := flag.String("delete-user", "", "Delete a user by username")
 	resetPassword := flag.String("reset-password", "", "Reset a user's password by username (prints a new setup link)")
@@ -303,14 +312,23 @@ func main() {
 	yes := flag.Bool("yes", false, "Skip confirmation prompts (e.g. for --delete-user)")
 	flag.Parse()
 
+	targetVal := *target
+	if targetVal == "townhall" && *targetChat != "" {
+		targetVal = *targetChat
+	}
+
 	cli := cliOptions{
-		addUser:       *addUser,
-		listUsers:     *listUsers,
-		deleteUser:    *deleteUser,
-		resetPassword: *resetPassword,
-		backup:        *backupFlag,
-		shutdown:      *shutdown,
-		yes:           *yes,
+		addUser:        *addUser,
+		displayName:    *displayName,
+		userType:       *userType,
+		botPermissions: *botPermissions,
+		target:         targetVal,
+		listUsers:      *listUsers,
+		deleteUser:     *deleteUser,
+		resetPassword:  *resetPassword,
+		backup:         *backupFlag,
+		shutdown:       *shutdown,
+		yes:            *yes,
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

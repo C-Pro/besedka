@@ -98,3 +98,30 @@ func TestFormatMessage(t *testing.T) {
 		})
 	}
 }
+
+func TestExtractMentions(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []string
+	}{
+		{"No mentions", "Hello world!", nil},
+		{"Single mention", "Hello @alice!", []string{"alice"}},
+		{"Multiple mentions", "Hey @alice and @bob_123, look at @charlie", []string{"alice", "bob_123", "charlie"}},
+		{"Duplicate mentions", "Ping @alice and @alice again", []string{"alice"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ExtractMentions(tt.input)
+			if len(got) != len(tt.expected) {
+				t.Fatalf("ExtractMentions() = %v, want %v", got, tt.expected)
+			}
+			for i := range got {
+				if got[i] != tt.expected[i] {
+					t.Errorf("ExtractMentions()[%d] = %v, want %v", i, got[i], tt.expected[i])
+				}
+			}
+		})
+	}
+}

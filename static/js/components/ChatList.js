@@ -48,7 +48,19 @@ export function createChatList(container) {
         renderAvatar(avatar, chat, state);
 
         const nameEl = el.querySelector('.chat-name');
-        nameEl.textContent = chat.name;
+        nameEl.replaceChildren();
+        nameEl.appendChild(document.createTextNode(chat.name));
+        if (chat.isDm) {
+            const otherUserId = chat.id.replace('dm_', '').split('_').find(id => id !== state.currentUser?.id);
+            const otherUser = (state.users || []).find(u => u.id === otherUserId);
+            if (otherUser && (otherUser.type === 'bot' || otherUser.type === 'webhook')) {
+                const b = document.createElement('span');
+                b.className = `user-type-badge ${otherUser.type}-badge`;
+                b.textContent = otherUser.type === 'bot' ? ' 🤖' : ' ⚡';
+                b.title = otherUser.type === 'bot' ? 'Bot' : 'Webhook';
+                nameEl.appendChild(b);
+            }
+        }
 
         const preview = el.querySelector('.chat-preview');
         preview.replaceChildren();

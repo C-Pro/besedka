@@ -5,8 +5,10 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 
 	"besedka/internal/auth"
+	"besedka/internal/models"
 
 	"github.com/gorilla/websocket"
 )
@@ -26,32 +28,71 @@ func NewServer(auth *auth.AuthService, hub *Hub) *Server {
 }
 
 func (s *Server) HandleConnections(w http.ResponseWriter, r *http.Request) {
-	token := r.Header.Get("token")
-	if token == "" {
-		if c, err := r.Cookie("token"); err == nil {
-			token = c.Value
+	var userID string
+	authHeader := r.Header.Get("Authorization")
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		apiKey := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+		if u, err := s.auth.GetUserByAPIKey(apiKey); err == nil {
+			if u.Type == models.UserTypeWebhook {
+				http.Error(w, "Webhooks cannot connect via WebSocket", http.StatusForbidden)
+				return
+			}
+			userID = u.ID
 		}
 	}
 
-	userID, _, err := s.auth.GetUserID(token)
-	if err != nil {
-		slog.Warn("unauthorized websocket connection attempt")
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+	token := r.Header.Get("token")
+	if userID == "" {
+		if token == "" {
+			if c, err := r.Cookie("token"); err == nil {
+				token = c.Value
+			}
+		}
+		if token == "" {
+			token = r.URL.Query().Get("token")
+		}
+
+		if strings.HasPrefix(token, "bsk_") {
+			if u, err := s.auth.GetUserByAPIKey(token); err == nil {
+				if u.Type == models.UserTypeWebhook {
+					http.Error(w, "Webhooks cannot connect via WebSocket", http.StatusForbidden)
+					return
+				}
+				userID = u.ID
+			}
+		}
+
+		if userID == "" {
+			id, _, err := s.auth.GetUserID(token)
+			if err != nil {
+				slog.Warn("unauthorized websocket connection attempt")
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+			userID = id
+		}
+	}
+
+	u, err := s.auth.GetUser(userID)
+	if err == nil && u.Type == models.UserTypeWebhook {
+		http.Error(w, "Webhooks cannot connect via WebSocket", http.StatusForbidden)
 		return
 	}
 
 	// Force refresh token/session in-memory and cookie on upgrade
 	var responseHeader http.Header
-	if expiry, err := s.auth.RefreshToken(token); err == nil {
-		responseHeader = http.Header{}
-		responseHeader.Add("Set-Cookie", (&http.Cookie{
-			Name:     "token",
-			Value:    token,
-			HttpOnly: true,
-			Secure:   true,
-			Path:     "/",
-			Expires:  expiry,
-		}).String())
+	if token != "" {
+		if expiry, err := s.auth.RefreshToken(token); err == nil {
+			responseHeader = http.Header{}
+			responseHeader.Add("Set-Cookie", (&http.Cookie{
+				Name:     "token",
+				Value:    token,
+				HttpOnly: true,
+				Secure:   true,
+				Path:     "/",
+				Expires:  expiry,
+			}).String())
+		}
 	}
 
 	// nosemgrep

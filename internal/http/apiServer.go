@@ -11,6 +11,7 @@ import (
 	"besedka/internal/api"
 	"besedka/internal/auth"
 	"besedka/internal/config"
+	"besedka/internal/models"
 	"besedka/internal/push"
 	"besedka/internal/storage"
 	"besedka/internal/ws"
@@ -43,20 +44,21 @@ func NewAPIServer(cfg *config.Config, authService *auth.AuthService, hub *ws.Hub
 	mux.HandleFunc("POST /api/logoff", api.RequireSameOrigin(apiHandlers.LogoffHandler))
 	mux.HandleFunc("POST /api/register", api.RequireSameOrigin(apiHandlers.RegisterHandler))
 	mux.HandleFunc("GET /api/register-info", apiHandlers.RegisterInfoHandler)
-	mux.HandleFunc("POST /api/reset-password", api.RequireSameOrigin(apiHandlers.RequireAuth(apiHandlers.ResetPasswordHandler)))
+	mux.HandleFunc("POST /api/reset-password", apiHandlers.RequireAuth(api.RequireSameOrigin(apiHandlers.ResetPasswordHandler)))
 	mux.HandleFunc("GET /api/users", apiHandlers.RequireAuth(apiHandlers.UsersHandler))
 	mux.HandleFunc("GET /api/chats", apiHandlers.RequireAuth(apiHandlers.ChatsHandler))
-	mux.HandleFunc("GET /api/chats/{id}/messages", apiHandlers.RequireAuth(apiHandlers.ChatMessagesHandler))
-	mux.HandleFunc("POST /api/chats/{id}/messages", api.RequireSameOrigin(apiHandlers.RequireAuth(apiHandlers.SendMessageHandler)))
+	mux.HandleFunc("GET /api/chats/{id}/messages", apiHandlers.RequireAuth(api.RequireUserTypes(apiHandlers.ChatMessagesHandler, models.UserTypeHuman, models.UserTypeBot)))
+	mux.HandleFunc("POST /api/chats/{id}/messages", apiHandlers.RequireAuth(api.RequireSameOrigin(api.RequireUserTypes(apiHandlers.SendMessageHandler, models.UserTypeHuman, models.UserTypeBot))))
 	mux.HandleFunc("GET /api/me", apiHandlers.RequireAuth(apiHandlers.MeHandler))
-	mux.HandleFunc("POST /api/users/me/avatar", api.RequireSameOrigin(apiHandlers.RequireAuth(apiHandlers.UploadAvatarHandler)))
-	mux.HandleFunc("POST /api/users/me/display-name", api.RequireSameOrigin(apiHandlers.RequireAuth(apiHandlers.UpdateDisplayNameHandler)))
+	mux.HandleFunc("POST /api/users/me/avatar", apiHandlers.RequireAuth(api.RequireSameOrigin(apiHandlers.UploadAvatarHandler)))
+	mux.HandleFunc("POST /api/users/me/display-name", apiHandlers.RequireAuth(api.RequireSameOrigin(apiHandlers.UpdateDisplayNameHandler)))
 	mux.HandleFunc("GET /api/users/me/settings", apiHandlers.RequireAuth(apiHandlers.GetUserSettingsHandler))
-	mux.HandleFunc("POST /api/users/me/settings", api.RequireSameOrigin(apiHandlers.RequireAuth(apiHandlers.UpdateUserSettingsHandler)))
-	mux.HandleFunc("POST /api/upload/image", api.RequireSameOrigin(apiHandlers.RequireAuth(apiHandlers.UploadImageHandler)))
-	mux.HandleFunc("POST /api/upload/file", api.RequireSameOrigin(apiHandlers.RequireAuth(apiHandlers.UploadFileHandler)))
+	mux.HandleFunc("POST /api/users/me/settings", apiHandlers.RequireAuth(api.RequireSameOrigin(apiHandlers.UpdateUserSettingsHandler)))
+	mux.HandleFunc("POST /api/upload/image", apiHandlers.RequireAuth(api.RequireSameOrigin(apiHandlers.UploadImageHandler)))
+	mux.HandleFunc("POST /api/upload/file", apiHandlers.RequireAuth(api.RequireSameOrigin(apiHandlers.UploadFileHandler)))
 	mux.HandleFunc("GET /api/images/{id}", apiHandlers.RequireAuth(apiHandlers.GetImageHandler))
 	mux.HandleFunc("GET /api/files/{id}", apiHandlers.RequireAuth(apiHandlers.GetFileHandler))
+	mux.HandleFunc("POST /api/webhook", apiHandlers.RequireAuth(api.RequireSameOrigin(api.RequireUserTypes(apiHandlers.WebhookHandler, models.UserTypeWebhook))))
 
 	// Push notification endpoints
 	mux.HandleFunc("GET /api/push/vapidPublicKey", apiHandlers.RequireAuth(apiHandlers.PushVAPIDPublicKeyHandler))

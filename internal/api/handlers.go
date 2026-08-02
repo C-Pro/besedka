@@ -124,15 +124,54 @@ func (a *API) getToken(r *http.Request) string {
 
 type contextKey string
 
-const userIDKey = contextKey("userID")
+const (
+	userKey       = contextKey("user")
+	apiKeyAuthKey = contextKey("apiKeyAuth")
+)
 
-func UserIDFromContext(ctx context.Context) string {
-	userID, _ := ctx.Value(userIDKey).(string)
-	return userID
+// UserFromContext returns the authenticated models.User from context.
+func UserFromContext(ctx context.Context) (models.User, bool) {
+	u, ok := ctx.Value(userKey).(models.User)
+	return u, ok
+}
+
+// RequireUserTypes restricts endpoint access to specified UserTypes.
+func RequireUserTypes(next http.HandlerFunc, allowedTypes ...models.UserType) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, ok := UserFromContext(r.Context())
+		if !ok {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		for _, t := range allowedTypes {
+			if user.Type == t {
+				next(w, r)
+				return
+			}
+		}
+		http.Error(w, "Forbidden", http.StatusForbidden)
+	}
 }
 
 func (a *API) RequireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		authHeader := r.Header.Get("Authorization")
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			apiKey := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+			if apiKey != "" {
+				user, err := a.auth.GetUserByAPIKey(apiKey)
+				if err == nil {
+					if user.Type == "" {
+						user.Type = models.UserTypeHuman
+					}
+					ctx := context.WithValue(r.Context(), userKey, user)
+					ctx = context.WithValue(ctx, apiKeyAuthKey, true)
+					next(w, r.WithContext(ctx))
+					return
+				}
+			}
+		}
+
 		token := a.getToken(r)
 		if token == "" {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
@@ -143,6 +182,15 @@ func (a *API) RequireAuth(next http.HandlerFunc) http.HandlerFunc {
 		if err != nil {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
+		}
+
+		user, err := a.auth.GetUser(userID)
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if user.Type == "" {
+			user.Type = models.UserTypeHuman
 		}
 
 		if cookie, err := r.Cookie("token"); err == nil && cookie.Value == token && !expiry.IsZero() {
@@ -156,7 +204,7 @@ func (a *API) RequireAuth(next http.HandlerFunc) http.HandlerFunc {
 			})
 		}
 
-		ctx := context.WithValue(r.Context(), userIDKey, userID)
+		ctx := context.WithValue(r.Context(), userKey, user)
 		next(w, r.WithContext(ctx))
 	}
 }
@@ -266,9 +314,13 @@ func (a *API) UsersHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) ChatsHandler(w http.ResponseWriter, r *http.Request) {
-	userID := UserIDFromContext(r.Context())
+	user, ok := UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
-	chats := a.hub.GetChats(userID)
+	chats := a.hub.GetChats(user.ID)
 
 	// Escape output
 	for i := range chats {
@@ -319,9 +371,24 @@ func (a *API) ChatMessagesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID := UserIDFromContext(r.Context())
+	user, ok := UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
-	messages, err := a.hub.GetChatRecords(userID, chatID, fromSeq, toSeq)
+	switch user.Type {
+	case models.UserTypeWebhook:
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	case models.UserTypeBot:
+		if chatID == "townhall" && !user.BotPermissions.ReadAll && !user.BotPermissions.ReadMentions {
+			http.Error(w, "Access denied", http.StatusForbidden)
+			return
+		}
+	}
+
+	messages, err := a.hub.GetChatRecords(user.ID, chatID, fromSeq, toSeq)
 	if err != nil {
 		if errors.Is(err, models.ErrNotFound) {
 			http.Error(w, "Chat not found or access denied", http.StatusForbidden)
@@ -331,6 +398,15 @@ func (a *API) ChatMessagesHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+
+	filtered := make([]models.Message, 0, len(messages))
+	for _, m := range messages {
+		mentions := content.ExtractMentions(m.Content)
+		if models.IsMessageVisible(chatID, mentions, user) {
+			filtered = append(filtered, m)
+		}
+	}
+	messages = filtered
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(messages); err != nil {
@@ -345,7 +421,22 @@ func (a *API) SendMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID := UserIDFromContext(r.Context())
+	user, ok := UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if user.Type == models.UserTypeWebhook {
+		http.Error(w, "Webhooks must post via /api/webhook", http.StatusForbidden)
+		return
+	}
+	if user.Type == models.UserTypeBot && chatID == "townhall" {
+		if !user.BotPermissions.Write {
+			http.Error(w, "Bot has no write permission in Townhall", http.StatusForbidden)
+			return
+		}
+	}
 
 	var req struct {
 		Content string `json:"content"`
@@ -361,7 +452,7 @@ func (a *API) SendMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a.hub.Dispatch(userID, models.ClientMessage{
+	a.hub.Dispatch(user.ID, models.ClientMessage{
 		Type:    models.ClientMessageTypeSend,
 		ChatID:  chatID,
 		Content: req.Content,
@@ -371,11 +462,9 @@ func (a *API) SendMessageHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) MeHandler(w http.ResponseWriter, r *http.Request) {
-	userID := UserIDFromContext(r.Context())
-
-	currentUser, err := a.auth.GetUser(userID)
-	if err != nil {
-		http.Error(w, "User not found", http.StatusNotFound)
+	currentUser, ok := UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -411,15 +500,19 @@ func (a *API) MeHandler(w http.ResponseWriter, r *http.Request) {
 // GetUserSettingsHandler returns the current user's persisted preferences,
 // falling back to defaults when none have been saved.
 func (a *API) GetUserSettingsHandler(w http.ResponseWriter, r *http.Request) {
-	userID := UserIDFromContext(r.Context())
+	user, ok := UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
-	settings, err := a.auth.GetUserSettings(userID)
+	settings, err := a.auth.GetUserSettings(user.ID)
 	if err != nil {
 		if errors.Is(err, models.ErrNotFound) {
 			http.Error(w, "User not found", http.StatusNotFound)
 			return
 		}
-		slog.Error("failed to fetch user settings", "userID", userID, "error", err)
+		slog.Error("failed to fetch user settings", "userID", user.ID, "error", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
@@ -433,7 +526,11 @@ func (a *API) GetUserSettingsHandler(w http.ResponseWriter, r *http.Request) {
 // UpdateUserSettingsHandler persists the current user's preferences. The body
 // is decoded into the strongly-typed UserSettings struct.
 func (a *API) UpdateUserSettingsHandler(w http.ResponseWriter, r *http.Request) {
-	userID := UserIDFromContext(r.Context())
+	user, ok := UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	var settings models.UserSettings
 	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
@@ -441,12 +538,12 @@ func (a *API) UpdateUserSettingsHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := a.auth.UpdateUserSettings(userID, settings); err != nil {
+	if err := a.auth.UpdateUserSettings(user.ID, settings); err != nil {
 		if errors.Is(err, models.ErrNotFound) {
 			http.Error(w, "User not found", http.StatusNotFound)
 			return
 		}
-		slog.Error("failed to update user settings", "userID", userID, "error", err)
+		slog.Error("failed to update user settings", "userID", user.ID, "error", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
@@ -490,9 +587,14 @@ func validateCSRFSameOrigin(r *http.Request) bool {
 }
 
 // RequireSameOrigin is a middleware that enforces same-origin policy for POST requests.
+// Requests authenticated via API key (flagged in context by RequireAuth) skip CSRF.
 func RequireSameOrigin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
+			if _, ok := r.Context().Value(apiKeyAuthKey).(bool); ok {
+				next(w, r)
+				return
+			}
 			if !validateCSRFSameOrigin(r) {
 				http.Error(w, "Invalid Origin", http.StatusForbidden)
 				return
@@ -503,11 +605,15 @@ func RequireSameOrigin(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func (a *API) ResetPasswordHandler(w http.ResponseWriter, r *http.Request) {
-	userID := UserIDFromContext(r.Context())
+	user, ok := UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
-	regToken, err := a.auth.ResetPassword(userID, false)
+	regToken, err := a.auth.ResetPassword(user.ID, false)
 	if err != nil {
-		slog.Error("failed to reset password for user", "userID", userID, "error", err)
+		slog.Error("failed to reset password for user", "userID", user.ID, "error", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(models.APIResponse{
@@ -518,7 +624,7 @@ func (a *API) ResetPasswordHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Make sure the resetting user gets logged out from all other active sessions and websockets immediately
-	a.hub.DisconnectUser(userID) // This disconnects all ws connections
+	a.hub.DisconnectUser(user.ID) // This disconnects all ws connections
 
 	// Also clear token cookie to log them off this session so they can login via registration link
 	http.SetCookie(w, &http.Cookie{
@@ -548,7 +654,12 @@ func isSVG(data []byte) bool {
 }
 
 func (a *API) processUpload(w http.ResponseWriter, r *http.Request, maxBytes int64, enforceImage bool) (string, error) {
-	uploaderID := UserIDFromContext(r.Context())
+	user, ok := UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return "", errors.New("unauthorized")
+	}
+	uploaderID := user.ID
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
 
@@ -625,7 +736,12 @@ func (a *API) UploadImageHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) UploadAvatarHandler(w http.ResponseWriter, r *http.Request) {
-	uploaderID := UserIDFromContext(r.Context())
+	user, ok := UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	uploaderID := user.ID
 
 	// Limit for avatars
 	fileID, err := a.processUpload(w, r, a.cfg.MaxAvatarSize, true)
@@ -659,7 +775,11 @@ func (a *API) UploadAvatarHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) UpdateDisplayNameHandler(w http.ResponseWriter, r *http.Request) {
-	userID := UserIDFromContext(r.Context())
+	user, ok := UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	var req struct {
 		DisplayName string `json:"displayName"`
@@ -670,7 +790,7 @@ func (a *API) UpdateDisplayNameHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sanitizedName, err := a.auth.UpdateDisplayName(userID, req.DisplayName)
+	sanitizedName, err := a.auth.UpdateDisplayName(user.ID, req.DisplayName)
 	if err != nil {
 		msg := "Internal Server Error"
 		code := http.StatusInternalServerError
@@ -798,13 +918,56 @@ func (a *API) GetFileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (a *API) WebhookHandler(w http.ResponseWriter, r *http.Request) {
+	user, ok := UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if user.TargetChatID == "" {
+		http.Error(w, "Webhook has no target chat configured", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Content string `json:"content"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	req.Content = content.Sanitize(req.Content)
+	if req.Content == "" {
+		http.Error(w, "Message content cannot be empty", http.StatusBadRequest)
+		return
+	}
+
+	a.hub.Dispatch(user.ID, models.ClientMessage{
+		Type:    models.ClientMessageTypeSend,
+		ChatID:  user.TargetChatID,
+		Content: req.Content,
+	}, nil)
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(models.APIResponse{
+		Success: true,
+	})
+}
+
 func (a *API) PushVAPIDPublicKeyHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/octet-stream")
 	_, _ = w.Write([]byte(a.push.PublicKey())) // nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter.no-direct-write-to-responsewriter
 }
 
 func (a *API) PushSubscribeHandler(w http.ResponseWriter, r *http.Request) {
-	userID := UserIDFromContext(r.Context())
+	user, ok := UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	var sub struct {
 		Endpoint string          `json:"endpoint"`
@@ -831,7 +994,7 @@ func (a *API) PushSubscribeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.storage.UpsertPushSubscription(userID, sub.Endpoint, body); err != nil {
+	if err := a.storage.UpsertPushSubscription(user.ID, sub.Endpoint, body); err != nil {
 		slog.Error("failed to save push subscription", "error", err)
 		http.Error(w, "Internal Database Error", http.StatusInternalServerError)
 		return

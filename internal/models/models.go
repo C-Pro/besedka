@@ -1,6 +1,11 @@
 package models
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+	"slices"
+	"sort"
+)
 
 var (
 	ErrNotFound = errors.New("not found")
@@ -36,14 +41,31 @@ const (
 	UserStatusDeleted UserStatus = "deleted"
 )
 
+type UserType string
+
+const (
+	UserTypeHuman   UserType = "user"
+	UserTypeBot     UserType = "bot"
+	UserTypeWebhook UserType = "webhook"
+)
+
+type BotPermissions struct {
+	ReadMentions bool `json:"readMentions"`
+	ReadAll      bool `json:"readAll"`
+	Write        bool `json:"write"`
+}
+
 // User represents a user in the system.
 type User struct {
-	ID          string     `json:"id"`
-	UserName    string     `json:"userName"`
-	DisplayName string     `json:"displayName"`
-	AvatarURL   string     `json:"avatarUrl"`
-	Presence    Presence   `json:"presence"`
-	Status      UserStatus `json:"status"`
+	ID             string         `json:"id"`
+	UserName       string         `json:"userName"`
+	DisplayName    string         `json:"displayName"`
+	AvatarURL      string         `json:"avatarUrl"`
+	Presence       Presence       `json:"presence"`
+	Status         UserStatus     `json:"status"`
+	Type           UserType       `json:"type,omitempty"`
+	BotPermissions BotPermissions `json:"botPermissions,omitempty"`
+	TargetChatID   string         `json:"targetChatId,omitempty"`
 }
 
 // Presence represents the online status of a user.
@@ -90,6 +112,30 @@ type Chat struct {
 	IsDM        bool   `json:"isDm"`
 	Online      bool   `json:"online,omitempty"` // Optional, for DMs
 	LastSeenSeq int64  `json:"lastSeenSeq"`      // Persistent last seen sequence number
+}
+
+// GetDMID returns a deterministic DM chat ID for two user IDs.
+func GetDMID(u1, u2 string) string {
+	ids := []string{u1, u2}
+	sort.Strings(ids)
+	return fmt.Sprintf("dm_%s_%s", ids[0], ids[1])
+}
+
+// IsMessageVisible checks if a message with the given mentions in chatID is visible to user.
+func IsMessageVisible(chatID string, mentions []string, user User) bool {
+	if user.Type == UserTypeWebhook {
+		return false
+	}
+	if user.Type == UserTypeBot && chatID == "townhall" {
+		if user.BotPermissions.ReadAll {
+			return true
+		}
+		if user.BotPermissions.ReadMentions {
+			return slices.Contains(mentions, user.UserName)
+		}
+		return false
+	}
+	return true
 }
 
 // LastSeenEntry represents a persisted last seen sequence number.
