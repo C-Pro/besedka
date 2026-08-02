@@ -5,3 +5,5 @@ uploads
 _data
 .antigravitycli
 conductor
+.env
+deploy/

@@ -34,16 +34,44 @@ func (t *DBToken) UnmarshalBinary(data []byte) error {
 	return msgpack.Unmarshal(data, (*alias)(t))
 }
 
+type DBAPIKey struct {
+	UserID  string `msgpack:"userId"`
+	KeyHash string `msgpack:"keyHash"`
+}
+
+func (k *DBAPIKey) Key() []byte {
+	return []byte(k.KeyHash)
+}
+
+func (k *DBAPIKey) MarshalBinary() (data []byte, err error) {
+	type alias DBAPIKey
+	return msgpack.Marshal((*alias)(k))
+}
+
+func (k *DBAPIKey) UnmarshalBinary(data []byte) error {
+	type alias DBAPIKey
+	return msgpack.Unmarshal(data, (*alias)(k))
+}
+
+type DBBotPermissions struct {
+	ReadMentions bool `msgpack:"readMentions"`
+	ReadAll      bool `msgpack:"readAll"`
+	Write        bool `msgpack:"write"`
+}
+
 type DBUser struct {
-	ID           string `msgpack:"id"`
-	UserName     string `msgpack:"userName"`
-	DisplayName  string `msgpack:"displayName"`
-	AvatarURL    string `msgpack:"avatarUrl"`
-	LastSeen     int64  `msgpack:"lastSeen"`
-	PasswordHash string `msgpack:"passwordHash"`
-	TOTPSecret   string `msgpack:"totpSecret"`
-	LastTOTP     int    `msgpack:"lastTOTP"`
-	Status       string `msgpack:"status"`
+	ID             string           `msgpack:"id"`
+	UserName       string           `msgpack:"userName"`
+	DisplayName    string           `msgpack:"displayName"`
+	AvatarURL      string           `msgpack:"avatarUrl"`
+	LastSeen       int64            `msgpack:"lastSeen"`
+	PasswordHash   string           `msgpack:"passwordHash"`
+	TOTPSecret     string           `msgpack:"totpSecret"`
+	LastTOTP       int              `msgpack:"lastTOTP"`
+	Status         string           `msgpack:"status"`
+	Type           string           `msgpack:"type"`
+	BotPermissions DBBotPermissions `msgpack:"botPermissions"`
+	TargetChatID   string           `msgpack:"targetChatId"`
 }
 
 func (u *DBUser) Key() []byte {

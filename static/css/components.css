@@ -1194,3 +1194,23 @@
 .passkey-item:last-child {
     border-bottom: none;
 }
+
+/* User Type Badges */
+.user-type-badge {
+    font-size: 0.85em;
+    margin-left: 4px;
+    padding: 1px 4px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    vertical-align: middle;
+    display: inline-flex;
+    align-items: center;
+}
+
+.user-type-badge.bot-badge {
+    color: #64b5f6;
+}
+
+.user-type-badge.webhook-badge {
+    color: #ffb74d;
+}

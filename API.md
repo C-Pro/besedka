@@ -2,6 +2,38 @@
 
 This document defines the client-server JSON-based protocol for the chat application.
 
+## API Key Authorization
+
+Bots and Webhooks authenticate using API Keys passed in the standard HTTP `Authorization` header:
+
+```http
+Authorization: Bearer <API_KEY>
+```
+
+### Incoming Webhook
+**Endpoint:** `POST /api/webhook`
+
+**Headers:**
+- `Authorization`: `Bearer <API_KEY>`
+- `Content-Type`: `application/json`
+
+**Request Body:**
+```json
+{
+  "content": "Hello from Webhook!"
+}
+```
+
+**Response:**
+- **Success (200 OK):**
+  ```json
+  {
+    "success": true
+  }
+  ```
+
+---
+
 ## Authentication
 
 ### Login

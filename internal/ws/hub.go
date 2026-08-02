@@ -745,6 +745,15 @@ func (h *Hub) handleRecordCallback(receiverID string, chatID string, record chat
 	channels, online := h.connectedUsers[receiverID]
 
 	if online {
+		receiverUser, err := h.userProvider.GetUser(receiverID)
+		if err == nil {
+			mentions := content.ExtractMentions(record.Content)
+			if !models.IsMessageVisible(chatID, mentions, receiverUser) {
+				h.mu.RUnlock()
+				return
+			}
+		}
+
 		msg := models.ServerMessage{
 			Type:     models.ServerMessageTypeMessages,
 			ChatID:   chatID,

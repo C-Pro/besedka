@@ -16,9 +16,13 @@ func generateSessionID() string {
 }
 
 func (a *API) WebAuthnRegisterBeginHandler(w http.ResponseWriter, r *http.Request) {
-	userID := UserIDFromContext(r.Context())
+	user, ok := UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
-	options, sessionData, err := a.auth.BeginPasskeyRegistration(userID)
+	options, sessionData, err := a.auth.BeginPasskeyRegistration(user.ID)
 	if err != nil {
 		slog.Error("Failed to begin passkey registration", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -45,7 +49,11 @@ func (a *API) WebAuthnRegisterBeginHandler(w http.ResponseWriter, r *http.Reques
 }
 
 func (a *API) WebAuthnRegisterFinishHandler(w http.ResponseWriter, r *http.Request) {
-	userID := UserIDFromContext(r.Context())
+	user, ok := UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	name := r.URL.Query().Get("name")
 
@@ -62,7 +70,7 @@ func (a *API) WebAuthnRegisterFinishHandler(w http.ResponseWriter, r *http.Reque
 	}
 	defer a.auth.DeleteWebAuthnSession(cookie.Value)
 
-	err = a.auth.FinishPasskeyRegistration(userID, name, sessionData, r)
+	err = a.auth.FinishPasskeyRegistration(user.ID, name, sessionData, r)
 	if err != nil {
 		slog.Error("Failed to finish passkey registration", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -143,9 +151,13 @@ type passkeyJSON struct {
 }
 
 func (a *API) ListPasskeysHandler(w http.ResponseWriter, r *http.Request) {
-	userID := UserIDFromContext(r.Context())
+	user, ok := UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
-	passkeys, err := a.auth.ListPasskeys(userID)
+	passkeys, err := a.auth.ListPasskeys(user.ID)
 	if err != nil {
 		http.Error(w, "Failed to list passkeys", http.StatusInternalServerError)
 		return
@@ -165,7 +177,11 @@ func (a *API) ListPasskeysHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) DeletePasskeyHandler(w http.ResponseWriter, r *http.Request) {
-	userID := UserIDFromContext(r.Context())
+	user, ok := UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 	
 	// id is base64 encoded credential ID in the URL path.
 	idB64 := r.PathValue("id")
@@ -180,7 +196,7 @@ func (a *API) DeletePasskeyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	err = a.auth.DeletePasskey(userID, credID)
+	err = a.auth.DeletePasskey(user.ID, credID)
 	if err != nil {
 		http.Error(w, "Failed to delete passkey", http.StatusInternalServerError)
 		return
