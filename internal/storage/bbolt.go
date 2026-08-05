@@ -366,11 +366,23 @@ func (s *BboltStorage) ListCredentials() ([]auth.UserCredentials, error) {
 func (s *BboltStorage) UpsertChat(chat models.Chat) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketChats)
+		chatKey := []byte(chat.ID)
+		lastSeq := chat.LastSeq
+
+		if existingData := b.Get(chatKey); existingData != nil {
+			var existingDBChat DBChat
+			if err := existingDBChat.UnmarshalBinary(existingData); err == nil {
+				if existingDBChat.LastSeq > lastSeq {
+					lastSeq = existingDBChat.LastSeq
+				}
+			}
+		}
+
 		dbChat := DBChat{
 			ID:        chat.ID,
 			Name:      chat.Name,
 			AvatarURL: chat.AvatarURL,
-			LastSeq:   chat.LastSeq,
+			LastSeq:   lastSeq,
 			IsDM:      chat.IsDM,
 		}
 		data, err := dbChat.MarshalBinary()
@@ -391,16 +403,26 @@ func (s *BboltStorage) ListChats() ([]models.Chat, error) {
 	var chats []models.Chat
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketChats)
+		msgBucket := tx.Bucket(bucketMessages)
 		return b.ForEach(func(k, v []byte) error {
 			var dbChat DBChat
 			if err := dbChat.UnmarshalBinary(v); err != nil {
 				return err
 			}
+			lastSeq := dbChat.LastSeq
+			if lastSeq == 0 && msgBucket != nil {
+				if sub := msgBucket.Bucket([]byte(dbChat.ID)); sub != nil {
+					c := sub.Cursor()
+					if lastKey, _ := c.Last(); len(lastKey) == 8 {
+						lastSeq = int(binary.BigEndian.Uint64(lastKey))
+					}
+				}
+			}
 			chats = append(chats, models.Chat{
 				ID:        dbChat.ID,
 				Name:      dbChat.Name,
 				AvatarURL: dbChat.AvatarURL,
-				LastSeq:   dbChat.LastSeq,
+				LastSeq:   lastSeq,
 				IsDM:      dbChat.IsDM,
 			})
 			return nil
