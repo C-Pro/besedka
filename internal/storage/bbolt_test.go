@@ -519,4 +519,48 @@ func TestStorage(t *testing.T) {
 			t.Errorf("updated settings mismatch: got %+v, want %+v", got, want)
 		}
 	})
+
+	t.Run("UpsertChatPreservesAndAutoHealsLastSeq", func(t *testing.T) {
+		chatID := "dm_user1_user2"
+		// 1. Initial chat creation with LastSeq 0
+		if err := store.UpsertChat(models.Chat{ID: chatID, Name: chatID, IsDM: true, LastSeq: 0}); err != nil {
+			t.Fatalf("UpsertChat failed: %v", err)
+		}
+
+		// 2. Add messages
+		msg1 := models.Message{ChatID: chatID, Seq: 1, UserID: "user1", Content: "hello"}
+		msg2 := models.Message{ChatID: chatID, Seq: 2, UserID: "user2", Content: "world"}
+		if err := store.UpsertMessage(msg1); err != nil {
+			t.Fatalf("UpsertMessage 1 failed: %v", err)
+		}
+		if err := store.UpsertMessage(msg2); err != nil {
+			t.Fatalf("UpsertMessage 2 failed: %v", err)
+		}
+
+		// 3. UpsertChat with LastSeq 0 should NOT wipe existing LastSeq 2
+		if err := store.UpsertChat(models.Chat{ID: chatID, Name: chatID, IsDM: true, LastSeq: 0}); err != nil {
+			t.Fatalf("UpsertChat overwrite failed: %v", err)
+		}
+
+		chats, err := store.ListChats()
+		if err != nil {
+			t.Fatalf("ListChats failed: %v", err)
+		}
+
+		var targetChat *models.Chat
+		for i := range chats {
+			if chats[i].ID == chatID {
+				targetChat = &chats[i]
+				break
+			}
+		}
+
+		if targetChat == nil {
+			t.Fatalf("target chat %s not found in ListChats", chatID)
+		}
+
+		if targetChat.LastSeq != 2 {
+			t.Errorf("expected LastSeq 2, got %d", targetChat.LastSeq)
+		}
+	})
 }
