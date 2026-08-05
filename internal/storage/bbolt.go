@@ -30,6 +30,7 @@ var (
 	bucketLastSeen           = []byte("last_seen")
 	bucketPasskeyCredentials = []byte("passkey_credentials")
 	bucketUserSettings       = []byte("user_settings")
+	bucketAPIKeys            = []byte("api_keys")
 	// bucketBackupDirty journals which keys changed since the last backup so
 	// incremental backups can ship only the delta. See dirty.go.
 	bucketBackupDirty = []byte("backup_dirty")
@@ -82,6 +83,9 @@ func NewBboltStorage(path string, key []byte, fs filestore.FileStore) (*BboltSto
 			return err
 		}
 		if _, err := tx.CreateBucketIfNotExists(bucketUserSettings); err != nil {
+			return err
+		}
+		if _, err := tx.CreateBucketIfNotExists(bucketAPIKeys); err != nil {
 			return err
 		}
 		if _, err := tx.CreateBucketIfNotExists(bucketBackupDirty); err != nil {
@@ -207,6 +211,13 @@ func (s *BboltStorage) UpsertCredentials(credentials auth.UserCredentials) error
 			TOTPSecret:   credentials.TOTPSecret,
 			LastTOTP:     credentials.LastTOTP,
 			Status:       string(credentials.Status),
+			Type:         string(credentials.Type),
+			BotPermissions: DBBotPermissions{
+				ReadMentions: credentials.BotPermissions.ReadMentions,
+				ReadAll:      credentials.BotPermissions.ReadAll,
+				Write:        credentials.BotPermissions.Write,
+			},
+			TargetChatID: credentials.TargetChatID,
 		}
 
 		data, err := dbUser.MarshalBinary()
@@ -304,6 +315,10 @@ func (s *BboltStorage) ListAllCredentials() ([]auth.UserCredentials, error) {
 			if err := dbUser.UnmarshalBinary(v); err != nil {
 				return err
 			}
+			userType := models.UserType(dbUser.Type)
+			if userType == "" {
+				userType = models.UserTypeHuman
+			}
 			credentials = append(credentials, auth.UserCredentials{
 				User: models.User{
 					ID:          dbUser.ID,
@@ -314,6 +329,13 @@ func (s *BboltStorage) ListAllCredentials() ([]auth.UserCredentials, error) {
 						LastSeen: dbUser.LastSeen,
 					},
 					Status: backfillStatus(&dbUser),
+					Type:   userType,
+					BotPermissions: models.BotPermissions{
+						ReadMentions: dbUser.BotPermissions.ReadMentions,
+						ReadAll:      dbUser.BotPermissions.ReadAll,
+						Write:        dbUser.BotPermissions.Write,
+					},
+					TargetChatID: dbUser.TargetChatID,
 				},
 				PasswordHash: dbUser.PasswordHash,
 				TOTPSecret:   dbUser.TOTPSecret,
@@ -566,6 +588,53 @@ func (s *BboltStorage) ListTokens() (map[string]string, error) {
 		})
 	})
 	return tokens, err
+}
+
+func (s *BboltStorage) UpsertAPIKey(userID string, keyHash string) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketAPIKeys)
+		dbKey := &DBAPIKey{
+			UserID:  userID,
+			KeyHash: keyHash,
+		}
+		data, err := dbKey.MarshalBinary()
+		if err != nil {
+			return err
+		}
+		data, err = s.crypter.Encrypt(data)
+		if err != nil {
+			return fmt.Errorf("failed to encrypt api key record: %w", err)
+		}
+		return dirtyPut(tx, b, [][]byte{bucketAPIKeys}, dbKey.Key(), data)
+	})
+}
+
+func (s *BboltStorage) DeleteAPIKey(keyHash string) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketAPIKeys)
+		return dirtyDelete(tx, b, [][]byte{bucketAPIKeys}, []byte(keyHash))
+	})
+}
+
+func (s *BboltStorage) ListAPIKeys() (map[string]string, error) {
+	keys := make(map[string]string)
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketAPIKeys)
+		return b.ForEach(func(k, v []byte) error {
+			v, err := s.crypter.Decrypt(v)
+			if err != nil {
+				return fmt.Errorf("failed to decrypt api key record: %w", err)
+			}
+
+			var dbKey DBAPIKey
+			if err := dbKey.UnmarshalBinary(v); err != nil {
+				return err
+			}
+			keys[dbKey.KeyHash] = dbKey.UserID
+			return nil
+		})
+	})
+	return keys, err
 }
 
 func (s *BboltStorage) UpsertRegistrationToken(userID string, token string) error {

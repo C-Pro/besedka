@@ -57,6 +57,9 @@ func (m *mockStorage) UpsertRegistrationToken(uid, token string) error {
 }
 func (m *mockStorage) DeleteRegistrationToken(uid string) error           { return nil }
 func (m *mockStorage) ListRegistrationTokens() (map[string]string, error) { return m.regTokens, nil }
+func (m *mockStorage) UpsertAPIKey(userID string, keyHash string) error   { return nil }
+func (m *mockStorage) DeleteAPIKey(keyHash string) error                  { return nil }
+func (m *mockStorage) ListAPIKeys() (map[string]string, error)             { return nil, nil }
 
 func (m *mockStorage) GetVAPIDKeys() (string, string, error)             { return "", "", models.ErrNotFound }
 func (m *mockStorage) SaveVAPIDKeys(priv, pub string) error             { return nil }

@@ -81,6 +81,18 @@ func (m *mockStorage) ListRegistrationTokens() (map[string]string, error) {
 	return m.regTokens, nil
 }
 
+func (m *mockStorage) UpsertAPIKey(userID string, keyHash string) error {
+	return nil
+}
+
+func (m *mockStorage) DeleteAPIKey(keyHash string) error {
+	return nil
+}
+
+func (m *mockStorage) ListAPIKeys() (map[string]string, error) {
+	return make(map[string]string), nil
+}
+
 func (m *mockStorage) UpsertPasskey(cred auth.Passkey) error {
 	return nil
 }

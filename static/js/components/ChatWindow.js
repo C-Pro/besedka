@@ -150,9 +150,10 @@ export function createChatWindow(container) {
     const createMessageElement = (msg, state) => {
         const isMe = msg.sender === 'me';
         let senderDisplayName = 'me';
+        let senderUser = null;
         if (!isMe) {
-            const user = state.users.find(u => u.id === msg.userId);
-            senderDisplayName = user ? user.displayName : msg.userId;
+            senderUser = state.users.find(u => u.id === msg.userId);
+            senderDisplayName = senderUser ? senderUser.displayName : msg.userId;
         }
 
         const div = document.createElement('div');
@@ -224,6 +225,13 @@ export function createChatWindow(container) {
         const colorIdx = msg.userId ? (msg.userId.charCodeAt(0) % 8) : 0;
         senderSpan.className = `message-sender ${isMe ? 'is-me' : ''} user-color-${colorIdx}`;
         senderSpan.textContent = `<${senderDisplayName}>`;
+        if (senderUser && (senderUser.type === 'bot' || senderUser.type === 'webhook')) {
+            const b = document.createElement('span');
+            b.className = `user-type-badge ${senderUser.type}-badge`;
+            b.textContent = senderUser.type === 'bot' ? ' 🤖' : ' ⚡';
+            b.title = senderUser.type === 'bot' ? 'Bot' : 'Webhook';
+            senderSpan.appendChild(b);
+        }
         div.appendChild(senderSpan);
 
         const contentSpan = document.createElement('span');

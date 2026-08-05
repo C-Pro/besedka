@@ -4,6 +4,7 @@ import (
 	"besedka/internal/auth"
 	"besedka/internal/config"
 	"besedka/internal/filestore"
+	"besedka/internal/models"
 	"besedka/internal/storage"
 	"context"
 	"encoding/base64"
@@ -77,7 +78,7 @@ func TestListPasskeysHandler(t *testing.T) {
 	req := httptest.NewRequest("GET", "/api/webauthn/passkeys", nil)
 	w := httptest.NewRecorder()
 	
-	ctx := context.WithValue(req.Context(), userIDKey, "user123")
+	ctx := context.WithValue(req.Context(), userKey, models.User{ID: "user123", Type: models.UserTypeHuman})
 	req = req.WithContext(ctx)
 
 	api.ListPasskeysHandler(w, req)
@@ -125,7 +126,7 @@ func TestDeletePasskeyHandler(t *testing.T) {
 	req.SetPathValue("id", idB64)
 
 	w := httptest.NewRecorder()
-	ctx := context.WithValue(req.Context(), userIDKey, "user123")
+	ctx := context.WithValue(req.Context(), userKey, models.User{ID: "user123", Type: models.UserTypeHuman})
 	req = req.WithContext(ctx)
 
 	api.DeletePasskeyHandler(w, req)
@@ -149,7 +150,7 @@ func TestDeletePasskeyHandler_InvalidID(t *testing.T) {
 	req.SetPathValue("id", "invalid-b64-!!!")
 
 	w := httptest.NewRecorder()
-	ctx := context.WithValue(req.Context(), userIDKey, "user123")
+	ctx := context.WithValue(req.Context(), userKey, models.User{ID: "user123", Type: models.UserTypeHuman})
 	req = req.WithContext(ctx)
 
 	api.DeletePasskeyHandler(w, req)
@@ -185,7 +186,7 @@ func TestDeletePasskeyHandler_URLSafeBase64(t *testing.T) {
 	// List and verify the returned ID is base64url
 	req := httptest.NewRequest("GET", "/api/webauthn/passkeys", nil)
 	w := httptest.NewRecorder()
-	ctx := context.WithValue(req.Context(), userIDKey, "user123")
+	ctx := context.WithValue(req.Context(), userKey, models.User{ID: "user123", Type: models.UserTypeHuman})
 	req = req.WithContext(ctx)
 	api.ListPasskeysHandler(w, req)
 
@@ -201,7 +202,7 @@ func TestDeletePasskeyHandler_URLSafeBase64(t *testing.T) {
 	req = httptest.NewRequest("DELETE", "/api/webauthn/passkeys/"+listed[0].ID, nil)
 	req.SetPathValue("id", listed[0].ID)
 	w = httptest.NewRecorder()
-	ctx = context.WithValue(req.Context(), userIDKey, "user123")
+	ctx = context.WithValue(req.Context(), userKey, models.User{ID: "user123", Type: models.UserTypeHuman})
 	req = req.WithContext(ctx)
 	api.DeletePasskeyHandler(w, req)
 
@@ -223,7 +224,7 @@ func TestDeletePasskeyHandler_EmptyID(t *testing.T) {
 	req.SetPathValue("id", "")
 
 	w := httptest.NewRecorder()
-	ctx := context.WithValue(req.Context(), userIDKey, "user123")
+	ctx := context.WithValue(req.Context(), userKey, models.User{ID: "user123", Type: models.UserTypeHuman})
 	req = req.WithContext(ctx)
 
 	api.DeletePasskeyHandler(w, req)

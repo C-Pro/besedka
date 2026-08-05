@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 	"time"
 
 	"besedka/internal/content"
@@ -31,6 +32,7 @@ const (
 
 var (
 	ErrUserExists       = errors.New("user already exists")
+	ErrUserNotFound     = errors.New("user not found")
 	ErrEmptyDisplayName = errors.New("display name cannot be empty")
 )
 
@@ -47,6 +49,10 @@ type storage interface {
 	UpsertRegistrationToken(userID string, token string) error
 	DeleteRegistrationToken(userID string) error
 	ListRegistrationTokens() (map[string]string, error)
+
+	UpsertAPIKey(userID string, keyHash string) error
+	DeleteAPIKey(keyHash string) error
+	ListAPIKeys() (map[string]string, error)
 
 	UpsertPasskey(cred Passkey) error
 	ListPasskeys(userID string) ([]Passkey, error)
@@ -157,7 +163,11 @@ type AuthService struct {
 	userTokens *geche.Locker[string, []string]
 	// Map of registration token to user ID
 	registrationTokens *geche.MapTTLCache[string, string]
-	now                func() time.Time
+	// Map of keyHash to user ID
+	liveAPIKeys geche.Geche[string, string]
+	// Index of all API keys per user
+	userAPIKeys *geche.Locker[string, []string]
+	now         func() time.Time
 
 	webAuthn           *webauthn.WebAuthn
 	webAuthnSessions   *geche.MapTTLCache[string, *webauthn.SessionData]
@@ -206,6 +216,8 @@ func NewAuthService(ctx context.Context, config Config, storage storage) (*AuthS
 		liveTokens:         geche.NewMapTTLCache[string, tokenSession](ctx, config.TokenExpiry, time.Minute),
 		userTokens:         geche.NewLocker(geche.NewMapCache[string, []string]()),
 		registrationTokens: geche.NewMapTTLCache[string, string](ctx, config.RegistrationTokenExpiry, time.Minute),
+		liveAPIKeys:        geche.NewMapCache[string, string](),
+		userAPIKeys:        geche.NewLocker(geche.NewMapCache[string, []string]()),
 		now:                time.Now,
 		webAuthn:           wAuthn,
 		webAuthnSessions:   geche.NewMapTTLCache[string, *webauthn.SessionData](ctx, 5*time.Minute, time.Minute),
@@ -269,6 +281,19 @@ func NewAuthService(ctx context.Context, config Config, storage storage) (*AuthS
 			slog.Error("failed to delete registration token from storage on eviction", "user_id", userID, "error", err)
 		}
 	})
+
+	// Load API keys from storage
+	apiKeys, err := storage.ListAPIKeys()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list api keys: %w", err)
+	}
+	userAPIKeysTx := as.userAPIKeys.Lock()
+	for keyHash, userID := range apiKeys {
+		as.liveAPIKeys.Set(keyHash, userID)
+		userKeys, _ := userAPIKeysTx.Get(userID)
+		userAPIKeysTx.Set(userID, append(userKeys, keyHash))
+	}
+	userAPIKeysTx.Unlock()
 
 	return as, nil
 }
@@ -505,6 +530,21 @@ func (as *AuthService) ResetPassword(userID string, clearPasskeys bool) (string,
 	return token, nil
 }
 
+// ActivateUser sets a user's status to UserStatusActive.
+func (as *AuthService) ActivateUser(userID string) error {
+	tx := as.users.Lock()
+	defer tx.Unlock()
+
+	user, err := tx.Get(userID)
+	if err != nil {
+		return models.ErrNotFound
+	}
+
+	user.Status = models.UserStatusActive
+	tx.Set(userID, user)
+	return as.storage.UpsertCredentials(*user)
+}
+
 func (as *AuthService) DeleteUser(userID string) error {
 	tx := as.users.Lock()
 	defer tx.Unlock()
@@ -543,9 +583,35 @@ func (as *AuthService) DeleteUser(userID string) error {
 	}
 	_ = userTokensTx.Del(user.ID)
 
+	userAPIKeysTx := as.userAPIKeys.Lock()
+	defer userAPIKeysTx.Unlock()
+	userKeys, _ := userAPIKeysTx.Get(user.ID)
+	for _, keyHash := range userKeys {
+		_ = as.liveAPIKeys.Del(keyHash)
+		if err := as.storage.DeleteAPIKey(keyHash); err != nil {
+			slog.Error("failed to delete api key from storage", "key_hash", keyHash, "error", err)
+		}
+	}
+	_ = userAPIKeysTx.Del(user.ID)
+
 	tx.Set(user.ID, user)
 
 	return nil
+}
+
+func (as *AuthService) GetUserByUsername(username string) (models.User, error) {
+	id, err := as.usernames.Get(username)
+	if err != nil {
+		return models.User{}, ErrUserNotFound
+	}
+	tx := as.users.RLock()
+	defer tx.Unlock()
+
+	user, err := tx.Get(id)
+	if err != nil || user.Status == models.UserStatusDeleted {
+		return models.User{}, ErrUserNotFound
+	}
+	return user.User, nil
 }
 
 func (as *AuthService) GetUser(id string) (models.User, error) {
@@ -982,4 +1048,195 @@ func (as *AuthService) RefreshToken(token string) (time.Time, error) {
 	now := as.now()
 	as.liveTokens.Set(tokenHash, tokenSession{UserID: session.UserID, UpdatedAt: now})
 	return now.Add(as.TokenExpiry), nil
+}
+
+func (as *AuthService) generateAPIKey(prefix string) (string, string, error) {
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		return "", "", fmt.Errorf("failed to generate random bytes for api key: %w", err)
+	}
+	rawKey := prefix + base64.RawURLEncoding.EncodeToString(b)
+	keyHash := as.hashToken(rawKey)
+	return rawKey, keyHash, nil
+}
+
+func (as *AuthService) GetUserByAPIKey(apiKey string) (models.User, error) {
+	keyHash := as.hashToken(apiKey)
+	userID, err := as.liveAPIKeys.Get(keyHash)
+	if err != nil {
+		return models.User{}, models.ErrNotFound
+	}
+	tx := as.users.RLock()
+	defer tx.Unlock()
+	userCreds, err := tx.Get(userID)
+	if err != nil {
+		return models.User{}, models.ErrNotFound
+	}
+	if userCreds.Status != models.UserStatusActive {
+		return models.User{}, models.ErrNotFound
+	}
+	return userCreds.User, nil
+}
+
+func (as *AuthService) AddBot(username, displayName string, perms models.BotPermissions) (models.User, string, error) {
+	tx := as.users.Lock()
+	defer tx.Unlock()
+
+	if err := content.ValidateUsername(username); err != nil {
+		return models.User{}, "", fmt.Errorf("invalid username: %w", err)
+	}
+	username = content.Sanitize(username)
+	displayName = content.Sanitize(displayName)
+	if displayName == "" {
+		displayName = username
+	}
+
+	if _, err := as.usernames.Get(username); err == nil {
+		return models.User{}, "", ErrUserExists
+	}
+
+	userID := uuid.NewString()
+	user := &UserCredentials{
+		User: models.User{
+			ID:             userID,
+			UserName:       username,
+			DisplayName:    displayName,
+			Status:         models.UserStatusActive,
+			Type:           models.UserTypeBot,
+			BotPermissions: perms,
+		},
+	}
+
+	rawKey, keyHash, err := as.generateAPIKey("bsk_bot_")
+	if err != nil {
+		return models.User{}, "", err
+	}
+
+	if err := as.storage.UpsertCredentials(*user); err != nil {
+		return models.User{}, "", fmt.Errorf("failed to persist bot user: %w", err)
+	}
+	if err := as.storage.UpsertAPIKey(userID, keyHash); err != nil {
+		return models.User{}, "", fmt.Errorf("failed to persist api key: %w", err)
+	}
+
+	tx.Set(userID, user)
+	as.usernames.Set(username, userID)
+	as.liveAPIKeys.Set(keyHash, userID)
+
+	userAPIKeysTx := as.userAPIKeys.Lock()
+	userKeys, _ := userAPIKeysTx.Get(userID)
+	userAPIKeysTx.Set(userID, append(userKeys, keyHash))
+	userAPIKeysTx.Unlock()
+
+	return user.User, rawKey, nil
+}
+
+func (as *AuthService) AddWebhook(username, displayName, target string) (models.User, string, error) {
+	tx := as.users.Lock()
+	defer tx.Unlock()
+
+	if err := content.ValidateUsername(username); err != nil {
+		return models.User{}, "", fmt.Errorf("invalid username: %w", err)
+	}
+	username = content.Sanitize(username)
+	displayName = content.Sanitize(displayName)
+	if displayName == "" {
+		displayName = username
+	}
+
+	if _, err := as.usernames.Get(username); err == nil {
+		return models.User{}, "", ErrUserExists
+	}
+
+	userID := uuid.NewString()
+
+	var targetChatID string
+	targetSpec := strings.TrimSpace(target)
+	if targetSpec == "" || targetSpec == "townhall" {
+		targetChatID = "townhall"
+	} else {
+		targetID, err := as.usernames.Get(targetSpec)
+		if err != nil {
+			return models.User{}, "", fmt.Errorf("target user %q not found", targetSpec)
+		}
+		targetUser, err := tx.Get(targetID)
+		if err != nil || targetUser.Status == models.UserStatusDeleted {
+			return models.User{}, "", fmt.Errorf("target user %q not found", targetSpec)
+		}
+		targetChatID = models.GetDMID(userID, targetUser.ID)
+	}
+
+	user := &UserCredentials{
+		User: models.User{
+			ID:           userID,
+			UserName:     username,
+			DisplayName:  displayName,
+			Status:       models.UserStatusActive,
+			Type:         models.UserTypeWebhook,
+			TargetChatID: targetChatID,
+		},
+	}
+
+	rawKey, keyHash, err := as.generateAPIKey("bsk_wh_")
+	if err != nil {
+		return models.User{}, "", err
+	}
+
+	if err := as.storage.UpsertCredentials(*user); err != nil {
+		return models.User{}, "", fmt.Errorf("failed to persist webhook user: %w", err)
+	}
+	if err := as.storage.UpsertAPIKey(userID, keyHash); err != nil {
+		return models.User{}, "", fmt.Errorf("failed to persist api key: %w", err)
+	}
+
+	tx.Set(userID, user)
+	as.usernames.Set(username, userID)
+	as.liveAPIKeys.Set(keyHash, userID)
+
+	userAPIKeysTx := as.userAPIKeys.Lock()
+	userKeys, _ := userAPIKeysTx.Get(userID)
+	userAPIKeysTx.Set(userID, append(userKeys, keyHash))
+	userAPIKeysTx.Unlock()
+
+	return user.User, rawKey, nil
+}
+
+func (as *AuthService) ResetAPIKey(userID string) (string, error) {
+	tx := as.users.Lock()
+	defer tx.Unlock()
+
+	user, err := tx.Get(userID)
+	if err != nil {
+		return "", models.ErrNotFound
+	}
+
+	userAPIKeysTx := as.userAPIKeys.Lock()
+	defer userAPIKeysTx.Unlock()
+	userKeys, _ := userAPIKeysTx.Get(userID)
+	for _, keyHash := range userKeys {
+		_ = as.liveAPIKeys.Del(keyHash)
+		if err := as.storage.DeleteAPIKey(keyHash); err != nil {
+			slog.Error("failed to delete api key from storage on reset", "key_hash", keyHash, "error", err)
+		}
+	}
+	userAPIKeysTx.Set(userID, nil)
+
+	prefix := "bsk_bot_"
+	if user.Type == models.UserTypeWebhook {
+		prefix = "bsk_wh_"
+	}
+
+	rawKey, keyHash, err := as.generateAPIKey(prefix)
+	if err != nil {
+		return "", err
+	}
+
+	if err := as.storage.UpsertAPIKey(userID, keyHash); err != nil {
+		return "", fmt.Errorf("failed to persist new api key: %w", err)
+	}
+
+	as.liveAPIKeys.Set(keyHash, userID)
+	userAPIKeysTx.Set(userID, []string{keyHash})
+
+	return rawKey, nil
 }
