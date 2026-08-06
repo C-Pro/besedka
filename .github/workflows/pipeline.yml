@@ -13,6 +13,7 @@ env:
   GCP_ZONE: 'asia-southeast2-a'
   AR_REPO: 'besedka'
   MIG_NAME: 'besedka-mig'
+  TEST_MIG_NAME: 'besedka-test-mig'
 
 jobs:
   semgrep:
@@ -86,10 +87,64 @@ jobs:
       - name: Run E2E Tests
         run: make e2e
 
-  build-and-deploy-gcp:
-    name: Build & Deploy to GCP Spot VM
+  build-and-deploy-test:
+    name: Build & Deploy to Test Instance (Spot VM)
     needs: [semgrep, osv-scanner, golangci-lint, biome-lint, test, e2e]
-    if: (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && github.event_name == 'push'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Log in to GCP Artifact Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ${{ env.GCP_REGION }}-docker.pkg.dev
+          username: _json_key
+          password: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/${{ env.AR_REPO }}/app
+          tags: |
+            type=raw,value=test
+            type=sha,format=short
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64
+
+      - name: Trigger Rolling Replace on Test Managed Instance Group
+        run: |
+          gcloud compute instance-groups managed rolling-action replace ${{ env.TEST_MIG_NAME }} \
+            --zone=${{ env.GCP_ZONE }} \
+            --project=${{ secrets.GCP_PROJECT }}
+
+  build-and-deploy-prod:
+    name: Build & Deploy to Prod Instance (Spot VM with PVC)
+    needs: [semgrep, osv-scanner, golangci-lint, biome-lint, test, e2e]
+    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -123,7 +178,7 @@ jobs:
           images: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/${{ env.AR_REPO }}/app
           tags: |
             type=raw,value=latest
-            type=sha,format=short
+            type=semver,pattern={{version}}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
@@ -134,7 +189,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64
 
-      - name: Trigger Rolling Replace on GCP Managed Instance Group
+      - name: Trigger Rolling Replace on Prod Managed Instance Group
         run: |
           gcloud compute instance-groups managed rolling-action replace ${{ env.MIG_NAME }} \
             --zone=${{ env.GCP_ZONE }} \
