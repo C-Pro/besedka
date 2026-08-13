@@ -395,6 +395,90 @@ class Store {
         }
     }
 
+    async updateProfileSong({ file, title, artist, url } = {}) {
+        try {
+            let response;
+            if (file) {
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('title', title || '');
+                formData.append('artist', artist || '');
+                if (url) formData.append('url', url);
+                response = await fetch('/api/users/me/song', {
+                    method: 'POST',
+                    body: formData
+                });
+            } else {
+                response = await fetch('/api/users/me/song', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        songUrl: url || '',
+                        songTitle: title || '',
+                        songArtist: artist || ''
+                    })
+                });
+            }
+
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(text || 'Failed to update profile song');
+            }
+
+            const result = await response.json();
+            if (this.state.currentUser) {
+                const updatedUsers = (this.state.users || []).map(u => {
+                    if (u.id === this.state.currentUser.id) {
+                        return {
+                            ...u,
+                            songUrl: result.songUrl || '',
+                            songTitle: result.songTitle || '',
+                            songArtist: result.songArtist || ''
+                        };
+                    }
+                    return u;
+                });
+                this.setState({ users: updatedUsers });
+            }
+            return result;
+        } catch (error) {
+            console.error('Update profile song error:', error);
+            throw error;
+        }
+    }
+
+    async updateBio(bio) {
+        try {
+            const response = await fetch('/api/users/me/bio', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ bio })
+            });
+
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(text || 'Failed to update bio');
+            }
+
+            const data = await response.json();
+            if (this.state.currentUser) {
+                const updatedUsers = (this.state.users || []).map(u => {
+                    if (u.id === this.state.currentUser.id) {
+                        return { ...u, bio: data.bio };
+                    }
+                    return u;
+                });
+                this.setState({ users: updatedUsers });
+            }
+            return data;
+        } catch (error) {
+            console.error('Update bio error:', error);
+            throw error;
+        }
+    }
+
     async resetPassword() {
         try {
             const response = await fetch('/api/reset-password', {

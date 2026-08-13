@@ -367,6 +367,7 @@ func (h *Hub) leaveLocked(userID string, expectedCh chan models.ServerMessage, b
 func (h *Hub) BroadcastNewUser(user models.User) {
 	user.DisplayName = content.Escape(user.DisplayName)
 	user.UserName = content.Escape(user.UserName)
+	user.Bio = content.Escape(user.Bio)
 
 	h.mu.Lock()
 	if townhall, ok := h.chats["townhall"]; ok {

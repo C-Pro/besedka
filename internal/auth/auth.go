@@ -330,6 +330,28 @@ func (as *AuthService) UpdateAvatarURL(userID string, avatarURL string) error {
 	return nil
 }
 
+func (as *AuthService) UpdateProfileSong(userID string, songURL, songTitle, songArtist string) error {
+	tx := as.users.Lock()
+	defer tx.Unlock()
+
+	user, err := tx.Get(userID)
+	if err != nil {
+		return models.ErrNotFound
+	}
+
+	user.SongURL = strings.TrimSpace(songURL)
+	user.SongTitle = content.Sanitize(songTitle)
+	user.SongArtist = content.Sanitize(songArtist)
+
+	if err := as.storage.UpsertCredentials(*user); err != nil {
+		return fmt.Errorf("failed to persist user profile song: %w", err)
+	}
+
+	tx.Set(user.ID, user)
+
+	return nil
+}
+
 func (as *AuthService) UpdateDisplayName(userID string, displayName string) (string, error) {
 	tx := as.users.Lock()
 	defer tx.Unlock()
@@ -353,6 +375,32 @@ func (as *AuthService) UpdateDisplayName(userID string, displayName string) (str
 	tx.Set(user.ID, user)
 
 	return displayName, nil
+}
+
+func (as *AuthService) UpdateBio(userID string, bio string) (string, error) {
+	tx := as.users.Lock()
+	defer tx.Unlock()
+
+	user, err := tx.Get(userID)
+	if err != nil {
+		return "", models.ErrNotFound
+	}
+
+	bio = content.Sanitize(bio)
+	bioRunes := []rune(bio)
+	if len(bioRunes) > 128 {
+		bio = string(bioRunes[:128])
+	}
+
+	user.Bio = bio
+
+	if err := as.storage.UpsertCredentials(*user); err != nil {
+		return "", fmt.Errorf("failed to persist user bio: %w", err)
+	}
+
+	tx.Set(user.ID, user)
+
+	return bio, nil
 }
 
 // GetUserSettings returns the user's stored preferences, falling back to

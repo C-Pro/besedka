@@ -72,6 +72,10 @@ type DBUser struct {
 	Type           string           `msgpack:"type"`
 	BotPermissions DBBotPermissions `msgpack:"botPermissions"`
 	TargetChatID   string           `msgpack:"targetChatId"`
+	SongURL        string           `msgpack:"songUrl"`
+	SongTitle      string           `msgpack:"songTitle"`
+	SongArtist     string           `msgpack:"songArtist"`
+	Bio            string           `msgpack:"bio"`
 }
 
 func (u *DBUser) Key() []byte {

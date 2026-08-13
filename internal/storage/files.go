@@ -107,6 +107,12 @@ func (s *BboltStorage) SaveFileBlob(r io.Reader, hash string) error {
 	return s.fs.Save(bytes.NewReader(data), hash)
 }
 
+type readSeekCloser struct {
+	*bytes.Reader
+}
+
+func (readSeekCloser) Close() error { return nil }
+
 // GetFileBlob gets a file blob, decrypting it.
 func (s *BboltStorage) GetFileBlob(hash string) (io.ReadCloser, error) {
 	rc, err := s.fs.Get(hash)
@@ -125,5 +131,5 @@ func (s *BboltStorage) GetFileBlob(hash string) (io.ReadCloser, error) {
 		return nil, fmt.Errorf("failed to decrypt file blob: %w", err)
 	}
 
-	return io.NopCloser(bytes.NewReader(data)), nil
+	return readSeekCloser{bytes.NewReader(data)}, nil
 }

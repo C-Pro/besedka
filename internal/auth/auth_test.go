@@ -1226,6 +1226,108 @@ func TestAuthService(t *testing.T) {
 		}
 	})
 
+	t.Run("UpdateProfileSong", func(t *testing.T) {
+		svc, _, store := createService(t)
+
+		tx := svc.users.Lock()
+		userID := "user_profile_song"
+		tx.Set(userID, &UserCredentials{
+			User: models.User{
+				ID:          userID,
+				UserName:    "user_song",
+				DisplayName: "Song User",
+				Status:      models.UserStatusActive,
+			},
+			PasswordHash: svc.hashPassword("user_song", "pass"),
+			TOTPSecret:   rawSecret,
+			LastTOTP:     0,
+		})
+		svc.usernames.Set("user_song", userID)
+		tx.Unlock()
+
+		songURL := "/api/files/test-file-id"
+		songTitle := "Test Song Title"
+		songArtist := "Test Artist"
+		err := svc.UpdateProfileSong(userID, songURL, songTitle, songArtist)
+		if err != nil {
+			t.Fatalf("UpdateProfileSong failed: %v", err)
+		}
+
+		user, err := svc.GetUser(userID)
+		if err != nil {
+			t.Fatalf("GetUser after update failed: %v", err)
+		}
+		if user.SongURL != songURL || user.SongTitle != songTitle || user.SongArtist != songArtist {
+			t.Errorf("expected song fields %v, %v, %v; got %v, %v, %v",
+				songURL, songTitle, songArtist, user.SongURL, user.SongTitle, user.SongArtist)
+		}
+
+		found := false
+		for _, c := range store.creds {
+			if c.ID == userID {
+				found = true
+				if c.SongURL != songURL || c.SongTitle != songTitle || c.SongArtist != songArtist {
+					t.Errorf("storage expected song %v, %v, %v; got %v, %v, %v",
+						songURL, songTitle, songArtist, c.SongURL, c.SongTitle, c.SongArtist)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("user not found in storage")
+		}
+	})
+
+	t.Run("UpdateBio", func(t *testing.T) {
+		svc, _, store := createService(t)
+
+		tx := svc.users.Lock()
+		userID := "user_bio_test"
+		tx.Set(userID, &UserCredentials{
+			User: models.User{
+				ID:          userID,
+				UserName:    "user_bio",
+				DisplayName: "Bio User",
+				Status:      models.UserStatusActive,
+			},
+			PasswordHash: svc.hashPassword("user_bio", "pass"),
+			TOTPSecret:   rawSecret,
+			LastTOTP:     0,
+		})
+		svc.usernames.Set("user_bio", userID)
+		tx.Unlock()
+
+		// Test truncation over 128 chars
+		longBio := "Hello world! " + strings.Repeat("A", 150)
+		sanitized, err := svc.UpdateBio(userID, longBio)
+		if err != nil {
+			t.Fatalf("UpdateBio failed: %v", err)
+		}
+		if len([]rune(sanitized)) > 128 {
+			t.Errorf("expected bio length <= 128, got %d", len([]rune(sanitized)))
+		}
+
+		user, err := svc.GetUser(userID)
+		if err != nil {
+			t.Fatalf("GetUser after bio update failed: %v", err)
+		}
+		if user.Bio != sanitized {
+			t.Errorf("expected user bio %q, got %q", sanitized, user.Bio)
+		}
+
+		found := false
+		for _, c := range store.creds {
+			if c.ID == userID {
+				found = true
+				if c.Bio != sanitized {
+					t.Errorf("storage expected bio %q, got %q", sanitized, c.Bio)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("user not found in storage")
+		}
+	})
+
 	t.Run("UpdateDisplayName", func(t *testing.T) {
 		svc, _, store := createService(t)
 
