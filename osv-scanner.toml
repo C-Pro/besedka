@@ -1,1 +1,30 @@
-# No ignored vulnerabilities
+# Go 1.26.5 stdlib vulnerabilities — none affect our use cases.
+# Will be resolved naturally when local Go is updated to 1.26.6.
+
+[[IgnoredVulns]]
+id = "GO-2026-5026"
+reason = "x/net/idna Punycode bypass; pulled in transitively, app does no hostname-based access control or domain filtering"
+
+[[IgnoredVulns]]
+id = "GO-2026-5972"
+reason = "x/text/unicode/norm infinite loop on malformed UTF-8; pulled in transitively by idna, app does no direct Unicode normalization of untrusted input"
+
+[[IgnoredVulns]]
+id = "GO-2026-6088"
+reason = "crypto/tls TLS 1.3 KeyUpdate CPU exhaustion; small-group self-hosted chat, not exposed to untrusted high-volume traffic"
+
+[[IgnoredVulns]]
+id = "GO-2026-6089"
+reason = "net/http unencrypted HTTP/2 preface timeout missing (Slowloris); small-group self-hosted chat, not exposed to untrusted high-volume traffic"
+
+[[IgnoredVulns]]
+id = "GO-2026-6090"
+reason = "encoding/xml DecodeElement depth counter reset; XML parsing only decodes trusted R2 ListBucketResult responses, not user-supplied XML"
+
+[[IgnoredVulns]]
+id = "GO-2026-6091"
+reason = "html/template contextual escaper bypass via slashes; templates only interpolate admin-controlled config values (ChatName, CacheVersion), no user input"
+
+[[IgnoredVulns]]
+id = "GO-2026-6218"
+reason = "net/url ResolveReference quadratic complexity; not used in application code, only in vendored test dependency (playwright)"

@@ -66,6 +66,10 @@ type User struct {
 	Type           UserType       `json:"type,omitempty"`
 	BotPermissions BotPermissions `json:"botPermissions,omitempty"`
 	TargetChatID   string         `json:"targetChatId,omitempty"`
+	SongURL        string         `json:"songUrl,omitempty"`
+	SongTitle      string         `json:"songTitle,omitempty"`
+	SongArtist     string         `json:"songArtist,omitempty"`
+	Bio            string         `json:"bio,omitempty"`
 }
 
 // Presence represents the online status of a user.

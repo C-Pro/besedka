@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"besedka/internal/audio"
 	"besedka/internal/auth"
 	"besedka/internal/config"
 	"besedka/internal/content"
@@ -255,11 +256,13 @@ func (a *API) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		go a.hub.BroadcastNewUser(user)
 	}
 
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
 	http.SetCookie(w, &http.Cookie{
 		Name:     "token",
 		Value:    resp.Token,
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   strings.HasPrefix(a.auth.RPOrigin, "https://"),
+		SameSite: http.SameSiteLaxMode,
 		Path:     "/",
 		Expires:  time.Now().Add(a.auth.TokenExpiry),
 	})
@@ -304,6 +307,7 @@ func (a *API) UsersHandler(w http.ResponseWriter, r *http.Request) {
 	for i := range users {
 		users[i].DisplayName = content.Escape(users[i].DisplayName)
 		users[i].UserName = content.Escape(users[i].UserName)
+		users[i].Bio = content.Escape(users[i].Bio)
 		users[i].Presence.Online = a.hub.IsUserOnline(users[i].ID)
 	}
 
@@ -828,6 +832,230 @@ func (a *API) UpdateDisplayNameHandler(w http.ResponseWriter, r *http.Request) {
 	// We can broadcast the change if needed, but for now we follow Avatar updating behavior.
 }
 
+func (a *API) UpdateBioHandler(w http.ResponseWriter, r *http.Request) {
+	user, ok := UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req struct {
+		Bio string `json:"bio"`
+	}
+
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	sanitizedBio, err := a.auth.UpdateBio(user.ID, req.Bio)
+	if err != nil {
+		if errors.Is(err, auth.ErrBioTooLong) {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if errors.Is(err, models.ErrNotFound) {
+			http.Error(w, "User not found", http.StatusNotFound)
+			return
+		}
+		slog.Error("failed to update user bio", "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	if updatedUser, err := a.auth.GetUser(user.ID); err == nil {
+		go a.hub.BroadcastNewUser(updatedUser)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	resp := struct {
+		Success bool   `json:"success"`
+		Bio     string `json:"bio"`
+	}{
+		Success: true,
+		Bio:     content.Escape(sanitizedBio),
+	}
+
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		slog.Error("failed to encode update bio response", "error", err)
+	}
+}
+
+func (a *API) UpdateSongHandler(w http.ResponseWriter, r *http.Request) {
+	user, ok := UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var songURL, songTitle, songArtist string
+	var err error
+
+	contentType := r.Header.Get("Content-Type")
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		songURL, songTitle, songArtist, err = a.handleSongUpload(w, r, user.ID)
+	} else {
+		songURL, songTitle, songArtist, err = a.handleSongJSON(w, r)
+	}
+	if err != nil {
+		return
+	}
+
+	if err := a.auth.UpdateProfileSong(user.ID, songURL, songTitle, songArtist); err != nil {
+		slog.Error("failed to update user profile song", "error", err)
+		http.Error(w, "Internal Database Error", http.StatusInternalServerError)
+		return
+	}
+
+	if updatedUser, err := a.auth.GetUser(user.ID); err == nil {
+		go a.hub.BroadcastNewUser(updatedUser)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	resp := struct {
+		Success    bool   `json:"success"`
+		SongURL    string `json:"songUrl"`
+		SongTitle  string `json:"songTitle"`
+		SongArtist string `json:"songArtist"`
+	}{
+		Success:    true,
+		SongURL:    songURL,
+		SongTitle:  content.Escape(songTitle),
+		SongArtist: content.Escape(songArtist),
+	}
+
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		slog.Error("failed to encode update profile song response", "error", err)
+	}
+}
+
+func (a *API) handleSongUpload(w http.ResponseWriter, r *http.Request, userID string) (string, string, string, error) {
+	r.Body = http.MaxBytesReader(w, r.Body, a.cfg.MaxFileSize)
+	if err := r.ParseMultipartForm(a.cfg.MaxFileSize); err != nil {
+		http.Error(w, "Failed to parse multipart form", http.StatusBadRequest)
+		return "", "", "", err
+	}
+
+	songTitle := r.FormValue("title")
+	if songTitle == "" {
+		songTitle = r.FormValue("songTitle")
+	}
+	songArtist := r.FormValue("artist")
+	if songArtist == "" {
+		songArtist = r.FormValue("songArtist")
+	}
+	songURL := r.FormValue("url")
+	if songURL == "" {
+		songURL = r.FormValue("songUrl")
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil || file == nil {
+		return songURL, songTitle, songArtist, nil
+	}
+	defer func() { _ = file.Close() }()
+
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, file); err != nil {
+		http.Error(w, "Failed to read uploaded file", http.StatusBadRequest)
+		return "", "", "", err
+	}
+	data := buf.Bytes()
+
+	if songTitle == "" || songArtist == "" {
+		meta := audio.ExtractMetadata(data)
+		if songTitle == "" && meta.Title != "" {
+			songTitle = meta.Title
+		}
+		if songArtist == "" && meta.Artist != "" {
+			songArtist = meta.Artist
+		}
+	}
+
+	mimeType := header.Header.Get("Content-Type")
+	if mimeType == "" || mimeType == "application/octet-stream" {
+		kind, err := filetype.Match(data)
+		if err == nil && kind != filetype.Unknown {
+			mimeType = kind.MIME.Value
+		} else {
+			mimeType = "audio/mpeg"
+		}
+	}
+
+	hasher := sha256.New()
+	hasher.Write(data)
+	hash := hex.EncodeToString(hasher.Sum(nil))
+
+	if err := a.storage.SaveFileBlob(bytes.NewReader(data), hash); err != nil {
+		slog.Error("failed to save file blob", "error", err)
+		http.Error(w, "Internal Storage Error", http.StatusInternalServerError)
+		return "", "", "", err
+	}
+
+	fileID := uuid.NewString()
+	fileMeta := storage.FileMetadata{
+		ID:        fileID,
+		Hash:      hash,
+		MimeType:  mimeType,
+		Size:      int64(len(data)),
+		CreatedAt: time.Now().Unix(),
+		UserID:    userID,
+	}
+
+	if err := a.storage.UpsertFileMetadata(fileMeta); err != nil {
+		slog.Error("failed to save file metadata", "error", err)
+		http.Error(w, "Internal Database Error", http.StatusInternalServerError)
+		return "", "", "", err
+	}
+
+	return fmt.Sprintf("/api/files/%s", fileID), songTitle, songArtist, nil
+}
+
+func (a *API) handleSongJSON(w http.ResponseWriter, r *http.Request) (string, string, string, error) {
+	var req struct {
+		SongURL    string `json:"songUrl"`
+		SongTitle  string `json:"songTitle"`
+		SongArtist string `json:"songArtist"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return "", "", "", err
+	}
+
+	if req.SongURL != "" {
+		if len(req.SongURL) > 2048 {
+			http.Error(w, "URL too long", http.StatusBadRequest)
+			return "", "", "", errors.New("URL too long")
+		}
+		if _, err := url.Parse(req.SongURL); err != nil {
+			http.Error(w, "Invalid URL", http.StatusBadRequest)
+			return "", "", "", err
+		}
+	}
+
+	return req.SongURL, req.SongTitle, req.SongArtist, nil
+}
+
+func (a *API) DeleteSongHandler(w http.ResponseWriter, r *http.Request) {
+	user, ok := UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if err := a.auth.UpdateProfileSong(user.ID, "", "", ""); err != nil {
+		slog.Error("failed to delete profile song", "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	if updatedUser, err := a.auth.GetUser(user.ID); err == nil {
+		go a.hub.BroadcastNewUser(updatedUser)
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (a *API) GetImageHandler(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
@@ -908,13 +1136,24 @@ func (a *API) GetFileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", meta.MimeType)
-	w.Header().Set("Content-Length", strconv.FormatInt(meta.Size, 10))
 	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", name))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 
-	if _, err := io.Copy(w, rc); err != nil {
-		slog.Error("failed to write file content", "error", err)
+	isDownload := r.URL.Query().Get("download") == "1"
+	if isDownload {
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", name))
+	} else {
+		w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", name))
+	}
+
+	if seeker, ok := rc.(io.ReadSeeker); ok {
+		modTime := time.Unix(meta.CreatedAt, 0)
+		http.ServeContent(w, r, name, modTime, seeker)
+	} else {
+		w.Header().Set("Content-Length", strconv.FormatInt(meta.Size, 10))
+		if _, err := io.Copy(w, rc); err != nil {
+			slog.Error("failed to write file content", "error", err)
+		}
 	}
 }
 

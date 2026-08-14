@@ -286,6 +286,13 @@ func registerUserWithReplace(t *testing.T, page playwright.Page, setupLink strin
 	err = page.Locator("button[type='submit']").Click()
 	require.NoError(t, err)
 
+	time.Sleep(500 * time.Millisecond)
+	errMsgVisible, _ := page.Locator("#error-message").IsVisible()
+	if errMsgVisible {
+		txt, _ := page.Locator("#error-message").InnerText()
+		t.Fatalf("Registration failed with error: %s", txt)
+	}
+
 	// Should be redirected to / or index.html and see the app
 	require.Eventually(t, func() bool {
 		url := page.URL()
