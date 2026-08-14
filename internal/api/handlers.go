@@ -1011,7 +1011,12 @@ func (a *API) handleSongUpload(w http.ResponseWriter, r *http.Request, userID st
 		return "", "", "", err
 	}
 
-	return fmt.Sprintf("/api/files/%s", fileID), songTitle, songArtist, nil
+	ext := getExtensionForMime(mimeType)
+	if ext == "" {
+		ext = ".mp3"
+	}
+
+	return fmt.Sprintf("/api/files/%s%s", fileID, ext), songTitle, songArtist, nil
 }
 
 func (a *API) handleSongJSON(w http.ResponseWriter, r *http.Request) (string, string, string, error) {
@@ -1119,7 +1124,12 @@ func (a *API) GetFileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	meta, err := a.storage.GetFileMetadata(id)
+	cleanID := id
+	if idx := strings.LastIndex(cleanID, "."); idx != -1 {
+		cleanID = cleanID[:idx]
+	}
+
+	meta, err := a.storage.GetFileMetadata(cleanID)
 	if err != nil {
 		http.Error(w, "File not found", http.StatusNotFound)
 		return
