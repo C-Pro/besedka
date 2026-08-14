@@ -38,7 +38,12 @@ export function createMusicPlayer({ songUrl, title, artist }) {
         </div>
     `;
 
-    const audio = new Audio(songUrl);
+    let finalSongUrl = songUrl;
+    if (finalSongUrl && finalSongUrl.startsWith('/api/files/') && !finalSongUrl.includes('.')) {
+        finalSongUrl += '.mp3';
+    }
+
+    const audio = new Audio(finalSongUrl);
     audio.preload = 'auto';
     audio.className = 'music-player-audio-element';
     container.appendChild(audio);

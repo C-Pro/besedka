@@ -7,6 +7,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"besedka/internal/models"
@@ -167,7 +168,11 @@ func TestUpdateSongHandler_NormalizesMimeType(t *testing.T) {
 		SongURL string `json:"songUrl"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	fileID := resp.SongURL[len("/api/files/"): ]
+	rawFileID := resp.SongURL[len("/api/files/"): ]
+	fileID := rawFileID
+	if idx := strings.LastIndex(fileID, "."); idx != -1 {
+		fileID = fileID[:idx]
+	}
 
 	// Verify metadata MIME type was normalized to audio/mpeg
 	meta, err := st.GetFileMetadata(fileID)
@@ -177,7 +182,7 @@ func TestUpdateSongHandler_NormalizesMimeType(t *testing.T) {
 	// Fetch file via GetFileHandler and verify Content-Type header is audio/mpeg
 	fileReq := httptest.NewRequest("GET", resp.SongURL, nil)
 	fileReq.Header.Set("Authorization", "Bearer "+apiKey)
-	fileReq.SetPathValue("id", fileID)
+	fileReq.SetPathValue("id", rawFileID)
 
 	fileRec := httptest.NewRecorder()
 	fileHandler := apiInst.RequireAuth(apiInst.GetFileHandler)
