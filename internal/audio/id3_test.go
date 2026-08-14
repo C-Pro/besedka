@@ -82,3 +82,24 @@ func FuzzExtractMetadata(f *testing.F) {
 	})
 }
 
+func TestNormalizeMimeType(t *testing.T) {
+	assert.Equal(t, "audio/mpeg", NormalizeMimeType("audio/mp3"))
+	assert.Equal(t, "audio/mpeg", NormalizeMimeType("AUDIO/X-MP3"))
+	assert.Equal(t, "audio/mpeg", NormalizeMimeType("application/x-mp3"))
+	assert.Equal(t, "audio/wav", NormalizeMimeType("audio/x-wav"))
+	assert.Equal(t, "audio/mp4", NormalizeMimeType("audio/x-m4a"))
+	assert.Equal(t, "audio/flac", NormalizeMimeType("audio/x-flac"))
+	assert.Equal(t, "image/png", NormalizeMimeType("image/png"))
+}
+
+func TestDetectAudioMimeType(t *testing.T) {
+	assert.Equal(t, "audio/mpeg", DetectAudioMimeType([]byte("ID3 header data")))
+	assert.Equal(t, "audio/mpeg", DetectAudioMimeType([]byte{0xFF, 0xFB, 0x90, 0x64}))
+	assert.Equal(t, "audio/mpeg", DetectAudioMimeType([]byte{0xFF, 0xF3, 0x90, 0x64}))
+	assert.Equal(t, "audio/wav", DetectAudioMimeType([]byte("RIFF1234WAVEfmt ")))
+	assert.Equal(t, "audio/ogg", DetectAudioMimeType([]byte("OggS header")))
+	assert.Equal(t, "audio/flac", DetectAudioMimeType([]byte("fLaC header")))
+	assert.Equal(t, "", DetectAudioMimeType([]byte("random binary data")))
+}
+
+

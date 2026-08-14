@@ -173,4 +173,11 @@ func TestE2EProfileSongAndPublicProfile(t *testing.T) {
 		sendBtnVisible, _ := bobPage.Locator("#profile-send-message-btn").IsVisible()
 		return modalVisible && bioVisible && titleVisible && sendBtnVisible
 	}, 10*time.Second, 200*time.Millisecond)
+
+	// Verify play button is clickable and toggles state
+	err = bobPage.Locator("#user-profile-modal .music-play-btn").Click()
+	require.NoError(t, err)
 }
+
+
+

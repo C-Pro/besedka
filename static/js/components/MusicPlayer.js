@@ -82,16 +82,26 @@ export function createMusicPlayer({ songUrl, title, artist }) {
         currentTimeEl.textContent = '0:00';
     });
 
+    audio.addEventListener('error', (e) => {
+        console.error("Audio element error:", audio.error || e);
+        playIcon.textContent = '▶';
+        playBtn.title = "Audio playback failed";
+    });
+
     playBtn.addEventListener('click', () => {
         if (audio.paused) {
             audio.play().then(() => {
                 playIcon.textContent = '❚❚';
+                playBtn.title = "Pause";
             }).catch(err => {
                 console.error("Audio playback error:", err);
+                playIcon.textContent = '▶';
+                playBtn.title = "Playback failed";
             });
         } else {
             audio.pause();
             playIcon.textContent = '▶';
+            playBtn.title = "Play";
         }
     });
 
