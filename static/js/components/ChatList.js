@@ -1,4 +1,5 @@
 import { store } from '../state.js';
+import { createUserProfileModal } from './UserProfileModal.js';
 
 function resolveChatAvatarUrl(chat, users, currentUserId) {
     if (chat.avatarUrl) return chat.avatarUrl;
@@ -102,6 +103,16 @@ export function createChatList(container) {
         info.appendChild(preview);
         div.appendChild(avatar);
         div.appendChild(info);
+
+        avatar.addEventListener('click', (e) => {
+            if (chat.isDm) {
+                e.stopPropagation();
+                const otherUserId = chat.id.replace('dm_', '').split('_').find(id => id !== state.currentUser?.id);
+                if (otherUserId) {
+                    createUserProfileModal(store, otherUserId);
+                }
+            }
+        });
 
         div.addEventListener('click', () => {
             store.setActiveChat(chat.id);

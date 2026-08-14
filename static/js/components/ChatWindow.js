@@ -2,6 +2,7 @@ import { store } from '../state.js';
 import { imageOverlay } from './ImageOverlay.js';
 import { decorateMentions } from '../mentions.js';
 import { attachMentionAutocomplete } from './MentionAutocomplete.js';
+import { createUserProfileModal } from './UserProfileModal.js';
 
 export function createChatWindow(container) {
     const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -232,6 +233,11 @@ export function createChatWindow(container) {
             b.title = senderUser.type === 'bot' ? 'Bot' : 'Webhook';
             senderSpan.appendChild(b);
         }
+        senderSpan.style.cursor = 'pointer';
+        senderSpan.addEventListener('click', () => {
+            const uid = isMe ? state.currentUser?.id : msg.userId;
+            if (uid) createUserProfileModal(store, uid);
+        });
         div.appendChild(senderSpan);
 
         const contentSpan = document.createElement('span');
@@ -628,6 +634,17 @@ export function createChatWindow(container) {
     elements.fileInput.addEventListener('change', async (e) => {
         if (e.target.files.length > 0) {
             await handleUpload(e.target.files[0], false);
+        }
+    });
+
+    elements.headerAvatar.style.cursor = 'pointer';
+    elements.headerAvatar.addEventListener('click', () => {
+        const state = store.state;
+        const activeChat = state.chats.find(c => c.id === state.activeChatId);
+        if (!activeChat) return;
+        if (activeChat.isDm) {
+            const otherUserId = activeChat.id.replace('dm_', '').split('_').find(id => id !== state.currentUser?.id);
+            if (otherUserId) createUserProfileModal(store, otherUserId);
         }
     });
 

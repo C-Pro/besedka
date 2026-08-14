@@ -3,12 +3,14 @@ import { createChatList } from './components/ChatList.js';
 import { createChatWindow } from './components/ChatWindow.js';
 import { createInfoPanel } from './components/InfoPanel.js';
 import { createProfileModal } from './components/ProfileModal.js';
+import { createUserProfileModal } from './components/UserProfileModal.js';
 import { createSettingsModal } from './components/SettingsModal.js';
 
 const app = document.getElementById('app');
 
-// Expose the store for diagnostics and e2e assertions.
+// Expose the store and createUserProfileModal for diagnostics and e2e assertions.
 window.store = store;
+window.createUserProfileModal = createUserProfileModal;
 
 function renderApp() {
     // Create layout structure
@@ -233,7 +235,8 @@ function renderApp() {
             return;
         }
 
-        // Handle Profile Edit Button
+
+        // Handle Profile Edit / Settings Button in Dropdown
         if (e.target.closest('#mobile-profile-btn') || e.target.closest('#desktop-profile-btn')) {
             createProfileModal(store);
 

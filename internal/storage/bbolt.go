@@ -218,6 +218,10 @@ func (s *BboltStorage) UpsertCredentials(credentials auth.UserCredentials) error
 				Write:        credentials.BotPermissions.Write,
 			},
 			TargetChatID: credentials.TargetChatID,
+			SongURL:      credentials.SongURL,
+			SongTitle:    credentials.SongTitle,
+			SongArtist:   credentials.SongArtist,
+			Bio:          credentials.Bio,
 		}
 
 		data, err := dbUser.MarshalBinary()
@@ -336,6 +340,10 @@ func (s *BboltStorage) ListAllCredentials() ([]auth.UserCredentials, error) {
 						Write:        dbUser.BotPermissions.Write,
 					},
 					TargetChatID: dbUser.TargetChatID,
+					SongURL:      dbUser.SongURL,
+					SongTitle:    dbUser.SongTitle,
+					SongArtist:   dbUser.SongArtist,
+					Bio:          dbUser.Bio,
 				},
 				PasswordHash: dbUser.PasswordHash,
 				TOTPSecret:   dbUser.TOTPSecret,

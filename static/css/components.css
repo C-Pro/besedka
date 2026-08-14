@@ -1214,3 +1214,255 @@
 .user-type-badge.webhook-badge {
     color: #ffb74d;
 }
+
+/* User Profile Modal & Music Player */
+.user-profile-card-modal {
+    max-width: 440px;
+    width: 90%;
+    border-radius: 16px;
+    overflow: hidden;
+}
+
+.user-profile-body {
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.user-profile-header-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.user-profile-avatar-container {
+    position: relative;
+    width: 72px;
+    height: 72px;
+    flex-shrink: 0;
+}
+
+.user-profile-avatar-img {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid var(--primary-color, #3b82f6);
+}
+
+.user-profile-avatar-placeholder {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    font-size: 2rem;
+}
+
+.user-profile-status-indicator {
+    position: absolute;
+    bottom: 2px;
+    right: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 2px solid var(--bg-surface, #1e1e2e);
+}
+
+.user-profile-status-indicator.online {
+    background-color: #10b981;
+}
+
+.user-profile-status-indicator.offline {
+    background-color: #9ca3af;
+}
+
+.user-profile-identity {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.user-profile-display-name {
+    margin: 0;
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.user-profile-username {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+}
+
+.user-profile-status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    margin-top: 4px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    width: fit-content;
+}
+
+.user-profile-status-badge.status-online {
+    background: rgba(16, 185, 129, 0.15);
+    color: #10b981;
+}
+
+.user-profile-status-badge.status-offline {
+    background: rgba(156, 163, 175, 0.15);
+    color: #9ca3af;
+}
+
+.user-profile-status-badge .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: currentColor;
+}
+
+.user-profile-bio {
+    margin-top: 6px;
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    font-style: italic;
+    line-height: 1.4;
+    word-break: break-word;
+}
+
+.user-profile-song-section {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 14px;
+}
+
+.user-profile-song-section h4 {
+    margin: 0 0 10px 0;
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary);
+}
+
+/* Music Player Card */
+.music-player-card {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(147, 51, 234, 0.1));
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.music-player-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.music-icon-badge {
+    width: 38px;
+    height: 38px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    color: white;
+    flex-shrink: 0;
+}
+
+.music-track-info {
+    overflow: hidden;
+}
+
+.music-track-title {
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.music-track-artist {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.music-player-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.music-btn {
+    background: var(--primary-color, #3b82f6);
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: transform 0.1s ease, background-color 0.2s ease;
+    flex-shrink: 0;
+}
+
+.music-btn:hover {
+    transform: scale(1.05);
+    filter: brightness(1.1);
+}
+
+.music-btn.music-volume-btn {
+    background: transparent;
+    color: var(--text-secondary);
+}
+
+.music-progress-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.music-seeker {
+    width: 100%;
+    height: 4px;
+    accent-color: var(--primary-color, #3b82f6);
+    cursor: pointer;
+}
+
+.music-time-display {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-align: right;
+}
+
+.no-song-notice {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+.user-profile-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 4px;
+}
+
+.user-profile-actions .btn {
+    width: 100%;
+}
