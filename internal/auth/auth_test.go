@@ -4,6 +4,7 @@ import (
 	"besedka/internal/models"
 	"context"
 	"encoding/base64"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -1296,14 +1297,24 @@ func TestAuthService(t *testing.T) {
 		svc.usernames.Set("user_bio", userID)
 		tx.Unlock()
 
-		// Test truncation over 128 chars
+		// Bio over 128 runes should be rejected
 		longBio := "Hello world! " + strings.Repeat("A", 150)
-		sanitized, err := svc.UpdateBio(userID, longBio)
+		_, err := svc.UpdateBio(userID, longBio)
+		if err == nil {
+			t.Fatal("expected ErrBioTooLong for bio over 128 chars")
+		}
+		if !errors.Is(err, ErrBioTooLong) {
+			t.Fatalf("expected ErrBioTooLong, got: %v", err)
+		}
+
+		// Valid bio should succeed
+		validBio := "Hello world!"
+		sanitized, err := svc.UpdateBio(userID, validBio)
 		if err != nil {
 			t.Fatalf("UpdateBio failed: %v", err)
 		}
-		if len([]rune(sanitized)) > 128 {
-			t.Errorf("expected bio length <= 128, got %d", len([]rune(sanitized)))
+		if sanitized != validBio {
+			t.Errorf("expected bio %q, got %q", validBio, sanitized)
 		}
 
 		user, err := svc.GetUser(userID)

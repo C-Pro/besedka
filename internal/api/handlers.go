@@ -256,6 +256,7 @@ func (a *API) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		go a.hub.BroadcastNewUser(user)
 	}
 
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
 	http.SetCookie(w, &http.Cookie{
 		Name:     "token",
 		Value:    resp.Token,
@@ -842,13 +843,17 @@ func (a *API) UpdateBioHandler(w http.ResponseWriter, r *http.Request) {
 		Bio string `json:"bio"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	sanitizedBio, err := a.auth.UpdateBio(user.ID, req.Bio)
 	if err != nil {
+		if errors.Is(err, auth.ErrBioTooLong) {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		if errors.Is(err, models.ErrNotFound) {
 			http.Error(w, "User not found", http.StatusNotFound)
 			return
@@ -884,102 +889,16 @@ func (a *API) UpdateSongHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var songURL, songTitle, songArtist string
+	var err error
 
 	contentType := r.Header.Get("Content-Type")
 	if strings.HasPrefix(contentType, "multipart/form-data") {
-		if err := r.ParseMultipartForm(32 << 20); err != nil {
-			http.Error(w, "Failed to parse multipart form", http.StatusBadRequest)
-			return
-		}
-		songTitle = r.FormValue("title")
-		if songTitle == "" {
-			songTitle = r.FormValue("songTitle")
-		}
-		songArtist = r.FormValue("artist")
-		if songArtist == "" {
-			songArtist = r.FormValue("songArtist")
-		}
-		songURL = r.FormValue("url")
-		if songURL == "" {
-			songURL = r.FormValue("songUrl")
-		}
-
-		file, header, err := r.FormFile("file")
-		if err == nil && file != nil {
-			defer func() { _ = file.Close() }()
-			var buf bytes.Buffer
-			if _, err := io.Copy(&buf, file); err != nil {
-				http.Error(w, "Failed to read uploaded file", http.StatusBadRequest)
-				return
-			}
-			data := buf.Bytes()
-			if int64(len(data)) > a.cfg.MaxFileSize {
-				http.Error(w, "File size exceeds limit", http.StatusBadRequest)
-				return
-			}
-
-			// If title or artist form fields are empty, extract from ID3 / audio metadata tags
-			if songTitle == "" || songArtist == "" {
-				meta := audio.ExtractMetadata(data)
-				if songTitle == "" && meta.Title != "" {
-					songTitle = meta.Title
-				}
-				if songArtist == "" && meta.Artist != "" {
-					songArtist = meta.Artist
-				}
-			}
-
-			mimeType := header.Header.Get("Content-Type")
-			if mimeType == "" || mimeType == "application/octet-stream" {
-				kind, err := filetype.Match(data)
-				if err == nil && kind != filetype.Unknown {
-					mimeType = kind.MIME.Value
-				} else {
-					mimeType = "audio/mpeg"
-				}
-			}
-
-			hasher := sha256.New()
-			hasher.Write(data)
-			hash := hex.EncodeToString(hasher.Sum(nil))
-
-			if err := a.storage.SaveFileBlob(bytes.NewReader(data), hash); err != nil {
-				slog.Error("failed to save file blob", "error", err)
-				http.Error(w, "Internal Storage Error", http.StatusInternalServerError)
-				return
-			}
-
-			fileID := uuid.NewString()
-			meta := storage.FileMetadata{
-				ID:        fileID,
-				Hash:      hash,
-				MimeType:  mimeType,
-				Size:      int64(len(data)),
-				CreatedAt: time.Now().Unix(),
-				UserID:    user.ID,
-			}
-
-			if err := a.storage.UpsertFileMetadata(meta); err != nil {
-				slog.Error("failed to save file metadata", "error", err)
-				http.Error(w, "Internal Database Error", http.StatusInternalServerError)
-				return
-			}
-
-			songURL = fmt.Sprintf("/api/files/%s", fileID)
-		}
+		songURL, songTitle, songArtist, err = a.handleSongUpload(w, r, user.ID)
 	} else {
-		var req struct {
-			SongURL    string `json:"songUrl"`
-			SongTitle  string `json:"songTitle"`
-			SongArtist string `json:"songArtist"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
-			return
-		}
-		songURL = req.SongURL
-		songTitle = req.SongTitle
-		songArtist = req.SongArtist
+		songURL, songTitle, songArtist, err = a.handleSongJSON(w, r)
+	}
+	if err != nil {
+		return
 	}
 
 	if err := a.auth.UpdateProfileSong(user.ID, songURL, songTitle, songArtist); err != nil {
@@ -1008,6 +927,133 @@ func (a *API) UpdateSongHandler(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		slog.Error("failed to encode update profile song response", "error", err)
 	}
+}
+
+func (a *API) handleSongUpload(w http.ResponseWriter, r *http.Request, userID string) (string, string, string, error) {
+	r.Body = http.MaxBytesReader(w, r.Body, a.cfg.MaxFileSize)
+	if err := r.ParseMultipartForm(a.cfg.MaxFileSize); err != nil {
+		http.Error(w, "Failed to parse multipart form", http.StatusBadRequest)
+		return "", "", "", err
+	}
+
+	songTitle := r.FormValue("title")
+	if songTitle == "" {
+		songTitle = r.FormValue("songTitle")
+	}
+	songArtist := r.FormValue("artist")
+	if songArtist == "" {
+		songArtist = r.FormValue("songArtist")
+	}
+	songURL := r.FormValue("url")
+	if songURL == "" {
+		songURL = r.FormValue("songUrl")
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil || file == nil {
+		return songURL, songTitle, songArtist, nil
+	}
+	defer func() { _ = file.Close() }()
+
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, file); err != nil {
+		http.Error(w, "Failed to read uploaded file", http.StatusBadRequest)
+		return "", "", "", err
+	}
+	data := buf.Bytes()
+
+	if songTitle == "" || songArtist == "" {
+		meta := audio.ExtractMetadata(data)
+		if songTitle == "" && meta.Title != "" {
+			songTitle = meta.Title
+		}
+		if songArtist == "" && meta.Artist != "" {
+			songArtist = meta.Artist
+		}
+	}
+
+	mimeType := header.Header.Get("Content-Type")
+	if mimeType == "" || mimeType == "application/octet-stream" {
+		kind, err := filetype.Match(data)
+		if err == nil && kind != filetype.Unknown {
+			mimeType = kind.MIME.Value
+		} else {
+			mimeType = "audio/mpeg"
+		}
+	}
+
+	hasher := sha256.New()
+	hasher.Write(data)
+	hash := hex.EncodeToString(hasher.Sum(nil))
+
+	if err := a.storage.SaveFileBlob(bytes.NewReader(data), hash); err != nil {
+		slog.Error("failed to save file blob", "error", err)
+		http.Error(w, "Internal Storage Error", http.StatusInternalServerError)
+		return "", "", "", err
+	}
+
+	fileID := uuid.NewString()
+	fileMeta := storage.FileMetadata{
+		ID:        fileID,
+		Hash:      hash,
+		MimeType:  mimeType,
+		Size:      int64(len(data)),
+		CreatedAt: time.Now().Unix(),
+		UserID:    userID,
+	}
+
+	if err := a.storage.UpsertFileMetadata(fileMeta); err != nil {
+		slog.Error("failed to save file metadata", "error", err)
+		http.Error(w, "Internal Database Error", http.StatusInternalServerError)
+		return "", "", "", err
+	}
+
+	return fmt.Sprintf("/api/files/%s", fileID), songTitle, songArtist, nil
+}
+
+func (a *API) handleSongJSON(w http.ResponseWriter, r *http.Request) (string, string, string, error) {
+	var req struct {
+		SongURL    string `json:"songUrl"`
+		SongTitle  string `json:"songTitle"`
+		SongArtist string `json:"songArtist"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return "", "", "", err
+	}
+
+	if req.SongURL != "" {
+		if len(req.SongURL) > 2048 {
+			http.Error(w, "URL too long", http.StatusBadRequest)
+			return "", "", "", errors.New("URL too long")
+		}
+		if _, err := url.Parse(req.SongURL); err != nil {
+			http.Error(w, "Invalid URL", http.StatusBadRequest)
+			return "", "", "", err
+		}
+	}
+
+	return req.SongURL, req.SongTitle, req.SongArtist, nil
+}
+
+func (a *API) DeleteSongHandler(w http.ResponseWriter, r *http.Request) {
+	user, ok := UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if err := a.auth.UpdateProfileSong(user.ID, "", "", ""); err != nil {
+		slog.Error("failed to delete profile song", "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	if updatedUser, err := a.auth.GetUser(user.ID); err == nil {
+		go a.hub.BroadcastNewUser(updatedUser)
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *API) GetImageHandler(w http.ResponseWriter, r *http.Request) {

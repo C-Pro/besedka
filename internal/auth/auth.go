@@ -34,6 +34,7 @@ var (
 	ErrUserExists       = errors.New("user already exists")
 	ErrUserNotFound     = errors.New("user not found")
 	ErrEmptyDisplayName = errors.New("display name cannot be empty")
+	ErrBioTooLong       = errors.New("bio too long (max 128 characters)")
 )
 
 type storage interface {
@@ -387,9 +388,8 @@ func (as *AuthService) UpdateBio(userID string, bio string) (string, error) {
 	}
 
 	bio = content.Sanitize(bio)
-	bioRunes := []rune(bio)
-	if len(bioRunes) > 128 {
-		bio = string(bioRunes[:128])
+	if len([]rune(bio)) > 128 {
+		return "", ErrBioTooLong
 	}
 
 	user.Bio = bio

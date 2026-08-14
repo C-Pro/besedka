@@ -12,7 +12,12 @@ export function extractID3FromBuffer(buffer, fileName) {
         const tagSize = (bytes[6] << 21) | (bytes[7] << 14) | (bytes[8] << 7) | bytes[9];
         let offset = 10;
         if (flags & 0x40) { // extended header
-            const extSize = (bytes[10] << 24) | (bytes[11] << 16) | (bytes[12] << 8) | bytes[13];
+            let extSize;
+            if (version === 4) {
+                extSize = (bytes[10] << 21) | (bytes[11] << 14) | (bytes[12] << 7) | bytes[13];
+            } else {
+                extSize = (bytes[10] << 24) | (bytes[11] << 16) | (bytes[12] << 8) | bytes[13];
+            }
             offset += 4 + extSize;
         }
 
@@ -28,7 +33,7 @@ export function extractID3FromBuffer(buffer, fileName) {
             if (version === 4) {
                 frameSize = (bytes[offset + 4] << 21) | (bytes[offset + 5] << 14) | (bytes[offset + 6] << 7) | bytes[offset + 7];
             } else {
-                frameSize = (bytes[offset + 4] << 24) | (bytes[offset + 5] << 16) | (bytes[offset + 8] ? (bytes[offset + 6] << 8) | bytes[offset + 7] : bytes[offset + 7]);
+                frameSize = (bytes[offset + 4] << 24) | (bytes[offset + 5] << 16) | (bytes[offset + 6] << 8) | bytes[offset + 7];
             }
 
             offset += 10;

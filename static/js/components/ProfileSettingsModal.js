@@ -358,7 +358,9 @@ export function createProfileSettingsModal(store) {
     if (bioInput) {
         bioInput.addEventListener('input', () => {
             if (bioCharCount) {
-                bioCharCount.textContent = bioInput.value.length;
+                const len = bioInput.value.length;
+                bioCharCount.textContent = len;
+                bioCharCount.style.color = len > 128 ? 'var(--danger-color, #ef4444)' : '';
             }
         });
         bioInput.addEventListener('keydown', (e) => {
@@ -372,6 +374,11 @@ export function createProfileSettingsModal(store) {
     if (bioSaveBtn) {
         bioSaveBtn.addEventListener('click', async () => {
             const bioText = bioInput.value.trim();
+            if (bioText.length > 128) {
+                bioError.textContent = 'Bio too long (max 128 characters)';
+                bioError.style.display = 'block';
+                return;
+            }
             resetMessages();
             bioSaveBtn.disabled = true;
             bioSaveBtn.textContent = 'Saving...';

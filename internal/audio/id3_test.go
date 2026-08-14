@@ -63,3 +63,22 @@ func TestExtractMetadata_Empty(t *testing.T) {
 	assert.Equal(t, "", meta.Title)
 	assert.Equal(t, "", meta.Artist)
 }
+
+func FuzzExtractMetadata(f *testing.F) {
+	f.Add([]byte{})
+	f.Add([]byte("ID3"))
+	f.Add([]byte("not audio"))
+
+	// Minimal valid ID3v2.3 header
+	f.Add([]byte{'I', 'D', '3', 3, 0, 0, 0, 0, 0, 0})
+
+	// Minimal ID3v1 tag (128 bytes starting with TAG)
+	v1 := make([]byte, 128)
+	copy(v1[:3], "TAG")
+	f.Add(v1)
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		ExtractMetadata(data)
+	})
+}
+
