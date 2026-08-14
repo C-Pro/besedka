@@ -46,13 +46,22 @@ self.addEventListener('fetch', (event) => {
     // Do not intercept page navigation requests to prevent CORS/redirect errors (blocked:origin)
     if (event.request.mode === 'navigate') return;
 
+    // Do not intercept audio, video, or range requests (Service Workers break Range requests)
+    if (event.request.headers.has('range') ||
+        event.request.destination === 'audio' ||
+        event.request.destination === 'video') {
+        return;
+    }
+
     const url = new URL(event.request.url);
 
     // Never cache API or WebSocket requests
     if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/ws')) return;
 
     event.respondWith(
-        caches.match(event.request).then((cached) => cached || fetch(event.request))
+        caches.match(event.request)
+            .then((cached) => cached || fetch(event.request))
+            .catch(() => fetch(event.request))
     );
 });
 
