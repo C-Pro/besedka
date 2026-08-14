@@ -682,9 +682,10 @@ func (a *API) processUpload(w http.ResponseWriter, r *http.Request, maxBytes int
 	}
 
 	mimeType := "application/octet-stream"
-	kind, err := filetype.Match(data)
-	if err == nil && kind != filetype.Unknown {
-		mimeType = kind.MIME.Value
+	if detected := audio.DetectAudioMimeType(data); detected != "" {
+		mimeType = detected
+	} else if kind, err := filetype.Match(data); err == nil && kind != filetype.Unknown {
+		mimeType = audio.NormalizeMimeType(kind.MIME.Value)
 	} else if isSVG(data) {
 		mimeType = "image/svg+xml"
 	}
@@ -972,11 +973,12 @@ func (a *API) handleSongUpload(w http.ResponseWriter, r *http.Request, userID st
 		}
 	}
 
-	mimeType := header.Header.Get("Content-Type")
+	mimeType := audio.NormalizeMimeType(header.Header.Get("Content-Type"))
 	if mimeType == "" || mimeType == "application/octet-stream" {
-		kind, err := filetype.Match(data)
-		if err == nil && kind != filetype.Unknown {
-			mimeType = kind.MIME.Value
+		if detected := audio.DetectAudioMimeType(data); detected != "" {
+			mimeType = detected
+		} else if kind, err := filetype.Match(data); err == nil && kind != filetype.Unknown {
+			mimeType = audio.NormalizeMimeType(kind.MIME.Value)
 		} else {
 			mimeType = "audio/mpeg"
 		}
@@ -1135,7 +1137,23 @@ func (a *API) GetFileHandler(w http.ResponseWriter, r *http.Request) {
 		name = id
 	}
 
-	w.Header().Set("Content-Type", meta.MimeType)
+	mimeType := audio.NormalizeMimeType(meta.MimeType)
+	if mimeType == "" || mimeType == "application/octet-stream" {
+		if seeker, ok := rc.(io.ReadSeeker); ok {
+			var headerBuf [512]byte
+			n, err := io.ReadFull(seeker, headerBuf[:])
+			if (err == nil || errors.Is(err, io.ErrUnexpectedEOF)) && n > 0 {
+				if detected := audio.DetectAudioMimeType(headerBuf[:n]); detected != "" {
+					mimeType = detected
+				} else if kind, err := filetype.Match(headerBuf[:n]); err == nil && kind != filetype.Unknown {
+					mimeType = audio.NormalizeMimeType(kind.MIME.Value)
+				}
+			}
+			_, _ = seeker.Seek(0, io.SeekStart)
+		}
+	}
+
+	w.Header().Set("Content-Type", mimeType)
 	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 

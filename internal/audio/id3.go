@@ -3,8 +3,66 @@ package audio
 import (
 	"bytes"
 	"encoding/binary"
+	"strings"
 	"unicode/utf16"
 )
+
+// NormalizeMimeType returns standard IANA MIME type for audio formats if non-standard or alias.
+func NormalizeMimeType(mimeType string) string {
+	switch strings.ToLower(strings.TrimSpace(mimeType)) {
+	case "audio/mp3", "audio/x-mp3", "application/x-mp3", "audio/mpg", "audio/x-mpeg", "audio/mp33", "audio/mp-3":
+		return "audio/mpeg"
+	case "audio/wave", "audio/x-wav", "audio/vnd.wave":
+		return "audio/wav"
+	case "audio/x-m4a":
+		return "audio/mp4"
+	case "audio/x-flac":
+		return "audio/flac"
+	case "audio/x-aac":
+		return "audio/aac"
+	case "audio/x-ogg":
+		return "audio/ogg"
+	default:
+		return mimeType
+	}
+}
+
+// DetectAudioMimeType inspects raw audio bytes to detect standard MIME types.
+func DetectAudioMimeType(data []byte) string {
+	if len(data) < 3 {
+		return ""
+	}
+	// ID3v2 tag
+	if bytes.HasPrefix(data, []byte("ID3")) {
+		return "audio/mpeg"
+	}
+	// MP3 sync frame: 11 bits sync word (0xFF 0xE0..0xFF)
+	if data[0] == 0xFF && (data[1]&0xE0) == 0xE0 && (data[1]&0x18) != 0x08 {
+		return "audio/mpeg"
+	}
+	// WAV: "RIFF" ... "WAVE"
+	if len(data) >= 12 && bytes.HasPrefix(data, []byte("RIFF")) && bytes.Equal(data[8:12], []byte("WAVE")) {
+		return "audio/wav"
+	}
+	// OGG: "OggS"
+	if bytes.HasPrefix(data, []byte("OggS")) {
+		return "audio/ogg"
+	}
+	// FLAC: "fLaC"
+	if bytes.HasPrefix(data, []byte("fLaC")) {
+		return "audio/flac"
+	}
+	// MP4 / M4A: "ftyp" at index 4
+	if len(data) >= 12 && bytes.Equal(data[4:8], []byte("ftyp")) {
+		return "audio/mp4"
+	}
+	// ID3v1 tag at end of file
+	if len(data) >= 128 && bytes.Equal(data[len(data)-128:len(data)-125], []byte("TAG")) {
+		return "audio/mpeg"
+	}
+	return ""
+}
+
 
 // Metadata represents audio track metadata extracted from tags.
 type Metadata struct {
