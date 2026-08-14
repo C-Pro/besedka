@@ -39,7 +39,10 @@ export function createMusicPlayer({ songUrl, title, artist }) {
     `;
 
     const audio = new Audio(songUrl);
-    audio.preload = 'metadata';
+    audio.preload = 'auto';
+    audio.className = 'music-player-audio-element';
+    container.appendChild(audio);
+    container.audio = audio;
 
     const playBtn = container.querySelector('.music-play-btn');
     const playIcon = container.querySelector('.play-icon');
@@ -90,6 +93,9 @@ export function createMusicPlayer({ songUrl, title, artist }) {
 
     playBtn.addEventListener('click', () => {
         if (audio.paused) {
+            if (audio.error || audio.networkState === HTMLMediaElement.NETWORK_NO_SOURCE) {
+                audio.load();
+            }
             audio.play().then(() => {
                 playIcon.textContent = '❚❚';
                 playBtn.title = "Pause";
