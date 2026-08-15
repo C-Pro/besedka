@@ -8,16 +8,18 @@ import (
 	"net/url"
 	"sync"
 
+	"fmt"
+	"io/fs"
+
 	"besedka/internal/api"
 	"besedka/internal/auth"
+	"besedka/internal/certmanager"
 	"besedka/internal/config"
 	"besedka/internal/models"
+	"besedka/internal/objectstore"
 	"besedka/internal/push"
 	"besedka/internal/storage"
 	"besedka/internal/ws"
-	"io/fs"
-
-	"golang.org/x/crypto/acme/autocert"
 )
 
 type APIServer struct {
@@ -93,18 +95,32 @@ func (s *APIServer) Start() error {
 	defer s.wg.Done()
 
 	if s.cfg.TLSAutoCertPath != "" {
-		hostURL, err := url.Parse(s.cfg.BaseURL)
-		if err != nil {
-			return err
+		var obj *objectstore.Client
+		if s.cfg.S3Enabled() {
+			var err error
+			obj, err = objectstore.New(objectstore.Config{
+				Endpoint:  s.cfg.S3Endpoint,
+				Region:    s.cfg.S3Region,
+				Bucket:    s.cfg.S3Bucket,
+				AccessKey: s.cfg.S3AccessKey,
+				SecretKey: s.cfg.S3SecretKey,
+				PathStyle: s.cfg.S3PathStyle,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to initialize objectstore for certmanager: %w", err)
+			}
 		}
-		hostname := hostURL.Hostname()
 
-		manager := &autocert.Manager{
-			Cache:      autocert.DirCache(s.cfg.TLSAutoCertPath),
-			Prompt:     autocert.AcceptTOS,
-			HostPolicy: autocert.HostWhitelist(hostname),
+		cm, err := certmanager.New(s.cfg, obj)
+		if err != nil {
+			return fmt.Errorf("failed to initialize certmanager: %w", err)
 		}
-		s.server.TLSConfig = manager.TLSConfig()
+
+		if err := cm.Init(context.Background()); err != nil {
+			slog.Warn("certmanager init warning", "error", err)
+		}
+
+		s.server.TLSConfig = cm.TLSConfig()
 
 		if s.cfg.EnableHTTPChallenge {
 			port := s.cfg.HTTPChallengePort
@@ -123,7 +139,7 @@ func (s *APIServer) Start() error {
 
 			s.httpChallengeServer = &http.Server{
 				Addr:    challengeAddr,
-				Handler: manager.HTTPHandler(http.HandlerFunc(s.httpsRedirectFallbackHandler)),
+				Handler: cm.HTTPHandler(http.HandlerFunc(s.httpsRedirectFallbackHandler)),
 			}
 			s.wg.Go(func() {
 				slog.Info("HTTP challenge server started", "address", s.httpChallengeServer.Addr)
