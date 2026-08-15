@@ -217,12 +217,52 @@ All endpoints below require a valid session token.
     "timestamp": number,
     "userId": "string",
     "content": "string",
+    "rawContent": "string",
     "attachments": [
        // List of attachments
     ]
   }
 ]
 ```
+
+---
+
+## Message Formatting & Security Limitations
+
+Chat message content submitted via Webhooks (`POST /api/webhook`), HTTP endpoints, or WebSockets is parsed from Markdown into HTML and sanitized on the server before storage and broadcast.
+
+### 1. Security & Tag Limitations
+To prevent Cross-Site Scripting (XSS) and arbitrary DOM injection:
+- **Raw HTML Tags Disallowed**: All raw HTML tags (such as `<script>`, `<iframe>`, `<div>`, `<span>`, `<img>`, `<table>`, `<style>`, etc.) embedded in message text are **stripped** during HTML sanitization.
+- **Scripting & Attributes**: Any `<script>` tags, inline event handlers (`onclick=`, `onerror=`), and custom HTML attributes are removed.
+- **URL Scheme Restrictions**: Hyperlinks with unsafe URL schemes (e.g. `javascript:`, `data:`, `vbscript:`) are stripped. Only `http`, `https`, and `mailto` schemes are allowed.
+
+### 2. Supported Markdown Subset
+Messages support the following safe subset of Markdown formatting:
+
+| Element | Markdown Syntax | Rendered HTML | Notes |
+| :--- | :--- | :--- | :--- |
+| **Bold** | `**text**` or `__text__` | `<strong>text</strong>` | |
+| **Italic** | `*text*` or `_text_` | `<em>text</em>` | |
+| **Headings** | `# H1` .. `###### H6` | `<h1>` .. `<h6>` | H1 to H6 supported |
+| **Links** | `[text](https://example.com)` | `<a href="...">text</a>` | Automatically adds `target="_blank"` and `rel="noreferrer noopener"` |
+| **Auto-Links** | `https://example.com` | `<a href="...">URL</a>` | Plain URLs are automatically converted to links |
+| **Inline Code** | `` `code` `` | `<code>code</code>` | |
+| **Code Blocks** | ` ```code block``` ` | `<pre><code>...</code></pre>` | Fenced multi-line code blocks |
+| **Blockquotes** | `> quote text` | `<blockquote>quote text</blockquote>` | |
+| **Unordered Lists** | `- item` or `* item` | `<ul><li>item</li></ul>` | |
+| **Ordered Lists** | `1. item` | `<ol><li>item</li></ol>` | |
+| **Line Breaks** | Double newline or trailing spaces | `<p>`, `<br>` | Hard line wraps enabled |
+
+### 3. Unsupported / Stripped Elements
+- **Markdown Images** (`![alt](url)`): Image tags in Markdown are **not** rendered and will be stripped by the sanitizer. Images must be sent as file attachments via `/api/upload/image` or `/api/upload/file`.
+- **Tables**: GFM tables (`| col | col |`) are not supported and are stripped or rendered as plain text.
+- **Embedded HTML**: Any raw HTML markup in messages is stripped.
+
+### 4. Mentions
+- `@username` mentions are automatically parsed matching `@([a-zA-Z0-9._-]+)` to trigger user mention notifications.
+
+---
 
 ## WebSocket Protocol
 

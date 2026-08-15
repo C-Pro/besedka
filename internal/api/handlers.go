@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -682,9 +683,10 @@ func (a *API) processUpload(w http.ResponseWriter, r *http.Request, maxBytes int
 	}
 
 	mimeType := "application/octet-stream"
-	kind, err := filetype.Match(data)
-	if err == nil && kind != filetype.Unknown {
-		mimeType = kind.MIME.Value
+	if detected := audio.DetectAudioMimeType(data); detected != "" {
+		mimeType = detected
+	} else if kind, err := filetype.Match(data); err == nil && kind != filetype.Unknown {
+		mimeType = audio.NormalizeMimeType(kind.MIME.Value)
 	} else if isSVG(data) {
 		mimeType = "image/svg+xml"
 	}
@@ -972,11 +974,12 @@ func (a *API) handleSongUpload(w http.ResponseWriter, r *http.Request, userID st
 		}
 	}
 
-	mimeType := header.Header.Get("Content-Type")
+	mimeType := audio.NormalizeMimeType(header.Header.Get("Content-Type"))
 	if mimeType == "" || mimeType == "application/octet-stream" {
-		kind, err := filetype.Match(data)
-		if err == nil && kind != filetype.Unknown {
-			mimeType = kind.MIME.Value
+		if detected := audio.DetectAudioMimeType(data); detected != "" {
+			mimeType = detected
+		} else if kind, err := filetype.Match(data); err == nil && kind != filetype.Unknown {
+			mimeType = audio.NormalizeMimeType(kind.MIME.Value)
 		} else {
 			mimeType = "audio/mpeg"
 		}
@@ -1008,7 +1011,12 @@ func (a *API) handleSongUpload(w http.ResponseWriter, r *http.Request, userID st
 		return "", "", "", err
 	}
 
-	return fmt.Sprintf("/api/files/%s", fileID), songTitle, songArtist, nil
+	ext := getExtensionForMime(mimeType)
+	if ext == "" {
+		ext = ".mp3"
+	}
+
+	return fmt.Sprintf("/api/files/%s%s", fileID, ext), songTitle, songArtist, nil
 }
 
 func (a *API) handleSongJSON(w http.ResponseWriter, r *http.Request) (string, string, string, error) {
@@ -1116,7 +1124,12 @@ func (a *API) GetFileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	meta, err := a.storage.GetFileMetadata(id)
+	cleanID := id
+	if idx := strings.LastIndex(cleanID, "."); idx != -1 {
+		cleanID = cleanID[:idx]
+	}
+
+	meta, err := a.storage.GetFileMetadata(cleanID)
 	if err != nil {
 		http.Error(w, "File not found", http.StatusNotFound)
 		return
@@ -1135,25 +1148,84 @@ func (a *API) GetFileHandler(w http.ResponseWriter, r *http.Request) {
 		name = id
 	}
 
-	w.Header().Set("Content-Type", meta.MimeType)
+	mimeType := audio.NormalizeMimeType(meta.MimeType)
+	if seeker, ok := rc.(io.ReadSeeker); ok {
+		var headerBuf [512]byte
+		n, err := io.ReadFull(seeker, headerBuf[:])
+		if (err == nil || errors.Is(err, io.ErrUnexpectedEOF)) && n > 0 {
+			if detected := audio.DetectAudioMimeType(headerBuf[:n]); detected != "" {
+				mimeType = detected
+			} else if mimeType == "" || mimeType == "application/octet-stream" {
+				if kind, err := filetype.Match(headerBuf[:n]); err == nil && kind != filetype.Unknown {
+					mimeType = audio.NormalizeMimeType(kind.MIME.Value)
+				}
+			}
+		}
+		_, _ = seeker.Seek(0, io.SeekStart)
+	}
+
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+
+	w.Header().Set("Content-Type", mimeType)
+	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 
+	nameWithExt := name
+	if filepath.Ext(nameWithExt) == "" {
+		if ext := getExtensionForMime(mimeType); ext != "" {
+			nameWithExt += ext
+		}
+	}
+
 	isDownload := r.URL.Query().Get("download") == "1"
 	if isDownload {
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", name))
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", nameWithExt))
 	} else {
-		w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", name))
+		w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", nameWithExt))
 	}
 
 	if seeker, ok := rc.(io.ReadSeeker); ok {
 		modTime := time.Unix(meta.CreatedAt, 0)
-		http.ServeContent(w, r, name, modTime, seeker)
+		http.ServeContent(w, r, nameWithExt, modTime, seeker)
 	} else {
 		w.Header().Set("Content-Length", strconv.FormatInt(meta.Size, 10))
 		if _, err := io.Copy(w, rc); err != nil {
 			slog.Error("failed to write file content", "error", err)
 		}
+	}
+}
+
+func getExtensionForMime(mimeType string) string {
+	switch strings.ToLower(mimeType) {
+	case "audio/mpeg":
+		return ".mp3"
+	case "audio/wav":
+		return ".wav"
+	case "audio/mp4":
+		return ".m4a"
+	case "audio/ogg":
+		return ".ogg"
+	case "audio/flac":
+		return ".flac"
+	case "audio/aac":
+		return ".aac"
+	case "audio/webm":
+		return ".webm"
+	case "image/png":
+		return ".png"
+	case "image/jpeg":
+		return ".jpg"
+	case "image/gif":
+		return ".gif"
+	case "image/webp":
+		return ".webp"
+	case "image/svg+xml":
+		return ".svg"
+	default:
+		return ""
 	}
 }
 

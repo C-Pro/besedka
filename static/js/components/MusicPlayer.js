@@ -38,8 +38,16 @@ export function createMusicPlayer({ songUrl, title, artist }) {
         </div>
     `;
 
-    const audio = new Audio(songUrl);
-    audio.preload = 'metadata';
+    let finalSongUrl = songUrl;
+    if (finalSongUrl && finalSongUrl.startsWith('/api/files/') && !finalSongUrl.includes('.')) {
+        finalSongUrl += '.mp3';
+    }
+
+    const audio = new Audio(finalSongUrl);
+    audio.preload = 'auto';
+    audio.className = 'music-player-audio-element';
+    container.appendChild(audio);
+    container.audio = audio;
 
     const playBtn = container.querySelector('.music-play-btn');
     const playIcon = container.querySelector('.play-icon');
@@ -82,16 +90,29 @@ export function createMusicPlayer({ songUrl, title, artist }) {
         currentTimeEl.textContent = '0:00';
     });
 
+    audio.addEventListener('error', (e) => {
+        console.error("Audio element error:", audio.error || e);
+        playIcon.textContent = '▶';
+        playBtn.title = "Audio playback failed";
+    });
+
     playBtn.addEventListener('click', () => {
         if (audio.paused) {
+            if (audio.error || audio.networkState === HTMLMediaElement.NETWORK_NO_SOURCE) {
+                audio.load();
+            }
             audio.play().then(() => {
                 playIcon.textContent = '❚❚';
+                playBtn.title = "Pause";
             }).catch(err => {
                 console.error("Audio playback error:", err);
+                playIcon.textContent = '▶';
+                playBtn.title = "Playback failed";
             });
         } else {
             audio.pause();
             playIcon.textContent = '▶';
+            playBtn.title = "Play";
         }
     });
 
