@@ -2,14 +2,13 @@ package http
 
 import (
 	"context"
+	"fmt"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
 	"sync"
-
-	"fmt"
-	"io/fs"
 
 	"besedka/internal/api"
 	"besedka/internal/auth"

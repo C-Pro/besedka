@@ -34,6 +34,11 @@ const (
 	rateLimitFilename = "ratelimit.json"
 )
 
+var (
+	reRetryAfterMST   = regexp.MustCompile(`(?i)retry after (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} [A-Z]{3})`)
+	reRetryAfterRFC   = regexp.MustCompile(`(?i)retry after (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))`)
+)
+
 // CertBackup is the encrypted payload stored in S3 containing the certificate,
 // key, associated cache items, and rate limit status.
 type CertBackup struct {
@@ -177,7 +182,15 @@ func (m *Manager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, 
 			return m.autocert.GetCertificate(hello)
 		}
 		if cert, err := loadCachedCertIgnoringExpiry(m.dirCache, hello.ServerName); err == nil {
-			slog.Warn("serving cached certificate during Let's Encrypt rate limit window", "serverName", hello.ServerName, "rateLimitUntil", until.Format(time.RFC3339))
+			var expiry string
+			if cert.Leaf != nil {
+				expiry = cert.Leaf.NotAfter.Format(time.RFC3339)
+			}
+			slog.Warn("serving expired cached certificate during Let's Encrypt rate limit window",
+				"serverName", hello.ServerName,
+				"certExpiry", expiry,
+				"rateLimitUntil", until.Format(time.RFC3339),
+			)
 			return cert, nil
 		}
 		return nil, fmt.Errorf("acme rate limit active until %s, retry after that time", until.Format(time.RFC3339))
@@ -275,7 +288,7 @@ func (m *Manager) restoreFromS3(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("read S3 cert backup: %w", err)
 	}
 
-	if len(data) < 16 {
+	if len(data) < storage.SaltLen {
 		return false, errors.New("S3 cert backup payload too short")
 	}
 
@@ -283,8 +296,8 @@ func (m *Manager) restoreFromS3(ctx context.Context) (bool, error) {
 		return false, errors.New("AUTH_SECRET is required")
 	}
 
-	salt := data[:16]
-	ciphertext := data[16:]
+	salt := data[:storage.SaltLen]
+	ciphertext := data[storage.SaltLen:]
 
 	crypter, err := storage.NewCrypter([]byte(m.cfg.AuthSecret), salt)
 	if err != nil {
@@ -528,15 +541,13 @@ func parseRateLimitError(err error, now time.Time) (time.Time, bool) {
 		return time.Time{}, false
 	}
 
-	re1 := regexp.MustCompile(`(?i)retry after (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} [A-Z]{3})`)
-	if matches := re1.FindStringSubmatch(errMsg); len(matches) > 1 {
+	if matches := reRetryAfterMST.FindStringSubmatch(errMsg); len(matches) > 1 {
 		if t, parseErr := time.Parse("2006-01-02 15:04:05 MST", matches[1]); parseErr == nil {
 			return t, true
 		}
 	}
 
-	re2 := regexp.MustCompile(`(?i)retry after (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))`)
-	if matches := re2.FindStringSubmatch(errMsg); len(matches) > 1 {
+	if matches := reRetryAfterRFC.FindStringSubmatch(errMsg); len(matches) > 1 {
 		if t, parseErr := time.Parse(time.RFC3339, matches[1]); parseErr == nil {
 			return t, true
 		}

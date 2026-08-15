@@ -324,3 +324,95 @@ func TestCertManager_RateLimitEnforcement(t *testing.T) {
 		t.Errorf("unexpected error message: %v", err)
 	}
 }
+
+func TestCertManager_S3ExpiredBackupRejected(t *testing.T) {
+	s3Data := make(map[string][]byte)
+	s3Server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		key := strings.TrimPrefix(r.URL.Path, "/test-bucket/")
+		switch r.Method {
+		case "GET":
+			val, ok := s3Data[key]
+			if !ok {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(val)
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer s3Server.Close()
+
+	domain := "expired.example.com"
+	authSecret := "secret-for-expired-test"
+
+	objClient, err := objectstore.New(objectstore.Config{
+		Endpoint:  s3Server.URL,
+		Region:    "us-east-1",
+		Bucket:    "test-bucket",
+		AccessKey: "minioadmin",
+		SecretKey: "minioadmin",
+		PathStyle: true,
+	})
+	if err != nil {
+		t.Fatalf("failed to create objectstore client: %v", err)
+	}
+
+	certBytes, _ := generateTestCert(t, domain, time.Now().Add(-48*time.Hour), time.Now().Add(-1*time.Hour))
+	expiry, err := extractCertExpiry(certBytes)
+	if err != nil {
+		t.Fatalf("failed to extract cert expiry: %v", err)
+	}
+
+	backupStruct := CertBackup{
+		Domain: domain,
+		Expiry: expiry,
+		CacheItems: map[string][]byte{
+			domain: certBytes,
+		},
+	}
+	jsonBytes, err := json.Marshal(backupStruct)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	crypter, err := storage.NewCrypter([]byte(authSecret), nil)
+	if err != nil {
+		t.Fatalf("crypter creation failed: %v", err)
+	}
+	ciphertext, err := crypter.Encrypt(jsonBytes)
+	if err != nil {
+		t.Fatalf("encrypt failed: %v", err)
+	}
+	payload := append(crypter.Salt(), ciphertext...)
+	s3Data[S3CertBackupKey] = payload
+
+	emptyDir := t.TempDir()
+	cfg := &config.Config{
+		TLSAutoCertPath: emptyDir,
+		BaseURL:         "https://" + domain,
+		AuthSecret:      authSecret,
+		S3Endpoint:      s3Server.URL,
+		S3Bucket:        "test-bucket",
+		S3AccessKey:     "minioadmin",
+		S3SecretKey:     "minioadmin",
+	}
+
+	cm, err := New(cfg, objClient)
+	if err != nil {
+		t.Fatalf("New certmanager failed: %v", err)
+	}
+
+	if err := cm.Init(context.Background()); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+
+	entries, err := os.ReadDir(emptyDir)
+	if err != nil {
+		t.Fatalf("failed to read dir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("expected empty dir after rejecting expired backup, got %d entries", len(entries))
+	}
+}
