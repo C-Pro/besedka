@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	saltLen = 16
+	SaltLen = 16
 	keyLen  = 32
 )
 
@@ -45,8 +45,8 @@ func NewCrypter(secret []byte, salt []byte) (*Crypter, error) {
 		if salt, err = genSalt(); err != nil {
 			return nil, err
 		}
-	} else if len(salt) != saltLen {
-		return nil, fmt.Errorf("invalid salt length: expected %d, got %d", saltLen, len(salt))
+	} else if len(salt) != SaltLen {
+		return nil, fmt.Errorf("invalid salt length: expected %d, got %d", SaltLen, len(salt))
 	}
 
 	key := deriveKey(secret, salt)
@@ -77,7 +77,7 @@ func (c *Crypter) Salt() []byte {
 }
 
 func genSalt() ([]byte, error) {
-	salt := make([]byte, saltLen)
+	salt := make([]byte, SaltLen)
 	if _, err := rand.Read(salt); err != nil {
 		return nil, err
 	}

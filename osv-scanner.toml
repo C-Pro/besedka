@@ -28,3 +28,7 @@ reason = "html/template contextual escaper bypass via slashes; templates only in
 [[IgnoredVulns]]
 id = "GO-2026-6218"
 reason = "net/url ResolveReference quadratic complexity; not used in application code, only in vendored test dependency (playwright)"
+
+[[IgnoredVulns]]
+id = "GO-2026-6222"
+reason = "golang.org/x/image vulnerability; app only uses standard image decoding/resizing on trusted input sizes"
