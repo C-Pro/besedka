@@ -165,6 +165,32 @@ func (m *Manager) TLSConfig() *tls.Config {
 	return cfg
 }
 
+func (m *Manager) EnsureCert(ctx context.Context) error {
+	now := m.now()
+
+	m.mu.Lock()
+	until := m.rateLimitUntil
+	m.mu.Unlock()
+
+	if !until.IsZero() && now.Before(until) {
+		slog.Info("skipping proactive cert request due to active rate limit",
+			"domain", m.domain, "rateLimitUntil", until.Format(time.RFC3339))
+		return nil
+	}
+
+	if hasValidCachedCert(m.dirCache, m.domain, now) {
+		return nil
+	}
+
+	slog.Info("proactively requesting certificate from Let's Encrypt", "domain", m.domain)
+	hello := &tls.ClientHelloInfo{ServerName: m.domain}
+	if _, err := m.GetCertificate(hello); err != nil {
+		return fmt.Errorf("certificate request for %s failed: %w", m.domain, err)
+	}
+	slog.Info("successfully obtained certificate from Let's Encrypt", "domain", m.domain)
+	return nil
+}
+
 func (m *Manager) HTTPHandler(fallback http.Handler) http.Handler {
 	return m.autocert.HTTPHandler(fallback)
 }

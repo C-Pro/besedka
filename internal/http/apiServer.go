@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
+	"time"
 
 	"besedka/internal/api"
 	"besedka/internal/auth"
@@ -147,6 +148,13 @@ func (s *APIServer) Start() error {
 				}
 			})
 		}
+
+		go func() {
+			time.Sleep(time.Second)
+			if err := cm.EnsureCert(context.Background()); err != nil {
+				slog.Error("proactive certificate request failed", "error", err)
+			}
+		}()
 
 		if err := s.server.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
 			return err
