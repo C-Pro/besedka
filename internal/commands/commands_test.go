@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 )
@@ -274,3 +275,65 @@ func TestPrintUsers(t *testing.T) {
 		t.Errorf("empty output missing placeholder:\n%s", empty.String())
 	}
 }
+
+func TestSetAvatar(t *testing.T) {
+	users := []models.User{
+		{ID: "u1", UserName: "botuser", Status: models.UserStatusActive},
+	}
+
+	t.Run("missing arguments", func(t *testing.T) {
+		cfg := &config.Config{}
+		if err := SetAvatar("", "botuser", cfg); err == nil {
+			t.Error("expected error for empty filePath")
+		}
+		if err := SetAvatar("file.png", "", cfg); err == nil {
+			t.Error("expected error for empty username")
+		}
+	})
+
+	t.Run("file not found", func(t *testing.T) {
+		cfg := &config.Config{}
+		if err := SetAvatar("nonexistent.png", "botuser", cfg); err == nil {
+			t.Error("expected error for nonexistent file")
+		}
+	})
+
+	t.Run("success", func(t *testing.T) {
+		tmp, err := os.CreateTemp("", "avatar*.png")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = os.Remove(tmp.Name()) }()
+		_, _ = tmp.Write([]byte("fake-image-bytes"))
+		_ = tmp.Close()
+
+		var setAvatarCalled bool
+		cfg, _ := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+			if !requireAuth(t, w, r) {
+				return
+			}
+			if r.Method == http.MethodGet && r.URL.Path == "/api/users" {
+				writeUsers(w, users)
+				return
+			}
+			if r.Method == http.MethodPost && r.URL.Path == "/api/users/set-avatar" {
+				if r.URL.Query().Get("id") != "u1" {
+					t.Errorf("got id=%q, want u1", r.URL.Query().Get("id"))
+				}
+				setAvatarCalled = true
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(models.APIResponse{Success: true})
+				return
+			}
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		})
+
+		if err := SetAvatar(tmp.Name(), "botuser", cfg); err != nil {
+			t.Fatalf("SetAvatar failed: %v", err)
+		}
+		if !setAvatarCalled {
+			t.Error("expected set-avatar endpoint to be called")
+		}
+	})
+}
+
