@@ -122,7 +122,7 @@ func TestBotAndWebhookHappyPathIntegration(t *testing.T) {
 	apiServer := httptest.NewServer(apiSvc.server.Handler)
 	defer apiServer.Close()
 
-	adminSvc := NewAdminServer(cfg, as, hub, mockAssets)
+	adminSvc := NewAdminServer(cfg, as, hub, st, mockAssets)
 	adminServer := httptest.NewServer(adminSvc.server.Handler)
 	defer adminServer.Close()
 

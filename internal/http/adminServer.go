@@ -17,6 +17,7 @@ import (
 	"besedka/internal/auth"
 	"besedka/internal/config"
 	"besedka/internal/models"
+	"besedka/internal/storage"
 	"besedka/internal/ws"
 )
 
@@ -54,7 +55,7 @@ func (s *AdminServer) SetOps(
 	s.triggerExit = triggerExit
 }
 
-func NewAdminServer(cfg *config.Config, authService *auth.AuthService, hub *ws.Hub, assets fs.FS) *AdminServer {
+func NewAdminServer(cfg *config.Config, authService *auth.AuthService, hub *ws.Hub, store *storage.BboltStorage, assets fs.FS) *AdminServer {
 	// Parse admin template
 	tmpl, err := template.ParseFS(assets, "admin.html")
 	if err != nil {
@@ -62,7 +63,7 @@ func NewAdminServer(cfg *config.Config, authService *auth.AuthService, hub *ws.H
 		os.Exit(1)
 	}
 
-	adminHandler := api.NewAdminHandler(authService, hub, cfg.BaseURL)
+	adminHandler := api.NewAdminHandler(authService, hub, store, cfg.BaseURL, cfg.MaxAvatarSize)
 	mux := http.NewServeMux()
 
 	// Basic Auth Middleware
@@ -103,6 +104,7 @@ func NewAdminServer(cfg *config.Config, authService *auth.AuthService, hub *ws.H
 	mux.HandleFunc("DELETE /api/users", withBasicAuth(adminHandler.DeleteUserHandler))
 	mux.HandleFunc("POST /api/users/reset-password", withBasicAuth(adminHandler.ResetUserPasswordHandler))
 	mux.HandleFunc("POST /api/users/reset-key", withBasicAuth(adminHandler.ResetAPIKeyHandler))
+	mux.HandleFunc("POST /api/users/set-avatar", withBasicAuth(adminHandler.SetUserAvatarHandler))
 
 	// Server-control handlers
 	mux.HandleFunc("POST /api/backup", withBasicAuth(s.handleBackup))

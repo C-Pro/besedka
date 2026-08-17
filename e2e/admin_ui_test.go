@@ -119,7 +119,7 @@ func TestAdminUI(t *testing.T) {
 		t.Fatalf("Failed to load assets: %v", err)
 	}
 
-	adminServer := http.NewAdminServer(cfg, authService, hub, assetsFS)
+	adminServer := http.NewAdminServer(cfg, authService, hub, nil, assetsFS)
 
 	ts := httptest.NewServer(adminServer.Server().Handler)
 	defer ts.Close()
