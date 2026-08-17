@@ -23,7 +23,7 @@ func TestNewCrypter(t *testing.T) {
 		{
 			name:   "uses provided salt",
 			secret: []byte("supersecret"),
-			salt:   bytes.Repeat([]byte{0x01}, saltLen),
+			salt:   bytes.Repeat([]byte{0x01}, SaltLen),
 		},
 		{
 			name:   "empty secret",
@@ -42,8 +42,8 @@ func TestNewCrypter(t *testing.T) {
 			}
 
 
-			if len(c.salt) != saltLen {
-				t.Errorf("salt length = %d, want %d", len(c.salt), saltLen)
+			if len(c.salt) != SaltLen {
+				t.Errorf("salt length = %d, want %d", len(c.salt), SaltLen)
 			}
 
 			if len(tc.salt) > 0 && !bytes.Equal(c.salt, tc.salt) {
@@ -55,7 +55,7 @@ func TestNewCrypter(t *testing.T) {
 
 func TestNewCrypter_DeterministicKey(t *testing.T) {
 	secret := []byte("my-secret")
-	salt := bytes.Repeat([]byte{0xAB}, saltLen)
+	salt := bytes.Repeat([]byte{0xAB}, SaltLen)
 
 	c1, err := NewCrypter(secret, salt)
 	if err != nil {
@@ -210,7 +210,7 @@ func TestSalt_Persistence(t *testing.T) {
 func BenchmarkArgon(b *testing.B) {
 	// To find suitable argon2 number of rounds.
 	secret := make([]byte, keyLen)
-	salt := make([]byte, saltLen)
+	salt := make([]byte, SaltLen)
 	_, _ = rand.Read(secret)
 	_, _ = rand.Read(salt)
 	times := 10
