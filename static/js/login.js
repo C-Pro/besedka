@@ -1,4 +1,10 @@
 import { store, bufferToBase64URL, base64URLToBuffer } from './state.js';
+import { initLoginBackground } from './login-bg.js';
+
+const bgCanvas = document.getElementById('login-bg-canvas');
+if (bgCanvas) {
+    initLoginBackground(bgCanvas);
+}
 
 const errorDiv = document.getElementById('error-message');
 const usernameInput = document.getElementById('username');

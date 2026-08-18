@@ -6,6 +6,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - {{.ChatName}}</title>
     <meta name="description" content="Log in to your Besedka chat account.">
+    <meta name="application-name" content="{{.ChatName}}">
+    <meta property="og:site_name" content="{{.ChatName}}">
+    <meta name="robots" content="noindex, nofollow, noarchive">
 
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/layout.css">
@@ -20,6 +23,8 @@
 </head>
 
 <body>
+    <canvas id="login-bg-canvas" class="login-bg-canvas" aria-hidden="true"></canvas>
+
     <div id="login-app">
         <main class="login-container">
             <div class="login-card">
@@ -41,6 +46,10 @@
                     <button type="button" id="passkey-login-btn" class="btn btn-secondary" style="width: 100%;">Sign in with Passkey</button>
                 </form>
             </div>
+
+            <footer class="login-footer">
+                This is an installation of the self-hosted open-source <a href="https://github.com/C-Pro/besedka" target="_blank" rel="noopener noreferrer">Besedka</a> chat app.
+            </footer>
         </main>
     </div>
     <script type="module" src="js/login.js"></script>

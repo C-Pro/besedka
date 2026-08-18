@@ -3,6 +3,7 @@
         "includes": [
             "static/js/app.js",
             "static/js/login.js",
+            "static/js/login-bg.js",
             "static/js/register.js",
             "static/js/state.js",
             "static/js/components/*.js"
