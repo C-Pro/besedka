@@ -1,25 +1,45 @@
 package api
 
 import (
-	"besedka/internal/auth"
-	"besedka/internal/models"
-	"besedka/internal/ws"
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
+
+	"besedka/internal/audio"
+	"besedka/internal/auth"
+	"besedka/internal/images"
+	"besedka/internal/models"
+	"besedka/internal/storage"
+	"besedka/internal/ws"
+
+	"github.com/google/uuid"
+	"github.com/h2non/filetype"
 )
 
 type AdminHandler struct {
-	authService *auth.AuthService
-	hub         *ws.Hub
-	baseURL     string
+	authService   *auth.AuthService
+	hub           *ws.Hub
+	storage       *storage.BboltStorage
+	baseURL       string
+	maxAvatarSize int64
 }
 
-func NewAdminHandler(authService *auth.AuthService, hub *ws.Hub, baseURL string) *AdminHandler {
-	return &AdminHandler{authService: authService, hub: hub, baseURL: baseURL}
+func NewAdminHandler(authService *auth.AuthService, hub *ws.Hub, store *storage.BboltStorage, baseURL string, maxAvatarSize int64) *AdminHandler {
+	return &AdminHandler{
+		authService:   authService,
+		hub:           hub,
+		storage:       store,
+		baseURL:       baseURL,
+		maxAvatarSize: maxAvatarSize,
+	}
 }
 
 type AddUserRequest struct {
@@ -279,3 +299,159 @@ func (h *AdminHandler) ResetAPIKeyHandler(w http.ResponseWriter, r *http.Request
 		APIKey:  apiKey,
 	})
 }
+
+func (h *AdminHandler) SetUserAvatarHandler(w http.ResponseWriter, r *http.Request) {
+	userID := r.URL.Query().Get("id")
+	if userID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(models.APIResponse{
+			Success: false,
+			Message: "User ID is required",
+		})
+		return
+	}
+
+	allUsers, err := h.authService.GetAllUsers()
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(models.APIResponse{
+			Success: false,
+			Message: "Failed to query users",
+		})
+		return
+	}
+
+	var found bool
+	for _, u := range allUsers {
+		if u.ID == userID && u.Status != models.UserStatusDeleted {
+			found = true
+			break
+		}
+	}
+	if !found {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(models.APIResponse{
+			Success: false,
+			Message: "User not found",
+		})
+		return
+	}
+
+	maxBytes := h.maxAvatarSize
+	if maxBytes <= 0 {
+		maxBytes = 5 * 1024 * 1024
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(r.Body); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(models.APIResponse{
+			Success: false,
+			Message: "Failed to read request body",
+		})
+		return
+	}
+	data := buf.Bytes()
+
+	if len(data) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(models.APIResponse{
+			Success: false,
+			Message: "Avatar file is empty",
+		})
+		return
+	}
+
+	if !filetype.IsImage(data) && !isSVG(data) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(models.APIResponse{
+			Success: false,
+			Message: "Invalid file type. Only images are allowed.",
+		})
+		return
+	}
+
+	mimeType := "application/octet-stream"
+	if kind, err := filetype.Match(data); err == nil && kind != filetype.Unknown {
+		mimeType = audio.NormalizeMimeType(kind.MIME.Value)
+	} else if isSVG(data) {
+		mimeType = "image/svg+xml"
+	}
+
+	hasher := sha256.New()
+	hasher.Write(data)
+	hash := hex.EncodeToString(hasher.Sum(nil))
+
+	if h.storage == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(models.APIResponse{
+			Success: false,
+			Message: "Storage not initialized",
+		})
+		return
+	}
+
+	if err := h.storage.SaveFileBlob(bytes.NewReader(data), hash); err != nil {
+		slog.Error("failed to save avatar file blob", "error", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(models.APIResponse{
+			Success: false,
+			Message: "Internal Storage Error",
+		})
+		return
+	}
+
+	fileID := uuid.NewString()
+	meta := storage.FileMetadata{
+		ID:        fileID,
+		Hash:      hash,
+		MimeType:  mimeType,
+		Size:      int64(len(data)),
+		CreatedAt: time.Now().Unix(),
+		UserID:    userID,
+		ChatID:    "",
+	}
+
+	if _, err := images.AttachThumbnail(h.storage, &meta, data); err != nil {
+		slog.Warn("thumbnail generation failed for admin set avatar", "fileID", fileID, "error", err)
+	}
+
+	if err := h.storage.UpsertFileMetadata(meta); err != nil {
+		slog.Error("failed to save avatar file metadata", "error", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(models.APIResponse{
+			Success: false,
+			Message: "Internal Database Error",
+		})
+		return
+	}
+
+	avatarURL := fmt.Sprintf("/api/images/%s?thumb=1", fileID)
+	if err := h.authService.UpdateAvatarURL(userID, avatarURL); err != nil {
+		slog.Error("failed to update user avatar url", "error", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(models.APIResponse{
+			Success: false,
+			Message: "Failed to update user avatar URL",
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(models.APIResponse{
+		Success: true,
+		Message: "Avatar updated successfully",
+	})
+}
+

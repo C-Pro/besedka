@@ -36,6 +36,8 @@ import (
 // to the matching command and returns instead of booting the servers.
 type cliOptions struct {
 	addUser        string
+	setAvatar      string
+	user           string
 	displayName    string
 	userType       string
 	botPermissions string
@@ -57,6 +59,8 @@ func run(ctx context.Context, cli cliOptions) error {
 	switch {
 	case cli.addUser != "":
 		return commands.AddUser(cli.addUser, cli.displayName, cli.userType, cli.botPermissions, cli.target, cfg)
+	case cli.setAvatar != "":
+		return commands.SetAvatar(cli.setAvatar, cli.user, cfg)
 	case cli.listUsers:
 		return commands.ListUsers(cfg)
 	case cli.deleteUser != "":
@@ -151,7 +155,7 @@ func run(ctx context.Context, cli cliOptions) error {
 		return fmt.Errorf("failed to load assets: %w", err)
 	}
 
-	adminServer := http.NewAdminServer(cfg, authService, hub, assetsFS)
+	adminServer := http.NewAdminServer(cfg, authService, hub, bbStorage, assetsFS)
 	apiServer := http.NewAPIServer(cfg, authService, hub, bbStorage, pushService, cfg.APIAddr, assetsFS)
 
 	g, gCtx := errgroup.WithContext(ctx)
@@ -310,6 +314,8 @@ func main() {
 	backupFlag := flag.Bool("backup", false, "Trigger an out-of-schedule full backup (requires S3 backup enabled)")
 	shutdown := flag.Bool("shutdown", false, "Stop the primary server, take a final backup, and stop the process")
 	yes := flag.Bool("yes", false, "Skip confirmation prompts (e.g. for --delete-user)")
+	setAvatar := flag.String("set-avatar", "", "Set avatar for a user from an image file")
+	user := flag.String("user", "", "Target username for commands like --set-avatar")
 	flag.Parse()
 
 	targetVal := *target
@@ -319,6 +325,8 @@ func main() {
 
 	cli := cliOptions{
 		addUser:        *addUser,
+		setAvatar:      *setAvatar,
+		user:           *user,
 		displayName:    *displayName,
 		userType:       *userType,
 		botPermissions: *botPermissions,
