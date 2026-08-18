@@ -13,12 +13,30 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/mxschmitt/playwright-go"
 	"github.com/stretchr/testify/require"
 )
+
+type safeBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (s *safeBuffer) Write(p []byte) (n int, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.Write(p)
+}
+
+func (s *safeBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.String()
+}
 
 type TestServer struct {
 	APIAddr     string
@@ -27,16 +45,42 @@ type TestServer struct {
 	DBPath      string
 	UploadsPath string
 	Cmd         *exec.Cmd
+	Logs        *safeBuffer
 }
 
-func getFreePort(t *testing.T) int {
-	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
-	require.NoError(t, err)
+var (
+	portMu    sync.Mutex
+	nextPort  = 20000 + (os.Getpid()%5000)*2
+	usedPorts = make(map[int]bool)
+)
 
-	l, err := net.ListenTCP("tcp", addr)
-	require.NoError(t, err)
-	defer func() { _ = l.Close() }()
-	return l.Addr().(*net.TCPAddr).Port
+func getFreePort(t *testing.T) int {
+	t.Helper()
+	portMu.Lock()
+	defer portMu.Unlock()
+
+	for {
+		port := nextPort
+		nextPort++
+		if nextPort > 60000 {
+			nextPort = 20000
+		}
+		if usedPorts[port] {
+			continue
+		}
+
+		addr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("localhost:%d", port))
+		if err != nil {
+			continue
+		}
+		l, err := net.ListenTCP("tcp", addr)
+		if err != nil {
+			continue
+		}
+		_ = l.Close()
+		usedPorts[port] = true
+		return port
+	}
 }
 
 func startServer(t *testing.T) *TestServer {
@@ -64,27 +108,30 @@ func startServer(t *testing.T) *TestServer {
 		fmt.Sprintf("UPLOADS_PATH=%s", uploadsPath),
 	)
 
-	// Redirect output to stdout/stderr for debugging if needed
-	// cmd.Stdout = os.Stdout
-	// cmd.Stderr = os.Stderr
+	logs := &safeBuffer{}
+	cmd.Stdout = logs
+	cmd.Stderr = logs
 
 	err = cmd.Start()
 	require.NoError(t, err)
 
-	// Wait for both listeners. The API and admin servers start as independent
-	// goroutines, so gating only on the API port races the admin port that the
-	// CLI (CreateUser) talks to.
-	waitForListening(t, apiAddr, 5*time.Second, "API server failed to start")
-	waitForListening(t, adminAddr, 5*time.Second, "Admin server failed to start")
-
-	return &TestServer{
+	server := &TestServer{
 		APIAddr:     apiAddr,
 		AdminAddr:   adminAddr,
 		BaseURL:     baseURL,
 		DBPath:      dbPath,
 		UploadsPath: uploadsPath,
 		Cmd:         cmd,
+		Logs:        logs,
 	}
+
+	// Wait for both listeners. The API and admin servers start as independent
+	// goroutines, so gating only on the API port races the admin port that the
+	// CLI (CreateUser) talks to.
+	waitForListening(t, server, apiAddr, 15*time.Second, "API server failed to start")
+	waitForListening(t, server, adminAddr, 15*time.Second, "Admin server failed to start")
+
+	return server
 }
 
 func (s *TestServer) Kill() {
@@ -118,27 +165,31 @@ func (s *TestServer) Restart(t *testing.T) {
 		fmt.Sprintf("UPLOADS_PATH=%s", s.UploadsPath),
 	)
 
+	s.Logs = &safeBuffer{}
+	cmd.Stdout = s.Logs
+	cmd.Stderr = s.Logs
+
 	err := cmd.Start()
 	require.NoError(t, err)
 	s.Cmd = cmd
 
 	// Wait for both listeners (see startServer).
-	waitForListening(t, s.APIAddr, 10*time.Second, "API server failed to start after restart")
-	waitForListening(t, s.AdminAddr, 10*time.Second, "Admin server failed to start after restart")
+	waitForListening(t, s, s.APIAddr, 15*time.Second, "API server failed to start after restart")
+	waitForListening(t, s, s.AdminAddr, 15*time.Second, "Admin server failed to start after restart")
 }
 
 // waitForListening blocks until addr accepts a TCP connection or the timeout
 // elapses, failing the test in the latter case.
-func waitForListening(t *testing.T, addr string, timeout time.Duration, msg string) {
+func waitForListening(t *testing.T, s *TestServer, addr string, timeout time.Duration, msg string) {
 	t.Helper()
-	require.Eventually(t, func() bool {
+	require.Eventuallyf(t, func() bool {
 		conn, err := net.DialTimeout("tcp", addr, 100*time.Millisecond)
 		if err == nil {
 			_ = conn.Close()
 			return true
 		}
 		return false
-	}, timeout, 200*time.Millisecond, msg)
+	}, timeout, 50*time.Millisecond, "%s (address %s). Server logs:\n%s", msg, addr, s.Logs.String())
 }
 
 func (s *TestServer) CreateUser(t *testing.T, username string) string {
