@@ -1,8 +1,10 @@
 package assets
 
 import (
+	"besedka/static"
 	"io"
 	"io/fs"
+	"strings"
 	"testing"
 	"testing/fstest"
 )
@@ -12,6 +14,9 @@ func TestLoad(t *testing.T) {
 	mockFS := fstest.MapFS{
 		"index.html": {
 			Data: []byte("Welcome to {{.ChatName}}"),
+		},
+		"login.html": {
+			Data: []byte("Login to {{.ChatName}}"),
 		},
 		"config.js": {
 			Data: []byte("const app = '{{.ChatName}}';"),
@@ -44,6 +49,7 @@ func TestLoad(t *testing.T) {
 		expected string
 	}{
 		{"index.html", "Welcome to MyCustomChat"},
+		{"login.html", "Login to MyCustomChat"},
 		{"config.js", "const app = 'MyCustomChat';"},
 		{"site.webmanifest", `{"name": "MyCustomChat"}`},
 		{"style.css", ".body { color: red; }"},
@@ -149,5 +155,41 @@ func TestSeek(t *testing.T) {
 		}
 
 		_ = file.Close()
+	}
+}
+
+func TestLoadEmbeddedLoginHTML(t *testing.T) {
+	processedFS, err := Load("TestBesedkaChat", static.Content)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	file, err := processedFS.Open("login.html")
+	if err != nil {
+		t.Fatalf("failed to open login.html: %v", err)
+	}
+	defer file.Close() //nolint:errcheck
+
+	content, err := io.ReadAll(file)
+	if err != nil {
+		t.Fatalf("failed to read login.html: %v", err)
+	}
+
+	htmlStr := string(content)
+
+	if !strings.Contains(htmlStr, "TestBesedkaChat") {
+		t.Errorf("expected login.html to contain rendered chat name TestBesedkaChat")
+	}
+
+	if !strings.Contains(htmlStr, `id="login-bg-canvas"`) {
+		t.Errorf("expected login.html to contain canvas #login-bg-canvas")
+	}
+
+	if !strings.Contains(htmlStr, "https://github.com/C-Pro/besedka") {
+		t.Errorf("expected login.html to contain github repo link")
+	}
+
+	if !strings.Contains(htmlStr, `name="robots" content="noindex, nofollow, noarchive"`) {
+		t.Errorf("expected login.html to contain anti-phishing robots meta tag")
 	}
 }
