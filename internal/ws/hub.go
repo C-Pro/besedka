@@ -377,8 +377,8 @@ func (h *Hub) BroadcastNewUser(user models.User) {
 
 	h.BroadcastToAll(models.ServerMessage{
 		Type: models.ServerMessageTypeNew,
-		User: user,
-		Chat: models.Chat{
+		User: &user,
+		Chat: &models.Chat{
 			ID: getDMID(user.ID, user.ID), // This might need adjustment, usually we want DMs relative to the receiver
 		},
 	}, user.ID)
@@ -427,7 +427,7 @@ func (h *Hub) BroadcastToAll(msg models.ServerMessage, excludeUserID string) {
 			// Each user gets their own DM chat with the new user
 			userMsg := msg
 			dmID := getDMID(msg.User.ID, userID)
-			userMsg.Chat = models.Chat{
+			userMsg.Chat = &models.Chat{
 				ID:     dmID,
 				Name:   msg.User.DisplayName,
 				IsDM:   true,

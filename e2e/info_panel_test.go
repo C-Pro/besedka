@@ -271,3 +271,95 @@ func TestE2EImageOverlayZoom(t *testing.T) {
 	})
 	require.NoError(t, err)
 }
+
+// TestE2EInfoPanelLocationMapRegionalUsers verifies that when users are close to each
+// other geographically (e.g. Jakarta and Bali), the zoom capping logic re-centers the
+// projection properly so markers and land paths remain visible inside the map container.
+func TestE2EInfoPanelLocationMapRegionalUsers(t *testing.T) {
+	t.Parallel()
+	server := startServer(t)
+	defer server.Stop()
+
+	pw, browser := setupPlaywright(t)
+	defer func() { _ = pw.Stop() }()
+	defer func() { _ = browser.Close() }()
+
+	// Alice: Jakarta (-6.2087, 106.8455)
+	aliceSetupLink := server.CreateUser(t, "alice_map")
+	aliceCtx := createBrowserContext(t, browser)
+	err := aliceCtx.GrantPermissions([]string{"geolocation"})
+	require.NoError(t, err)
+	err = aliceCtx.SetGeolocation(&playwright.Geolocation{
+		Latitude:  -6.2087,
+		Longitude: 106.8455,
+	})
+	require.NoError(t, err)
+	alicePage, err := aliceCtx.NewPage()
+	require.NoError(t, err)
+	err = alicePage.SetViewportSize(1920, 1080)
+	require.NoError(t, err)
+	registerUser(t, alicePage, aliceSetupLink, "Alice Jakarta", "password123")
+
+	err = alicePage.Locator(".app-layout").WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	})
+	require.NoError(t, err)
+
+	// Turn on location sharing for Alice if not already on
+	toggleLabel := alicePage.Locator(".ios-toggle")
+	err = toggleLabel.WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	})
+	require.NoError(t, err)
+	checked, err := alicePage.Locator("#location-toggle").IsChecked()
+	require.NoError(t, err)
+	if !checked {
+		err = toggleLabel.Click()
+		require.NoError(t, err)
+	}
+
+	// Bob: Bali (-8.2698, 115.5807)
+	bobSetupLink := server.CreateUser(t, "bob_map")
+	bobCtx := createBrowserContext(t, browser)
+	err = bobCtx.GrantPermissions([]string{"geolocation"})
+	require.NoError(t, err)
+	err = bobCtx.SetGeolocation(&playwright.Geolocation{
+		Latitude:  -8.2698,
+		Longitude: 115.5807,
+	})
+	require.NoError(t, err)
+	bobPage, err := bobCtx.NewPage()
+	require.NoError(t, err)
+	registerUser(t, bobPage, bobSetupLink, "Bob Bali", "password123")
+
+	err = bobPage.Locator(".app-layout").WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	})
+	require.NoError(t, err)
+
+	bobToggleLabel := bobPage.Locator(".ios-toggle")
+	err = bobToggleLabel.WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	})
+	require.NoError(t, err)
+	bobChecked, err := bobPage.Locator("#location-toggle").IsChecked()
+	require.NoError(t, err)
+	if !bobChecked {
+		err = bobToggleLabel.Click()
+		require.NoError(t, err)
+	}
+
+	// Alice's page should show 2 markers on the map
+	require.Eventually(t, func() bool {
+		count, err := alicePage.Locator(".marker-container").Count()
+		return err == nil && count == 2
+	}, 5*time.Second, 200*time.Millisecond)
+
+	// Verify both markers are positioned on-screen (positive coordinates, within container viewBox)
+	for i := 0; i < 2; i++ {
+		transform, err := alicePage.Locator(".marker-container").Nth(i).GetAttribute("transform")
+		require.NoError(t, err)
+		require.NotContains(t, transform, "-9999")
+		require.NotContains(t, transform, "translate(-")
+	}
+}

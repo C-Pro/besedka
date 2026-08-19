@@ -181,20 +181,21 @@ export class LocationMap {
                  [this.width * 0.85, this.height * 0.85]
              ], points);
 
-             // Enforce that scale is at least minScale to fill container width
-             let currentScale = this.projection.scale();
+             // Enforce that scale is within [minScale, maxScale]
+             const currentScale = this.projection.scale();
              if (currentScale < minScale) {
                  this.projection
                      .scale(minScale)
                      .translate([this.width / 2, this.height / 2])
                      .center([0, 0]);
-             }
-             // Cap the zoom so close-together members don't zoom past the
-             // vendored map's resolution. Reducing scale keeps the fitted
-             // bounding-box centre (already at the container centre) in place.
-             currentScale = this.projection.scale();
-             if (currentScale > maxScale) {
-                 this.projection.scale(maxScale);
+             } else if (currentScale > maxScale) {
+                 const bounds = d3.geoBounds(points);
+                 const centerLng = (bounds[0][0] + bounds[1][0]) / 2;
+                 const centerLat = (bounds[0][1] + bounds[1][1]) / 2;
+                 this.projection
+                     .scale(maxScale)
+                     .translate([this.width / 2, this.height / 2])
+                     .center([centerLng, centerLat]);
              }
         }
 

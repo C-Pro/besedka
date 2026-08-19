@@ -191,8 +191,8 @@ type ServerMessage struct {
 	Online        bool              `json:"online,omitempty"`
 	ChatID        string            `json:"chatId,omitempty"`
 	Messages      []Message         `json:"messages,omitempty"`
-	User          User              `json:"user,omitempty"`
-	Chat          Chat              `json:"chat,omitempty"`
+	User          *User             `json:"user,omitempty"`
+	Chat          *Chat             `json:"chat,omitempty"`
 	UserLocations []UserLocation    `json:"userLocations,omitempty"`
 	Seq           int64             `json:"seq,omitempty"`
 }
