@@ -61,8 +61,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64
 
-      - name: Trigger Rolling Replace on Test Managed Instance Group
+      - name: Trigger Rolling Restart on Test Managed Instance Group
         run: |
-          gcloud compute instance-groups managed rolling-action replace ${{ env.TEST_MIG_NAME }} \
+          gcloud compute instance-groups managed rolling-action restart ${{ env.TEST_MIG_NAME }} \
             --zone=${{ env.GCP_ZONE }} \
             --project=${{ secrets.GCP_PROJECT }}
