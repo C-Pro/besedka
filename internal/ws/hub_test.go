@@ -316,11 +316,11 @@ func TestHub_Broadcasting(t *testing.T) {
 		if msg.Type != models.ServerMessageTypeNew {
 			t.Errorf("Expected New User message, got %s", msg.Type)
 		}
-		if msg.User.ID != user3.ID {
-			t.Errorf("Expected user u3, got %s", msg.User.ID)
+		if msg.User == nil || msg.User.ID != user3.ID {
+			t.Errorf("Expected user u3, got %v", msg.User)
 		}
 		// Check that a Chat object is included (DM with u3)
-		if msg.Chat.ID == "" || !msg.Chat.IsDM {
+		if msg.Chat == nil || msg.Chat.ID == "" || !msg.Chat.IsDM {
 			t.Errorf("Expected DM chat in New User message, got %v", msg.Chat)
 		}
 	case <-time.After(testTimeout):
