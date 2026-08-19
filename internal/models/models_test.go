@@ -1,6 +1,8 @@
 package models
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -42,5 +44,41 @@ func TestIsMessageVisible(t *testing.T) {
 	// Bot in DM
 	if !IsMessageVisible("dm_h1_b3", nil, botNoRead) {
 		t.Errorf("expected bot to see DM message regardless of townhall permissions")
+	}
+}
+
+func TestServerMessageJSONOmitempty(t *testing.T) {
+	locMsg := ServerMessage{
+		Type: ServerMessageTypeLocation,
+		UserLocations: []UserLocation{
+			{UserID: "u1", Location: Location{Lat: 1.0, Lng: 2.0}},
+		},
+	}
+	data, err := json.Marshal(locMsg)
+	if err != nil {
+		t.Fatalf("unexpected marshal error: %v", err)
+	}
+
+	str := string(data)
+	if strings.Contains(str, `"user"`) {
+		t.Errorf("expected 'user' to be omitted, got: %s", str)
+	}
+	if strings.Contains(str, `"chat"`) {
+		t.Errorf("expected 'chat' to be omitted, got: %s", str)
+	}
+
+	newMsg := ServerMessage{
+		Type: ServerMessageTypeNew,
+		User: &User{ID: "u1", UserName: "alice"},
+		Chat: &Chat{ID: "c1", Name: "Townhall"},
+	}
+	data, err = json.Marshal(newMsg)
+	if err != nil {
+		t.Fatalf("unexpected marshal error: %v", err)
+	}
+
+	str = string(data)
+	if !strings.Contains(str, `"user"`) || !strings.Contains(str, `"chat"`) {
+		t.Errorf("expected 'user' and 'chat' to be present, got: %s", str)
 	}
 }
