@@ -1149,19 +1149,19 @@ func (a *API) GetFileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	mimeType := audio.NormalizeMimeType(meta.MimeType)
-	if seeker, ok := rc.(io.ReadSeeker); ok {
-		var headerBuf [512]byte
-		n, err := io.ReadFull(seeker, headerBuf[:])
-		if (err == nil || errors.Is(err, io.ErrUnexpectedEOF)) && n > 0 {
-			if detected := audio.DetectAudioMimeType(headerBuf[:n]); detected != "" {
-				mimeType = detected
-			} else if mimeType == "" || mimeType == "application/octet-stream" {
-				if kind, err := filetype.Match(headerBuf[:n]); err == nil && kind != filetype.Unknown {
+	if mimeType == "" || mimeType == "application/octet-stream" {
+		if seeker, ok := rc.(io.ReadSeeker); ok {
+			var headerBuf [512]byte
+			n, err := io.ReadFull(seeker, headerBuf[:])
+			if (err == nil || errors.Is(err, io.ErrUnexpectedEOF)) && n > 0 {
+				if detected := audio.DetectAudioMimeType(headerBuf[:n]); detected != "" {
+					mimeType = detected
+				} else if kind, err := filetype.Match(headerBuf[:n]); err == nil && kind != filetype.Unknown {
 					mimeType = audio.NormalizeMimeType(kind.MIME.Value)
 				}
 			}
+			_, _ = seeker.Seek(0, io.SeekStart)
 		}
-		_, _ = seeker.Seek(0, io.SeekStart)
 	}
 
 	if mimeType == "" {
@@ -1171,7 +1171,9 @@ func (a *API) GetFileHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", mimeType)
 	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if !strings.HasPrefix(mimeType, "audio/") && !strings.HasPrefix(mimeType, "video/") {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+	}
 
 	nameWithExt := name
 	if filepath.Ext(nameWithExt) == "" {

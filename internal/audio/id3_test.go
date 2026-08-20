@@ -96,9 +96,12 @@ func TestDetectAudioMimeType(t *testing.T) {
 	assert.Equal(t, "audio/mpeg", DetectAudioMimeType([]byte("ID3 header data")))
 	assert.Equal(t, "audio/mpeg", DetectAudioMimeType([]byte{0xFF, 0xFB, 0x90, 0x64}))
 	assert.Equal(t, "audio/mpeg", DetectAudioMimeType([]byte{0xFF, 0xF3, 0x90, 0x64}))
+	assert.Equal(t, "audio/aac", DetectAudioMimeType([]byte{0xFF, 0xF1, 0x50, 0x80}))
+	assert.Equal(t, "audio/aac", DetectAudioMimeType([]byte{0xFF, 0xF9, 0x50, 0x80}))
 	assert.Equal(t, "audio/wav", DetectAudioMimeType([]byte("RIFF1234WAVEfmt ")))
 	assert.Equal(t, "audio/ogg", DetectAudioMimeType([]byte("OggS header")))
 	assert.Equal(t, "audio/flac", DetectAudioMimeType([]byte("fLaC header")))
+	assert.Equal(t, "audio/mp4", DetectAudioMimeType([]byte{0x00, 0x00, 0x00, 0x20, 'f', 't', 'y', 'p', 'M', '4', 'A', ' '}))
 	assert.Equal(t, "", DetectAudioMimeType([]byte("random binary data")))
 }
 
