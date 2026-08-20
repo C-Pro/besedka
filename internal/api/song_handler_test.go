@@ -190,5 +190,6 @@ func TestUpdateSongHandler_NormalizesMimeType(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, fileRec.Code)
 	assert.Equal(t, "audio/mpeg", fileRec.Header().Get("Content-Type"))
+	assert.Empty(t, fileRec.Header().Get("X-Content-Type-Options"))
 }
 

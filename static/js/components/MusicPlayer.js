@@ -38,12 +38,7 @@ export function createMusicPlayer({ songUrl, title, artist }) {
         </div>
     `;
 
-    let finalSongUrl = songUrl;
-    if (finalSongUrl && finalSongUrl.startsWith('/api/files/') && !finalSongUrl.includes('.')) {
-        finalSongUrl += '.mp3';
-    }
-
-    const audio = new Audio(finalSongUrl);
+    const audio = new Audio(songUrl);
     audio.preload = 'auto';
     audio.className = 'music-player-audio-element';
     container.appendChild(audio);
@@ -73,6 +68,8 @@ export function createMusicPlayer({ songUrl, title, artist }) {
 
     let isSeeking = false;
 
+    let isDestroyed = false;
+
     audio.addEventListener('loadedmetadata', updateDuration);
     audio.addEventListener('durationchange', updateDuration);
     audio.addEventListener('canplay', updateDuration);
@@ -91,6 +88,7 @@ export function createMusicPlayer({ songUrl, title, artist }) {
     });
 
     audio.addEventListener('error', (e) => {
+        if (isDestroyed || !audio.getAttribute('src')) return;
         console.error("Audio element error:", audio.error || e);
         playIcon.textContent = '▶';
         playBtn.title = "Audio playback failed";
@@ -105,6 +103,7 @@ export function createMusicPlayer({ songUrl, title, artist }) {
                 playIcon.textContent = '❚❚';
                 playBtn.title = "Pause";
             }).catch(err => {
+                if (isDestroyed) return;
                 console.error("Audio playback error:", err);
                 playIcon.textContent = '▶';
                 playBtn.title = "Playback failed";
@@ -136,8 +135,9 @@ export function createMusicPlayer({ songUrl, title, artist }) {
 
     // Cleanup method when modal/view is removed
     container.destroy = () => {
+        isDestroyed = true;
         audio.pause();
-        audio.src = '';
+        audio.removeAttribute('src');
         audio.load();
     };
 
