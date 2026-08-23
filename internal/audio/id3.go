@@ -36,10 +36,6 @@ func DetectAudioMimeType(data []byte) string {
 	if bytes.HasPrefix(data, []byte("ID3")) {
 		return "audio/mpeg"
 	}
-	// MP3 sync frame: 11 bits sync word (0xFF 0xE0..0xFF)
-	if data[0] == 0xFF && (data[1]&0xE0) == 0xE0 && (data[1]&0x18) != 0x08 {
-		return "audio/mpeg"
-	}
 	// WAV: "RIFF" ... "WAVE"
 	if len(data) >= 12 && bytes.HasPrefix(data, []byte("RIFF")) && bytes.Equal(data[8:12], []byte("WAVE")) {
 		return "audio/wav"
@@ -56,8 +52,16 @@ func DetectAudioMimeType(data []byte) string {
 	if len(data) >= 12 && bytes.Equal(data[4:8], []byte("ftyp")) {
 		return "audio/mp4"
 	}
-	// ID3v1 tag at end of file
-	if len(data) >= 128 && bytes.Equal(data[len(data)-128:len(data)-125], []byte("TAG")) {
+	// AAC ADTS: sync word 0xFFF with layer bits == 00
+	if data[0] == 0xFF && (data[1]&0xF6) == 0xF0 {
+		return "audio/aac"
+	}
+	// MP3 sync frame: 11 bits sync word (0xFF 0xE0..0xFF), valid version, non-zero layer
+	if data[0] == 0xFF && (data[1]&0xE0) == 0xE0 && (data[1]&0x18) != 0x08 && (data[1]&0x06) != 0 {
+		return "audio/mpeg"
+	}
+	// ID3v1 tag (128 bytes starting with TAG)
+	if len(data) == 128 && bytes.Equal(data[:3], []byte("TAG")) {
 		return "audio/mpeg"
 	}
 	return ""
