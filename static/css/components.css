@@ -215,10 +215,16 @@
 }
 
 /* Markdown Tables */
-.message-content table {
+.message-line:has(table) .message-content {
     display: block;
     max-width: 100%;
     overflow-x: auto;
+}
+
+.message-content table {
+    display: table;
+    width: max-content;
+    min-width: 100%;
     border-collapse: collapse;
     margin: var(--space-sm) 0;
     border: 1px solid var(--border-subtle);
@@ -233,13 +239,13 @@
 
 .message-content th,
 .message-content td {
-    padding: 6px 12px;
+    padding: 8px 14px;
     border: 1px solid var(--border-subtle);
-    max-width: 20vw;
-    min-width: 80px;
-    word-wrap: break-word;
-    overflow-wrap: break-word;
-    word-break: break-word;
+    white-space: normal;
+    word-break: normal;
+    overflow-wrap: normal;
+    min-width: 130px;
+    max-width: 25vw;
 }
 
 .message-content th {
