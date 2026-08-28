@@ -15,7 +15,4 @@
 ## Completed Tracks
 - **Phase 1: Simple Request/Response Agent & Besedka Gateway** (`phase-1-request-response-bot`) - [Plan](tracks/phase-1-request-response-bot/plan.md) | [Spec](tracks/phase-1-request-response-bot/spec.md)
 
----
 
-- [x] **Track: markdown tables support. Currently the subset of supported markdown does not include tables. With a new AI bot integration in place this is needed badly as LLM responses often include it. Let's plan and implement robust support for markdown tables.**
-*Link: [./tracks/markdown-tables_20260828/](./tracks/markdown-tables_20260828/)*
