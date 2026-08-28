@@ -24,3 +24,6 @@
 - [x] Task: Run full test suite and linters (`make check`)
 - [x] Task: Manual browser verification of markdown tables rendered in Besedka web UI
 - [x] Task: Conductor - User Manual Verification 'Phase 3: Integration & End-to-End Verification' (Protocol in workflow.md)
+
+## Phase: Review Fixes
+- [x] Task: Apply review suggestions d0f2c90
