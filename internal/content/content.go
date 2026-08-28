@@ -18,8 +18,9 @@ var (
 
 	markdownPolicy = func() *bluemonday.Policy {
 		p := bluemonday.NewPolicy()
-		p.AllowElements("p", "br", "strong", "b", "em", "i", "a", "code", "pre", "blockquote", "ul", "ol", "li", "h1", "h2", "h3", "h4", "h5", "h6")
+		p.AllowElements("p", "br", "strong", "b", "em", "i", "a", "code", "pre", "blockquote", "ul", "ol", "li", "h1", "h2", "h3", "h4", "h5", "h6", "table", "thead", "tbody", "tr", "th", "td")
 		p.AllowAttrs("href").OnElements("a")
+		p.AllowAttrs("align").OnElements("th", "td")
 		p.RequireParseableURLs(true)
 		p.AllowURLSchemes("http", "https", "mailto")
 		p.AddTargetBlankToFullyQualifiedLinks(true)
@@ -28,7 +29,10 @@ var (
 	}()
 
 	mdParser = goldmark.New(
-		goldmark.WithExtensions(extension.Linkify),
+		goldmark.WithExtensions(
+			extension.Linkify,
+			extension.Table,
+		),
 		goldmark.WithRendererOptions(
 			html.WithHardWraps(),
 			html.WithXHTML(),

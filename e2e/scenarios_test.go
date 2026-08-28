@@ -107,17 +107,21 @@ func TestE2EMainFlow(t *testing.T) {
 		return strings.Contains(content, aliceMsg)
 	}, 5*time.Second, 200*time.Millisecond)
 
-	// Bob replies
-	bobReply := "Hi Alice! I am doing great."
+	// Bob replies with a Markdown table
+	bobReply := "| Item | Count |\n| :--- | ---: |\n| Apples | 10 |\n| Oranges | 25 |"
 	err = bobPage.Locator("#message-input").Fill(bobReply)
 	require.NoError(t, err)
 	err = bobPage.Locator("#send-btn").Click()
 	require.NoError(t, err)
 
-	// Alice receives reply
+	// Alice receives reply and table is rendered
 	require.Eventually(t, func() bool {
-		content, _ := alicePage.Locator(".messages-container").InnerHTML()
-		return strings.Contains(content, bobReply)
+		tableCount, err := alicePage.Locator(".messages-container table").Count()
+		if err != nil || tableCount == 0 {
+			return false
+		}
+		content, _ := alicePage.Locator(".messages-container table").InnerHTML()
+		return strings.Contains(content, "Apples") && strings.Contains(content, "Oranges")
 	}, 5*time.Second, 200*time.Millisecond)
 
 	// Test Unread Badge
