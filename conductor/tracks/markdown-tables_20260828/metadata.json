@@ -1,0 +1,8 @@
+{
+  "track_id": "markdown-tables_20260828",
+  "type": "feature",
+  "status": "new",
+  "created_at": "2026-08-28T12:16:55Z",
+  "updated_at": "2026-08-28T12:16:55Z",
+  "description": "markdown tables support. Currently the subset of supported markdown does not include tables. With a new AI bot integration in place this is needed badly as LLM responses often include it. Let's plan and implement robust support for markdown tables."
+}
