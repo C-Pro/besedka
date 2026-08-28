@@ -1,0 +1,7 @@
+{
+  "id": "phase-1-request-response-bot",
+  "title": "Phase 1: Simple Request/Response Agent & Besedka Gateway",
+  "description": "Implement a Go-based request/response bot for Besedka chat using Gemini API via OpenAI-compatible endpoints with local-first testing and GCP Spot VM CI/CD deployment.",
+  "status": "completed",
+  "created_at": "2026-08-14T17:18:00Z"
+}

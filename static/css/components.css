@@ -214,6 +214,69 @@
     color: #10b981;
 }
 
+/* Markdown Tables */
+.message-line:has(table) .message-content {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+.message-content table {
+    display: table;
+    width: max-content;
+    min-width: 100%;
+    border-collapse: collapse;
+    margin: var(--space-sm) 0;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    font-size: 0.9em;
+}
+
+.message-content thead {
+    background-color: var(--bg-hover);
+    border-bottom: 2px solid var(--border-subtle);
+}
+
+.message-content th,
+.message-content td {
+    padding: 8px 14px;
+    border: 1px solid var(--border-subtle);
+    white-space: normal;
+    word-break: normal;
+    overflow-wrap: normal;
+    min-width: 130px;
+    max-width: 25vw;
+}
+
+.message-content th {
+    font-weight: 600;
+    color: var(--text-primary);
+    text-align: inherit;
+}
+
+.message-content th[align="center"],
+.message-content td[align="center"] {
+    text-align: center;
+}
+
+.message-content th[align="right"],
+.message-content td[align="right"] {
+    text-align: right;
+}
+
+.message-content th[align="left"],
+.message-content td[align="left"] {
+    text-align: left;
+}
+
+.message-content tbody tr:nth-child(even) {
+    background-color: rgba(255, 255, 255, 0.02);
+}
+
+.message-content tbody tr:hover {
+    background-color: rgba(255, 255, 255, 0.04);
+}
+
 .unread-badge {
     background-color: var(--accent-color);
     color: var(--text-on-accent);
