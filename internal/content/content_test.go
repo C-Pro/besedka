@@ -88,6 +88,26 @@ func TestFormatMessage(t *testing.T) {
 		{"Multiple paragraphs", "One\n\nTwo", "<p>One</p>\n<p>Two</p>\n"},
 		{"Raw URL", "https://example.com/test", "<p><a href=\"https://example.com/test\" rel=\"noreferrer noopener\" target=\"_blank\">https://example.com/test</a></p>\n"},
 		{"Code with quotes", "`\"test\"`", "<p><code>&#34;test&#34;</code></p>\n"},
+		{
+			"Basic table",
+			"| Header 1 | Header 2 |\n| --- | --- |\n| Cell 1 | Cell 2 |",
+			"<table>\n<thead>\n<tr>\n<th>Header 1</th>\n<th>Header 2</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>Cell 1</td>\n<td>Cell 2</td>\n</tr>\n</tbody>\n</table>\n",
+		},
+		{
+			"Table with alignments",
+			"| Left | Center | Right |\n| :--- | :---: | ---: |\n| 1 | 2 | 3 |",
+			"<table>\n<thead>\n<tr>\n<th align=\"left\">Left</th>\n<th align=\"center\">Center</th>\n<th align=\"right\">Right</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td align=\"left\">1</td>\n<td align=\"center\">2</td>\n<td align=\"right\">3</td>\n</tr>\n</tbody>\n</table>\n",
+		},
+		{
+			"Table with inline formatting and links",
+			"| Feature | Status |\n| --- | --- |\n| **Bold** and *Italic* | `code` |\n| [Link](https://example.com) | @alice |",
+			"<table>\n<thead>\n<tr>\n<th>Feature</th>\n<th>Status</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td><strong>Bold</strong> and <em>Italic</em></td>\n<td><code>code</code></td>\n</tr>\n<tr>\n<td><a href=\"https://example.com\" rel=\"noreferrer noopener\" target=\"_blank\">Link</a></td>\n<td>@alice</td>\n</tr>\n</tbody>\n</table>\n",
+		},
+		{
+			"Table with XSS injection",
+			"| Name | Payload |\n| --- | --- |\n| test | <script>alert(1)</script><a href=\"javascript:alert(2)\">bad</a> |",
+			"<table>\n<thead>\n<tr>\n<th>Name</th>\n<th>Payload</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>test</td>\n<td>alert(1)bad</td>\n</tr>\n</tbody>\n</table>\n",
+		},
 	}
 
 	for _, tt := range tests {
