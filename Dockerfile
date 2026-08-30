@@ -1,10 +1,12 @@
 # Build stage
-FROM golang:1.26.5-alpine AS builder
+FROM golang:1.27-alpine AS builder
 
 WORKDIR /app
 
 # Create a non-root user
 RUN adduser -D -g '' appuser
+
+RUN apk add --no-cache git
 
 # Copy source code (includes vendor directory)
 COPY . .
