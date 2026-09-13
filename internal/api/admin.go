@@ -431,6 +431,10 @@ func (h *AdminHandler) SetUserAvatarHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	if updatedUser, err := h.authService.GetUser(userID); err == nil {
+		go h.hub.BroadcastNewUser(updatedUser)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(models.APIResponse{
 		Success: true,

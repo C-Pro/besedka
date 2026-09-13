@@ -771,9 +771,9 @@ func (a *API) UploadAvatarHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Optionally we could broadcast presence so other clients get the new avatar.
-	// For now, updating the database is sufficient as clients fetch user lists periodically or at start.
-	// Alternatively we can use a server message type.
+	if updatedUser, err := a.auth.GetUser(uploaderID); err == nil {
+		go a.hub.BroadcastNewUser(updatedUser)
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	resp := struct {
