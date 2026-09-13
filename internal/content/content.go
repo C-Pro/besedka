@@ -5,6 +5,7 @@ import (
 	"errors"
 	"html/template"
 	"regexp"
+	"strings"
 
 	"github.com/microcosm-cc/bluemonday"
 	"github.com/yuin/goldmark"
@@ -74,7 +75,7 @@ func ValidateUsername(username string) error {
 	return nil
 }
 
-var mentionRegex = regexp.MustCompile(`@([a-zA-Z0-9._-]+)`)
+var mentionRegex = regexp.MustCompile(`(?:^|[^a-zA-Z0-9._-])@([a-zA-Z0-9._-]+)`)
 
 // ExtractMentions extracts all @username mentions from a message string.
 func ExtractMentions(message string) []string {
@@ -86,7 +87,10 @@ func ExtractMentions(message string) []string {
 	mentions := make([]string, 0, len(matches))
 	for _, m := range matches {
 		if len(m) > 1 {
-			username := m[1]
+			username := strings.TrimRight(m[1], "._-")
+			if username == "" {
+				continue
+			}
 			if _, exists := seen[username]; !exists {
 				seen[username] = struct{}{}
 				mentions = append(mentions, username)
