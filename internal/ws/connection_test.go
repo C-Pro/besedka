@@ -64,6 +64,13 @@ func (m *mockWS) SetReadDeadline(t time.Time) error {
 	return nil
 }
 
+func (m *mockWS) SetWriteDeadline(t time.Time) error {
+	if m.errToReturn != nil {
+		return m.errToReturn
+	}
+	return nil
+}
+
 func (m *mockWS) SetReadLimit(limit int64) {}
 
 type mockHub struct {
@@ -226,3 +233,37 @@ func TestConnection_WSError(t *testing.T) {
 		t.Error("WS Close not called")
 	}
 }
+
+func TestConnection_WriteDeadlineError(t *testing.T) {
+	hub := newMockHub()
+	ws := newMockWS()
+	userID := "user3"
+
+	conn := NewConnection(hub, ws, userID)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- conn.Handle(ctx)
+	}()
+
+	// Simulate write deadline failure on outgoing message
+	ws.errToReturn = errors.New("write timeout")
+	hub.userChans[userID] <- models.ServerMessage{Type: models.ServerMessageTypePing}
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Error("Expected write deadline error from Handle, got nil")
+		}
+	case <-time.After(1 * time.Second):
+		t.Error("Handle did not return on write deadline error")
+	}
+
+	if !ws.closed {
+		t.Error("WS Close not called on write error")
+	}
+}
+

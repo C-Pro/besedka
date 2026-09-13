@@ -9,8 +9,9 @@ import (
 )
 
 const (
-	pingInterval = 30 * time.Second
-	readDeadline = 60 * time.Second
+	pingInterval  = 30 * time.Second
+	readDeadline  = 60 * time.Second
+	writeDeadline = 10 * time.Second
 )
 
 type wsConnection interface {
@@ -18,6 +19,7 @@ type wsConnection interface {
 	WriteJSON(v any) error
 	ReadJSON(v any) error
 	SetReadDeadline(t time.Time) error
+	SetWriteDeadline(t time.Time) error
 	SetReadLimit(limit int64)
 }
 
@@ -121,10 +123,16 @@ func (c *Connection) mainLoop(ctx context.Context) error {
 			if !ok {
 				return nil
 			}
+			if err := c.ws.SetWriteDeadline(time.Now().Add(writeDeadline)); err != nil {
+				return err
+			}
 			if err := c.ws.WriteJSON(msg); err != nil {
 				return err
 			}
 		case <-ticker.C:
+			if err := c.ws.SetWriteDeadline(time.Now().Add(writeDeadline)); err != nil {
+				return err
+			}
 			if err := c.ws.WriteJSON(models.ServerMessage{Type: models.ServerMessageTypePing}); err != nil {
 				return err
 			}
