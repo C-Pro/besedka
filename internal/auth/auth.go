@@ -697,7 +697,7 @@ func (as *AuthService) GetAllUsers() ([]models.User, error) {
 
 func (as *AuthService) Login(req LoginRequest) (LoginResponse, string) {
 	now := as.now()
-	tx := as.users.RLock()
+	tx := as.users.Lock()
 	defer tx.Unlock()
 
 	id, err := as.usernames.Get(req.Username)

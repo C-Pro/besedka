@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -1455,3 +1456,64 @@ func TestUserSettingsService(t *testing.T) {
 		t.Errorf("expected ErrNotFound updating unknown user, got %v", err)
 	}
 }
+
+func TestLogin_ConcurrentRace(t *testing.T) {
+	cfg := Config{
+		Secret:                  base64.StdEncoding.EncodeToString([]byte("test-secret")),
+		TokenExpiry:             1 * time.Hour,
+		RegistrationTokenExpiry: 1 * time.Hour,
+	}
+	store := &MockStorage{
+		creds:     make(map[string]UserCredentials),
+		tokens:    make(map[string]string),
+		regTokens: make(map[string]string),
+	}
+	svc, err := NewAuthService(context.Background(), cfg, store)
+	if err != nil {
+		t.Fatalf("NewAuthService failed: %v", err)
+	}
+
+	regToken, err := svc.AddUser("racetester", "Race Tester")
+	if err != nil {
+		t.Fatalf("AddUser failed: %v", err)
+	}
+
+	info, err := svc.GetRegistrationInfo(regToken)
+	if err != nil {
+		t.Fatalf("GetRegistrationInfo failed: %v", err)
+	}
+
+	now := time.Now()
+	code, err := GenerateTOTP(info.TOTPSecret, now)
+	if err != nil {
+		t.Fatalf("GenerateTOTP failed: %v", err)
+	}
+
+	resp, _ := svc.CompleteRegistration(RegistrationRequest{
+		Token:    regToken,
+		Password: "password12345",
+		TOTP:     code,
+	})
+	if !resp.Success {
+		t.Fatalf("CompleteRegistration failed: %s", resp.Message)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			pwd := "wrongpass"
+			if idx%2 == 0 {
+				pwd = "password12345"
+			}
+			svc.Login(LoginRequest{
+				Username: "racetester",
+				Password: pwd,
+				TOTP:     code,
+			})
+		}(i)
+	}
+	wg.Wait()
+}
+
