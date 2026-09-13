@@ -147,7 +147,7 @@ func TestScreenshots(t *testing.T) {
 		time.Sleep(300 * time.Millisecond)
 
 		if u == "ivan" {
-			err = page.Locator("#file-input").SetInputFiles([]string{"../static/besedka.png"})
+			err = page.Locator("#file-input").SetInputFiles([]string{"../static/pelican.jpg"})
 			require.NoError(t, err)
 			err = page.Locator(".attach-indicator").WaitFor(playwright.LocatorWaitForOptions{
 				State: playwright.WaitForSelectorStateVisible,
