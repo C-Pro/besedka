@@ -801,15 +801,21 @@ func (h *Hub) handleRecordCallback(receiverID string, chatID string, record chat
 				senderName = sender.UserName
 			}
 
-			formatted := record.FormattedContent
-			if formatted == "" {
-				formatted = content.FormatMessage(record.Content)
+			body := strings.TrimSpace(record.Content)
+			if body == "" {
+				if len(record.Attachments) > 0 {
+					body = "Sent an attachment"
+				} else {
+					body = "Sent a message"
+				}
 			}
 
-			payload := map[string]string{
-				"title": senderName,
-				"body":  content.Sanitize(formatted),
-				"url":   fmt.Sprintf("/?chat=%s", chatID),
+			payload := map[string]any{
+				"title":  senderName,
+				"body":   body,
+				"url":    fmt.Sprintf("/?chat=%s", chatID),
+				"chatID": chatID,
+				"seq":    record.Seq,
 			}
 
 			payloadBytes, _ := json.Marshal(payload)

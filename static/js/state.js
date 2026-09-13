@@ -1017,10 +1017,16 @@ class Store {
         }
     }
 
+    isWebSocketConnected() {
+        return !!(this.socket && this.socket.readyState === WebSocket.OPEN);
+    }
+
     sendWebSocketMessage(msg) {
         if (this.socket && this.socket.readyState === WebSocket.OPEN) {
             this.socket.send(JSON.stringify(msg));
+            return true;
         }
+        return false;
     }
 
     setMobileTab(tab) {
@@ -1028,7 +1034,7 @@ class Store {
     }
 
     sendMessage(chatId, text, attachments = []) {
-        this.sendWebSocketMessage({
+        return this.sendWebSocketMessage({
             type: 'send',
             chatId,
             content: text,

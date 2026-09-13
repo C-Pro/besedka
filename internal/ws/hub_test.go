@@ -3,6 +3,7 @@ package ws
 import (
 	"besedka/internal/models"
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"testing"
@@ -99,10 +100,25 @@ func (m *MockStorage) ListLastSeen() ([]models.LastSeenEntry, error) {
 	return copied, nil
 }
 
-type MockPushService struct{}
+type MockPushService struct {
+	mu       sync.Mutex
+	payloads map[string][]byte
+}
 
 func (m *MockPushService) SendNotification(userID string, payload []byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.payloads == nil {
+		m.payloads = make(map[string][]byte)
+	}
+	m.payloads[userID] = payload
 	return nil
+}
+
+func (m *MockPushService) GetLastPayload(userID string) []byte {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.payloads[userID]
 }
 
 // drainMessages consumes up to count messages from a channel during test setup.
@@ -1103,5 +1119,71 @@ func TestHub_Dispatch_ValidationAndPermissions(t *testing.T) {
 		t.Fatalf("expected 2 messages stored after attachment send, got %d", len(storage.messages["townhall"]))
 	}
 }
+
+func TestHub_PushNotification_BodyFormatting(t *testing.T) {
+	alice := models.User{ID: "sender1", UserName: "sender", DisplayName: "Alice"}
+	bob := models.User{ID: "receiver1", UserName: "receiver", DisplayName: "Bob"}
+	provider := &MockUserProvider{
+		users: []models.User{alice, bob},
+	}
+	storage := NewMockStorage()
+	pushSvc := &MockPushService{}
+	h := NewHub(context.Background(), provider, storage, pushSvc)
+
+	h.EnsureDMsFor(alice, []models.User{bob})
+	dmID := getDMID(alice.ID, bob.ID)
+
+	senderCh := h.Join(alice.ID)
+	defer h.Leave(alice.ID, senderCh)
+
+	// 1. Text message with markdown formatting
+	h.Dispatch(alice.ID, models.ClientMessage{
+		Type:    models.ClientMessageTypeSend,
+		ChatID:  dmID,
+		Content: "**hello** _world_",
+	}, senderCh)
+
+	time.Sleep(50 * time.Millisecond)
+	payload1 := pushSvc.GetLastPayload("receiver1")
+	if payload1 == nil {
+		t.Fatal("expected push notification payload for receiver1")
+	}
+
+	var data1 map[string]any
+	if err := json.Unmarshal(payload1, &data1); err != nil {
+		t.Fatalf("unmarshal push payload failed: %v", err)
+	}
+	if data1["body"] != "**hello** _world_" {
+		t.Errorf("expected plain content in push body, got %q", data1["body"])
+	}
+	if data1["chatID"] != dmID {
+		t.Errorf("expected chatID %s, got %v", dmID, data1["chatID"])
+	}
+
+	// 2. Attachment-only message with empty content
+	h.Dispatch(alice.ID, models.ClientMessage{
+		Type:    models.ClientMessageTypeSend,
+		ChatID:  dmID,
+		Content: "",
+		Attachments: []models.Attachment{
+			{FileID: "f1", Name: "photo.jpg"},
+		},
+	}, senderCh)
+
+	time.Sleep(50 * time.Millisecond)
+	payload2 := pushSvc.GetLastPayload("receiver1")
+	if payload2 == nil {
+		t.Fatal("expected push notification payload for attachment message")
+	}
+
+	var data2 map[string]any
+	if err := json.Unmarshal(payload2, &data2); err != nil {
+		t.Fatalf("unmarshal push payload failed: %v", err)
+	}
+	if data2["body"] != "Sent an attachment" {
+		t.Errorf("expected 'Sent an attachment' in push body, got %q", data2["body"])
+	}
+}
+
 
 

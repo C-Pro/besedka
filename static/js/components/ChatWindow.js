@@ -514,8 +514,16 @@ export function createChatWindow(container) {
     const handleSend = () => {
         const text = elements.input.value.trim();
         if (text || filesToAttach.length > 0) {
+            if (!store.isWebSocketConnected()) {
+                alert('Disconnected from server. Message not sent; please wait for reconnection.');
+                return;
+            }
             scrollState.wasAtBottom = true;
-            store.sendMessage(lastChatId, text, filesToAttach);
+            const sent = store.sendMessage(lastChatId, text, filesToAttach);
+            if (!sent) {
+                alert('Disconnected from server. Message not sent; please wait for reconnection.');
+                return;
+            }
             elements.input.value = '';
             elements.input.style.height = '40px';
             filesToAttach = [];
