@@ -676,7 +676,7 @@ func (a *API) processUpload(w http.ResponseWriter, r *http.Request, maxBytes int
 	data := buf.Bytes()
 
 	if enforceImage {
-		if !filetype.IsImage(data) && !isSVG(data) {
+		if !filetype.IsImage(data) {
 			http.Error(w, "Invalid file type. Only images are allowed.", http.StatusBadRequest)
 			return "", errors.New("invalid file type")
 		}
@@ -1098,6 +1098,10 @@ func (a *API) GetImageHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", mimeType)
 	w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
 	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if mimeType == "image/svg+xml" {
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
+	}
 
 	if _, err := io.Copy(w, rc); err != nil {
 		slog.Error("failed to write file content", "error", err)
@@ -1171,9 +1175,7 @@ func (a *API) GetFileHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", mimeType)
 	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
-	if !strings.HasPrefix(mimeType, "audio/") && !strings.HasPrefix(mimeType, "video/") {
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-	}
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 
 	nameWithExt := name
 	if filepath.Ext(nameWithExt) == "" {
@@ -1182,11 +1184,21 @@ func (a *API) GetFileHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	isDownload := r.URL.Query().Get("download") == "1"
+	isDangerousMime := mimeType == "text/html" ||
+		mimeType == "image/svg+xml" ||
+		mimeType == "application/xml" ||
+		mimeType == "text/xml" ||
+		mimeType == "application/xhtml+xml" ||
+		mimeType == "application/octet-stream"
+
+	isDownload := r.URL.Query().Get("download") == "1" || isDangerousMime
 	if isDownload {
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", nameWithExt))
 	} else {
 		w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", nameWithExt))
+	}
+	if isDangerousMime {
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
 	}
 
 	if seeker, ok := rc.(io.ReadSeeker); ok {

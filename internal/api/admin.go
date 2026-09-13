@@ -368,7 +368,7 @@ func (h *AdminHandler) SetUserAvatarHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if !filetype.IsImage(data) && !isSVG(data) {
+	if !filetype.IsImage(data) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(models.APIResponse{
@@ -381,8 +381,6 @@ func (h *AdminHandler) SetUserAvatarHandler(w http.ResponseWriter, r *http.Reque
 	mimeType := "application/octet-stream"
 	if kind, err := filetype.Match(data); err == nil && kind != filetype.Unknown {
 		mimeType = audio.NormalizeMimeType(kind.MIME.Value)
-	} else if isSVG(data) {
-		mimeType = "image/svg+xml"
 	}
 
 	hasher := sha256.New()

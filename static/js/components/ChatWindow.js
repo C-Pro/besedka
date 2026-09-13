@@ -568,7 +568,7 @@ export function createChatWindow(container) {
         updateUI(store.state);
 
         try {
-            const isImage = file.type?.startsWith('image/');
+            const isImage = file.type?.startsWith('image/') && file.type !== 'image/svg+xml';
             const result = isImage
                 ? await store.uploadImage(file, currentSignal)
                 : await store.uploadFile(file, currentSignal);
