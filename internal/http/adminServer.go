@@ -79,6 +79,49 @@ func NewAdminServer(cfg *config.Config, authService *auth.AuthService, hub *ws.H
 		}
 	}
 
+	validateAdminSameOrigin := func(r *http.Request, requireOriginOrReferer bool) bool {
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			u, err := url.Parse(origin)
+			if err != nil || u.Host != r.Host {
+				return false
+			}
+			return true
+		}
+
+		referer := r.Header.Get("Referer")
+		if referer != "" {
+			u, err := url.Parse(referer)
+			if err != nil || u.Host != r.Host {
+				return false
+			}
+			return true
+		}
+
+		return !requireOriginOrReferer
+	}
+
+	requireFormSameOrigin := func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			isJSON := strings.Contains(r.Header.Get("Content-Type"), "application/json")
+			if !validateAdminSameOrigin(r, !isJSON) {
+				http.Error(w, "Forbidden: invalid origin", http.StatusForbidden)
+				return
+			}
+			next(w, r)
+		}
+	}
+
+	requireAPISameOrigin := func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			if !validateAdminSameOrigin(r, false) {
+				http.Error(w, "Forbidden: invalid origin", http.StatusForbidden)
+				return
+			}
+			next(w, r)
+		}
+	}
+
 	// UI Handlers
 
 	// Wait, to call s.handleListUsers, s must exist.
@@ -94,21 +137,21 @@ func NewAdminServer(cfg *config.Config, authService *auth.AuthService, hub *ws.H
 
 	// UI Handlers
 	mux.HandleFunc("GET /", withBasicAuth(s.handleListUsers))
-	mux.HandleFunc("POST /admin/users", withBasicAuth(s.handleAddUser))
-	mux.HandleFunc("POST /admin/users/delete", withBasicAuth(s.handleDeleteUser))
-	mux.HandleFunc("POST /admin/users/reset", withBasicAuth(s.handleResetUser))
+	mux.HandleFunc("POST /admin/users", withBasicAuth(requireFormSameOrigin(s.handleAddUser)))
+	mux.HandleFunc("POST /admin/users/delete", withBasicAuth(requireFormSameOrigin(s.handleDeleteUser)))
+	mux.HandleFunc("POST /admin/users/reset", withBasicAuth(requireFormSameOrigin(s.handleResetUser)))
 
 	// API Handlers
 	mux.HandleFunc("GET /api/users", withBasicAuth(s.handleListUsersJSON))
-	mux.HandleFunc("POST /api/users", withBasicAuth(adminHandler.AddUserHandler))
-	mux.HandleFunc("DELETE /api/users", withBasicAuth(adminHandler.DeleteUserHandler))
-	mux.HandleFunc("POST /api/users/reset-password", withBasicAuth(adminHandler.ResetUserPasswordHandler))
-	mux.HandleFunc("POST /api/users/reset-key", withBasicAuth(adminHandler.ResetAPIKeyHandler))
-	mux.HandleFunc("POST /api/users/set-avatar", withBasicAuth(adminHandler.SetUserAvatarHandler))
+	mux.HandleFunc("POST /api/users", withBasicAuth(requireAPISameOrigin(adminHandler.AddUserHandler)))
+	mux.HandleFunc("DELETE /api/users", withBasicAuth(requireAPISameOrigin(adminHandler.DeleteUserHandler)))
+	mux.HandleFunc("POST /api/users/reset-password", withBasicAuth(requireAPISameOrigin(adminHandler.ResetUserPasswordHandler)))
+	mux.HandleFunc("POST /api/users/reset-key", withBasicAuth(requireAPISameOrigin(adminHandler.ResetAPIKeyHandler)))
+	mux.HandleFunc("POST /api/users/set-avatar", withBasicAuth(requireAPISameOrigin(adminHandler.SetUserAvatarHandler)))
 
 	// Server-control handlers
-	mux.HandleFunc("POST /api/backup", withBasicAuth(s.handleBackup))
-	mux.HandleFunc("POST /api/shutdown", withBasicAuth(s.handleShutdown))
+	mux.HandleFunc("POST /api/backup", withBasicAuth(requireAPISameOrigin(s.handleBackup)))
+	mux.HandleFunc("POST /api/shutdown", withBasicAuth(requireAPISameOrigin(s.handleShutdown)))
 
 	addr := cfg.AdminAddr
 	if addr == "" {

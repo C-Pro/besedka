@@ -75,7 +75,7 @@ func NewAPIServer(cfg *config.Config, authService *auth.AuthService, hub *ws.Hub
 	mux.HandleFunc("POST /api/webauthn/login/finish", api.RequireSameOrigin(apiHandlers.WebAuthnLoginFinishHandler))
 	mux.HandleFunc("GET /api/webauthn/passkeys", apiHandlers.RequireAuth(apiHandlers.ListPasskeysHandler))
 	mux.HandleFunc("DELETE /api/webauthn/passkeys/{id}", api.RequireSameOrigin(apiHandlers.RequireAuth(apiHandlers.DeletePasskeyHandler)))
-	mux.HandleFunc("POST /api/push/subscribe", apiHandlers.RequireAuth(apiHandlers.PushSubscribeHandler))
+	mux.HandleFunc("POST /api/push/subscribe", apiHandlers.RequireAuth(api.RequireSameOrigin(apiHandlers.PushSubscribeHandler)))
 
 	// WebSocket endpoint
 	mux.HandleFunc("/api/chat", server.HandleConnections)

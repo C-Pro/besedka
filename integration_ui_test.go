@@ -58,10 +58,22 @@ func TestIntegrationUI(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	// 2. Add User via Form
+	// Verify cross-origin request is rejected
 	form := url.Values{}
 	form.Add("username", "ui_testuser")
 	req, _ = http.NewRequest("POST", baseURL+"/admin/users", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", "http://evil.com")
+	req.SetBasicAuth("admin", "1337chat")
+	resp, err = client.Do(req)
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+	require.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+	// Valid same-origin request
+	req, _ = http.NewRequest("POST", baseURL+"/admin/users", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", baseURL)
 	req.SetBasicAuth("admin", "1337chat")
 
 	resp, err = client.Do(req)
@@ -75,6 +87,7 @@ func TestIntegrationUI(t *testing.T) {
 	form.Add("id", "ui_testuser")
 	req, _ = http.NewRequest("POST", baseURL+"/admin/users/delete", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", baseURL)
 	req.SetBasicAuth("admin", "1337chat")
 
 	// Client follows redirects by default
