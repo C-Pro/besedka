@@ -41,8 +41,8 @@ func NewFileServerHandler(authService *auth.AuthService, assets fs.FS) http.Hand
 			}
 		}
 
-		// Prevent serving the static.go file
-		if strings.HasSuffix(r.URL.Path, "/static.go") {
+		// Prevent serving the static.go file and admin.html
+		if strings.HasSuffix(r.URL.Path, "/static.go") || r.URL.Path == "/admin.html" {
 			http.NotFound(w, r)
 			return
 		}

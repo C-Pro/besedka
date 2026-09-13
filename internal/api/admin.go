@@ -151,21 +151,6 @@ func (h *AdminHandler) AddUserHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create DMs for the new user
-	allUsers, err := h.authService.GetUsers()
-	if err == nil {
-		var newUser models.User
-		for _, u := range allUsers {
-			if u.UserName == req.Username {
-				newUser = u
-				break
-			}
-		}
-		if newUser.ID != "" {
-			h.hub.EnsureDMsFor(newUser, allUsers)
-		}
-	}
-
 	base := strings.TrimRight(h.baseURL, "/")
 	resp := AddUserResponse{
 		Success:   true,

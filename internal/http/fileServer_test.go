@@ -166,6 +166,7 @@ func TestFileServerHeaders(t *testing.T) {
 	writeTestFile("sw.js", []byte("sw content"))
 	writeTestFile("js/app.js", []byte("console.log('hello');"))
 	writeTestFile("besedka.png", []byte("image bytes"))
+	writeTestFile("admin.html", []byte("admin page content"))
 
 	handler := NewFileServerHandler(authService, os.DirFS(tmpDir))
 
@@ -213,6 +214,11 @@ func TestFileServerHeaders(t *testing.T) {
 			cookieToken:    "test-token",
 			expectedStatus: http.StatusOK,
 			expectedCache:  "no-store, no-cache, must-revalidate, max-age=0",
+		},
+		{
+			name:           "Admin HTML blocked with 404",
+			path:           "/admin.html",
+			expectedStatus: http.StatusNotFound,
 		},
 	}
 

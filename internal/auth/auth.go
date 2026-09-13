@@ -970,7 +970,7 @@ func (as *AuthService) CompleteRegistration(req RegistrationRequest) (Registrati
 	if req.DisplayName != "" {
 		user.DisplayName = req.DisplayName
 	}
-	user.LastTOTP = 0 // Activate user
+	user.LastTOTP = -2 // Activate user (avoid colliding with valid TOTP 000000)
 	user.Status = models.UserStatusActive
 
 	if err := as.storage.UpsertCredentials(*user); err != nil {
