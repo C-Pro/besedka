@@ -4,6 +4,7 @@ import (
 	"besedka/internal/models"
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 )
@@ -14,6 +15,7 @@ type mockWS struct {
 	closeCh     chan struct{}
 	closed      bool
 	errToReturn error
+	mu          sync.RWMutex
 }
 
 func newMockWS() *mockWS {
@@ -25,6 +27,8 @@ func newMockWS() *mockWS {
 }
 
 func (m *mockWS) Close() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.closed {
 		return nil
 	}
@@ -33,17 +37,29 @@ func (m *mockWS) Close() error {
 	return nil
 }
 
+func (m *mockWS) setErr(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.errToReturn = err
+}
+
+func (m *mockWS) getErr() error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.errToReturn
+}
+
 func (m *mockWS) WriteJSON(v any) error {
-	if m.errToReturn != nil {
-		return m.errToReturn
+	if err := m.getErr(); err != nil {
+		return err
 	}
 	m.writeCh <- v
 	return nil
 }
 
 func (m *mockWS) ReadJSON(v any) error {
-	if m.errToReturn != nil {
-		return m.errToReturn
+	if err := m.getErr(); err != nil {
+		return err
 	}
 	select {
 	case msg, ok := <-m.readCh:
@@ -250,7 +266,7 @@ func TestConnection_WriteDeadlineError(t *testing.T) {
 	}()
 
 	// Simulate write deadline failure on outgoing message
-	ws.errToReturn = errors.New("write timeout")
+	ws.setErr(errors.New("write timeout"))
 	hub.userChans[userID] <- models.ServerMessage{Type: models.ServerMessageTypePing}
 
 	select {

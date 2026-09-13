@@ -1185,5 +1185,123 @@ func TestHub_PushNotification_BodyFormatting(t *testing.T) {
 	}
 }
 
+func TestHub_LocationValidationAndThrottling(t *testing.T) {
+	user := models.User{ID: "loc_u1", DisplayName: "Loc User"}
+	provider := &MockUserProvider{users: []models.User{user}}
+	store := NewMockStorage()
+	h := NewHub(context.Background(), provider, store, &MockPushService{})
+
+	ch := h.Join(user.ID)
+	defer h.Leave(user.ID, ch)
+
+	// 1. Invalid coordinates: Lat > 90
+	badLat := models.Location{Lat: 91.0, Lng: 0.0}
+	h.Dispatch(user.ID, models.ClientMessage{
+		Type:     models.ClientMessageTypeLocation,
+		Location: &badLat,
+	}, nil)
+
+	select {
+	case msg := <-ch:
+		if msg.Type == models.ServerMessageTypeLocation {
+			t.Fatalf("expected invalid latitude to be rejected, but received location message")
+		}
+	case <-time.After(50 * time.Millisecond):
+		// Expected: nothing received
+	}
+
+	// 2. Invalid coordinates: Lng < -180
+	badLng := models.Location{Lat: 0.0, Lng: -181.0}
+	h.Dispatch(user.ID, models.ClientMessage{
+		Type:     models.ClientMessageTypeLocation,
+		Location: &badLng,
+	}, nil)
+
+	select {
+	case msg := <-ch:
+		if msg.Type == models.ServerMessageTypeLocation {
+			t.Fatalf("expected invalid longitude to be rejected, but received location message")
+		}
+	case <-time.After(50 * time.Millisecond):
+		// Expected
+	}
+
+	// 3. Valid coordinates: accepted
+	goodLoc := models.Location{Lat: 51.5074, Lng: -0.1278}
+	h.Dispatch(user.ID, models.ClientMessage{
+		Type:     models.ClientMessageTypeLocation,
+		Location: &goodLoc,
+	}, nil)
+
+	select {
+	case msg := <-ch:
+		if msg.Type != models.ServerMessageTypeLocation {
+			t.Fatalf("expected location message, got %v", msg.Type)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timeout waiting for valid location broadcast")
+	}
+
+	// 4. Rate-limiting: immediate subsequent update within 1s should be throttled
+	fastLoc := models.Location{Lat: 52.0, Lng: 0.0}
+	h.Dispatch(user.ID, models.ClientMessage{
+		Type:     models.ClientMessageTypeLocation,
+		Location: &fastLoc,
+	}, nil)
+
+	select {
+	case msg := <-ch:
+		if msg.Type == models.ServerMessageTypeLocation {
+			t.Fatalf("expected rapid location update to be throttled, got %v", msg)
+		}
+	case <-time.After(50 * time.Millisecond):
+		// Expected: throttled
+	}
+}
+
+func TestHub_UpdateLastSeen_MultiDeviceDelivery(t *testing.T) {
+	user := models.User{ID: "seen_u1", DisplayName: "Seen User"}
+	provider := &MockUserProvider{users: []models.User{user}}
+	store := NewMockStorage()
+	_ = store.UpsertChat(models.Chat{
+		ID:      "townhall",
+		Name:    "Town Hall",
+		LastSeq: 10,
+	})
+	h := NewHub(context.Background(), provider, store, &MockPushService{})
+
+	// User connects on two devices
+	device1 := h.Join(user.ID)
+	device2 := h.Join(user.ID)
+	defer h.Leave(user.ID, device1)
+	defer h.Leave(user.ID, device2)
+
+	h.EnsureDMsFor(user, []models.User{})
+
+	// Device 1 reports read seq 5
+	h.UpdateLastSeen(user.ID, "townhall", 5, device1)
+
+	// Device 2 should receive read receipt
+	select {
+	case msg := <-device2:
+		if msg.Type != models.ServerMessageTypeRead || msg.Seq != 5 {
+			t.Fatalf("expected read receipt for seq 5 on device 2, got %+v", msg)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timeout waiting for read receipt on device 2")
+	}
+
+	// Device 1 should NOT receive read receipt because skipCh was passed
+	select {
+	case msg := <-device1:
+		if msg.Type == models.ServerMessageTypeRead {
+			t.Fatalf("device 1 should have been skipped, but received read message: %+v", msg)
+		}
+	case <-time.After(50 * time.Millisecond):
+		// Expected
+	}
+}
+
+
 
 
