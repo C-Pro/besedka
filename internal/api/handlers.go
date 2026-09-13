@@ -695,7 +695,7 @@ func (a *API) processUpload(w http.ResponseWriter, r *http.Request, maxBytes int
 	hasher.Write(data)
 	hash := hex.EncodeToString(hasher.Sum(nil))
 
-	if err := a.storage.SaveFileBlob(bytes.NewReader(data), hash); err != nil {
+	if err := a.storage.SaveFileBlobBytes(data, hash); err != nil {
 		slog.Error("failed to save file blob", "error", err)
 		http.Error(w, "Internal Storage Error", http.StatusInternalServerError)
 		return "", err
@@ -932,7 +932,7 @@ func (a *API) UpdateSongHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) handleSongUpload(w http.ResponseWriter, r *http.Request, userID string) (string, string, string, error) {
-	r.Body = http.MaxBytesReader(w, r.Body, a.cfg.MaxFileSize)
+	r.Body = http.MaxBytesReader(w, r.Body, a.cfg.MaxFileSize+1<<20)
 	if err := r.ParseMultipartForm(a.cfg.MaxFileSize); err != nil {
 		http.Error(w, "Failed to parse multipart form", http.StatusBadRequest)
 		return "", "", "", err
@@ -963,6 +963,10 @@ func (a *API) handleSongUpload(w http.ResponseWriter, r *http.Request, userID st
 		return "", "", "", err
 	}
 	data := buf.Bytes()
+	if int64(len(data)) > a.cfg.MaxFileSize {
+		http.Error(w, "File too large", http.StatusBadRequest)
+		return "", "", "", errors.New("file too large")
+	}
 
 	if songTitle == "" || songArtist == "" {
 		meta := audio.ExtractMetadata(data)
@@ -989,7 +993,7 @@ func (a *API) handleSongUpload(w http.ResponseWriter, r *http.Request, userID st
 	hasher.Write(data)
 	hash := hex.EncodeToString(hasher.Sum(nil))
 
-	if err := a.storage.SaveFileBlob(bytes.NewReader(data), hash); err != nil {
+	if err := a.storage.SaveFileBlobBytes(data, hash); err != nil {
 		slog.Error("failed to save file blob", "error", err)
 		http.Error(w, "Internal Storage Error", http.StatusInternalServerError)
 		return "", "", "", err

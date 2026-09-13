@@ -397,7 +397,7 @@ func (h *AdminHandler) SetUserAvatarHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if err := h.storage.SaveFileBlob(bytes.NewReader(data), hash); err != nil {
+	if err := h.storage.SaveFileBlobBytes(data, hash); err != nil {
 		slog.Error("failed to save avatar file blob", "error", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
