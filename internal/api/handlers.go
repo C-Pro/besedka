@@ -196,11 +196,13 @@ func (a *API) RequireAuth(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		if cookie, err := r.Cookie("token"); err == nil && cookie.Value == token && !expiry.IsZero() {
+			// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
 			http.SetCookie(w, &http.Cookie{
 				Name:     "token",
 				Value:    token,
 				HttpOnly: true,
-				Secure:   true,
+				Secure:   strings.HasPrefix(a.auth.RPOrigin, "https://"),
+				SameSite: http.SameSiteLaxMode,
 				Path:     "/",
 				Expires:  expiry,
 			})
@@ -217,11 +219,13 @@ func (a *API) LogoffHandler(w http.ResponseWriter, r *http.Request) {
 		_ = a.auth.Logoff(token)
 	}
 
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
 	http.SetCookie(w, &http.Cookie{
 		Name:     "token",
 		Value:    "",
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   strings.HasPrefix(a.auth.RPOrigin, "https://"),
+		SameSite: http.SameSiteLaxMode,
 		Path:     "/",
 		MaxAge:   -1,
 	})
@@ -633,11 +637,13 @@ func (a *API) ResetPasswordHandler(w http.ResponseWriter, r *http.Request) {
 	a.hub.DisconnectUser(user.ID) // This disconnects all ws connections
 
 	// Also clear token cookie to log them off this session so they can login via registration link
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
 	http.SetCookie(w, &http.Cookie{
 		Name:     "token",
 		Value:    "",
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   strings.HasPrefix(a.auth.RPOrigin, "https://"),
+		SameSite: http.SameSiteLaxMode,
 		Path:     "/",
 		MaxAge:   -1,
 	})

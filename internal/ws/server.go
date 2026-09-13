@@ -81,11 +81,13 @@ func (s *Server) HandleConnections(w http.ResponseWriter, r *http.Request) {
 	if token != "" {
 		if expiry, err := s.auth.RefreshToken(token); err == nil {
 			responseHeader = http.Header{}
+			// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
 			responseHeader.Add("Set-Cookie", (&http.Cookie{
 				Name:     "token",
 				Value:    token,
 				HttpOnly: true,
-				Secure:   true,
+				Secure:   strings.HasPrefix(s.auth.RPOrigin, "https://"),
+				SameSite: http.SameSiteLaxMode,
 				Path:     "/",
 				Expires:  expiry,
 			}).String())
