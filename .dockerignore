@@ -1,0 +1,10 @@
+.git
+.env
+*.env
+secret.*
+*.db
+uploads/
+_data/
+deploy/
+coverage.out
+.agent/
