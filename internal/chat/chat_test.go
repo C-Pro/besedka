@@ -2,6 +2,7 @@ package chat
 
 import (
 	"besedka/internal/models"
+	"errors"
 	"fmt"
 	"testing"
 )
@@ -239,5 +240,66 @@ func TestChat_Persistence(t *testing.T) {
 	if recs[0].Content != "msg 1" {
 		t.Errorf("expected msg 1, got %s", recs[0].Content)
 	}
-
 }
+
+type FailingMockStorage struct {
+	fail bool
+	msgs []models.Message
+}
+
+func (f *FailingMockStorage) UpsertMessage(msg models.Message) error {
+	if f.fail {
+		return errors.New("db error")
+	}
+	f.msgs = append(f.msgs, msg)
+	return nil
+}
+
+func (f *FailingMockStorage) ListMessages(chatID string, from, to int64) ([]models.Message, error) {
+	return nil, nil
+}
+
+func TestChat_AddRecord_DBFailureNoSeqGap(t *testing.T) {
+	store := &FailingMockStorage{}
+	c := New(Config{
+		ID:         "test_gap",
+		MaxRecords: 5,
+		Storage:    store,
+	})
+
+	// Add 1st record successfully
+	err := c.AddRecord(ChatRecord{UserID: "u1", Content: "msg 1"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if c.LastSeq != 1 {
+		t.Fatalf("expected LastSeq 1, got %d", c.LastSeq)
+	}
+
+	// 2nd record fails in storage
+	store.fail = true
+	err = c.AddRecord(ChatRecord{UserID: "u1", Content: "msg 2 (failed)"})
+	if err == nil {
+		t.Fatalf("expected error from failed storage")
+	}
+	if c.LastSeq != 1 {
+		t.Fatalf("expected LastSeq to stay 1 on failure, got %d", c.LastSeq)
+	}
+
+	// 3rd record succeeds in storage
+	store.fail = false
+	err = c.AddRecord(ChatRecord{UserID: "u1", Content: "msg 2 (retry)"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if c.LastSeq != 2 {
+		t.Fatalf("expected LastSeq 2 (no gap), got %d", c.LastSeq)
+	}
+	if len(store.msgs) != 2 {
+		t.Fatalf("expected 2 messages in store, got %d", len(store.msgs))
+	}
+	if store.msgs[1].Seq != 2 {
+		t.Fatalf("expected 2nd stored msg seq 2, got %d", store.msgs[1].Seq)
+	}
+}
+
