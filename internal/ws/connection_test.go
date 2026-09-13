@@ -10,12 +10,13 @@ import (
 )
 
 type mockWS struct {
-	readCh      chan models.ClientMessage
-	writeCh     chan any
-	closeCh     chan struct{}
-	closed      bool
-	errToReturn error
-	mu          sync.RWMutex
+	readCh           chan models.ClientMessage
+	writeCh          chan any
+	closeCh          chan struct{}
+	closed           bool
+	readErr          error
+	writeDeadlineErr error
+	mu               sync.RWMutex
 }
 
 func newMockWS() *mockWS {
@@ -37,28 +38,34 @@ func (m *mockWS) Close() error {
 	return nil
 }
 
-func (m *mockWS) setErr(err error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.errToReturn = err
-}
-
-func (m *mockWS) getErr() error {
+func (m *mockWS) isClosed() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.errToReturn
+	return m.closed
+}
+
+func (m *mockWS) setReadErr(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.readErr = err
+}
+
+func (m *mockWS) setWriteDeadlineErr(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.writeDeadlineErr = err
 }
 
 func (m *mockWS) WriteJSON(v any) error {
-	if err := m.getErr(); err != nil {
-		return err
-	}
 	m.writeCh <- v
 	return nil
 }
 
 func (m *mockWS) ReadJSON(v any) error {
-	if err := m.getErr(); err != nil {
+	m.mu.RLock()
+	err := m.readErr
+	m.mu.RUnlock()
+	if err != nil {
 		return err
 	}
 	select {
@@ -81,15 +88,15 @@ func (m *mockWS) SetReadDeadline(t time.Time) error {
 }
 
 func (m *mockWS) SetWriteDeadline(t time.Time) error {
-	if m.errToReturn != nil {
-		return m.errToReturn
-	}
-	return nil
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.writeDeadlineErr
 }
 
 func (m *mockWS) SetReadLimit(limit int64) {}
 
 type mockHub struct {
+	mu         sync.RWMutex
 	joinCh     chan string
 	leaveCh    chan string
 	dispatchCh chan models.ClientMessage
@@ -109,16 +116,31 @@ func newMockHub() *mockHub {
 func (m *mockHub) Join(userID string) chan models.ServerMessage {
 	m.joinCh <- userID
 	ch := make(chan models.ServerMessage, 10)
+	m.mu.Lock()
 	m.userChans[userID] = ch
+	m.mu.Unlock()
 	return ch
 }
 
 func (m *mockHub) Leave(userID string, expectedCh chan models.ServerMessage) {
 	m.leaveCh <- userID
+	m.mu.Lock()
 	if ch, ok := m.userChans[userID]; ok {
 		close(ch)
 		delete(m.userChans, userID)
 	}
+	m.mu.Unlock()
+}
+
+func (m *mockHub) Send(userID string, msg models.ServerMessage) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	ch, ok := m.userChans[userID]
+	if !ok {
+		return false
+	}
+	ch <- msg
+	return true
 }
 
 func (m *mockHub) Dispatch(userID string, msg models.ClientMessage, senderCh chan models.ServerMessage) {
@@ -179,7 +201,9 @@ func TestConnection_Lifecycle(t *testing.T) {
 			{Content: "hi back"},
 		},
 	}
-	hub.userChans[userID] <- serverMsg
+	if !hub.Send(userID, serverMsg) {
+		t.Fatal("Failed to send server message to user channel")
+	}
 
 	select {
 	case received := <-ws.writeCh:
@@ -216,7 +240,7 @@ func TestConnection_Lifecycle(t *testing.T) {
 	}
 
 	// Verify WS Close called
-	if !ws.closed {
+	if !ws.isClosed() {
 		t.Error("WS Close not called")
 	}
 }
@@ -229,7 +253,7 @@ func TestConnection_WSError(t *testing.T) {
 	conn := NewConnection(hub, ws, userID)
 
 	// Simulate ReadJSON error immediatelly
-	ws.errToReturn = errors.New("read error")
+	ws.setReadErr(errors.New("read error"))
 
 	done := make(chan error)
 	go func() {
@@ -245,7 +269,7 @@ func TestConnection_WSError(t *testing.T) {
 		t.Error("Handle did not return on error")
 	}
 
-	if !ws.closed {
+	if !ws.isClosed() {
 		t.Error("WS Close not called")
 	}
 }
@@ -266,8 +290,10 @@ func TestConnection_WriteDeadlineError(t *testing.T) {
 	}()
 
 	// Simulate write deadline failure on outgoing message
-	ws.setErr(errors.New("write timeout"))
-	hub.userChans[userID] <- models.ServerMessage{Type: models.ServerMessageTypePing}
+	ws.setWriteDeadlineErr(errors.New("write timeout"))
+	if !hub.Send(userID, models.ServerMessage{Type: models.ServerMessageTypePing}) {
+		t.Fatal("Failed to send server message to user channel")
+	}
 
 	select {
 	case err := <-done:
@@ -278,7 +304,7 @@ func TestConnection_WriteDeadlineError(t *testing.T) {
 		t.Error("Handle did not return on write deadline error")
 	}
 
-	if !ws.closed {
+	if !ws.isClosed() {
 		t.Error("WS Close not called on write error")
 	}
 }
