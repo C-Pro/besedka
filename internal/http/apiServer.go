@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -75,7 +76,7 @@ func NewAPIServer(cfg *config.Config, authService *auth.AuthService, hub *ws.Hub
 	mux.HandleFunc("POST /api/webauthn/login/finish", api.RequireSameOrigin(apiHandlers.WebAuthnLoginFinishHandler))
 	mux.HandleFunc("GET /api/webauthn/passkeys", apiHandlers.RequireAuth(apiHandlers.ListPasskeysHandler))
 	mux.HandleFunc("DELETE /api/webauthn/passkeys/{id}", api.RequireSameOrigin(apiHandlers.RequireAuth(apiHandlers.DeletePasskeyHandler)))
-	mux.HandleFunc("POST /api/push/subscribe", apiHandlers.RequireAuth(apiHandlers.PushSubscribeHandler))
+	mux.HandleFunc("POST /api/push/subscribe", apiHandlers.RequireAuth(api.RequireSameOrigin(apiHandlers.PushSubscribeHandler)))
 
 	// WebSocket endpoint
 	mux.HandleFunc("/api/chat", server.HandleConnections)
@@ -83,10 +84,22 @@ func NewAPIServer(cfg *config.Config, authService *auth.AuthService, hub *ws.Hub
 	return &APIServer{
 		server: &http.Server{
 			Addr:    addr,
-			Handler: mux,
+			Handler: securityHeaders(mux, cfg),
 		},
 		cfg: cfg,
 	}
+}
+
+func securityHeaders(next http.Handler, cfg *config.Config) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		if cfg.TLSAutoCertPath != "" || (cfg.TLSCert != "" && cfg.TLSKey != "") || strings.HasPrefix(cfg.BaseURL, "https://") {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *APIServer) Start() error {

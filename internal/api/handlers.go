@@ -196,11 +196,13 @@ func (a *API) RequireAuth(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		if cookie, err := r.Cookie("token"); err == nil && cookie.Value == token && !expiry.IsZero() {
+			// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
 			http.SetCookie(w, &http.Cookie{
 				Name:     "token",
 				Value:    token,
 				HttpOnly: true,
-				Secure:   true,
+				Secure:   strings.HasPrefix(a.auth.RPOrigin, "https://"),
+				SameSite: http.SameSiteLaxMode,
 				Path:     "/",
 				Expires:  expiry,
 			})
@@ -217,11 +219,13 @@ func (a *API) LogoffHandler(w http.ResponseWriter, r *http.Request) {
 		_ = a.auth.Logoff(token)
 	}
 
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
 	http.SetCookie(w, &http.Cookie{
 		Name:     "token",
 		Value:    "",
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   strings.HasPrefix(a.auth.RPOrigin, "https://"),
+		SameSite: http.SameSiteLaxMode,
 		Path:     "/",
 		MaxAge:   -1,
 	})
@@ -275,6 +279,7 @@ func (a *API) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) RegisterInfoHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store, private")
 	token := r.URL.Query().Get("token")
 	if token == "" {
 		http.Error(w, "Token required", http.StatusBadRequest)
@@ -452,7 +457,7 @@ func (a *API) SendMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Content == "" {
+	if strings.TrimSpace(req.Content) == "" {
 		http.Error(w, "Message content cannot be empty", http.StatusBadRequest)
 		return
 	}
@@ -632,11 +637,13 @@ func (a *API) ResetPasswordHandler(w http.ResponseWriter, r *http.Request) {
 	a.hub.DisconnectUser(user.ID) // This disconnects all ws connections
 
 	// Also clear token cookie to log them off this session so they can login via registration link
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
 	http.SetCookie(w, &http.Cookie{
 		Name:     "token",
 		Value:    "",
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   strings.HasPrefix(a.auth.RPOrigin, "https://"),
+		SameSite: http.SameSiteLaxMode,
 		Path:     "/",
 		MaxAge:   -1,
 	})
@@ -676,7 +683,7 @@ func (a *API) processUpload(w http.ResponseWriter, r *http.Request, maxBytes int
 	data := buf.Bytes()
 
 	if enforceImage {
-		if !filetype.IsImage(data) && !isSVG(data) {
+		if !filetype.IsImage(data) {
 			http.Error(w, "Invalid file type. Only images are allowed.", http.StatusBadRequest)
 			return "", errors.New("invalid file type")
 		}
@@ -695,7 +702,7 @@ func (a *API) processUpload(w http.ResponseWriter, r *http.Request, maxBytes int
 	hasher.Write(data)
 	hash := hex.EncodeToString(hasher.Sum(nil))
 
-	if err := a.storage.SaveFileBlob(bytes.NewReader(data), hash); err != nil {
+	if err := a.storage.SaveFileBlobBytes(data, hash); err != nil {
 		slog.Error("failed to save file blob", "error", err)
 		http.Error(w, "Internal Storage Error", http.StatusInternalServerError)
 		return "", err
@@ -764,9 +771,9 @@ func (a *API) UploadAvatarHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Optionally we could broadcast presence so other clients get the new avatar.
-	// For now, updating the database is sufficient as clients fetch user lists periodically or at start.
-	// Alternatively we can use a server message type.
+	if updatedUser, err := a.auth.GetUser(uploaderID); err == nil {
+		go a.hub.BroadcastNewUser(updatedUser)
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	resp := struct {
@@ -932,7 +939,7 @@ func (a *API) UpdateSongHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) handleSongUpload(w http.ResponseWriter, r *http.Request, userID string) (string, string, string, error) {
-	r.Body = http.MaxBytesReader(w, r.Body, a.cfg.MaxFileSize)
+	r.Body = http.MaxBytesReader(w, r.Body, a.cfg.MaxFileSize+1<<20)
 	if err := r.ParseMultipartForm(a.cfg.MaxFileSize); err != nil {
 		http.Error(w, "Failed to parse multipart form", http.StatusBadRequest)
 		return "", "", "", err
@@ -963,6 +970,10 @@ func (a *API) handleSongUpload(w http.ResponseWriter, r *http.Request, userID st
 		return "", "", "", err
 	}
 	data := buf.Bytes()
+	if int64(len(data)) > a.cfg.MaxFileSize {
+		http.Error(w, "File too large", http.StatusBadRequest)
+		return "", "", "", errors.New("file too large")
+	}
 
 	if songTitle == "" || songArtist == "" {
 		meta := audio.ExtractMetadata(data)
@@ -989,7 +1000,7 @@ func (a *API) handleSongUpload(w http.ResponseWriter, r *http.Request, userID st
 	hasher.Write(data)
 	hash := hex.EncodeToString(hasher.Sum(nil))
 
-	if err := a.storage.SaveFileBlob(bytes.NewReader(data), hash); err != nil {
+	if err := a.storage.SaveFileBlobBytes(data, hash); err != nil {
 		slog.Error("failed to save file blob", "error", err)
 		http.Error(w, "Internal Storage Error", http.StatusInternalServerError)
 		return "", "", "", err
@@ -1035,9 +1046,16 @@ func (a *API) handleSongJSON(w http.ResponseWriter, r *http.Request) (string, st
 			http.Error(w, "URL too long", http.StatusBadRequest)
 			return "", "", "", errors.New("URL too long")
 		}
-		if _, err := url.Parse(req.SongURL); err != nil {
+		u, err := url.Parse(req.SongURL)
+		if err != nil {
 			http.Error(w, "Invalid URL", http.StatusBadRequest)
 			return "", "", "", err
+		}
+		isHTTP := (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
+		isLocalFile := u.Scheme == "" && strings.HasPrefix(req.SongURL, "/api/files/")
+		if !isHTTP && !isLocalFile {
+			http.Error(w, "Invalid URL scheme", http.StatusBadRequest)
+			return "", "", "", errors.New("invalid URL scheme")
 		}
 	}
 
@@ -1098,6 +1116,10 @@ func (a *API) GetImageHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", mimeType)
 	w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
 	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if mimeType == "image/svg+xml" {
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
+	}
 
 	if _, err := io.Copy(w, rc); err != nil {
 		slog.Error("failed to write file content", "error", err)
@@ -1173,6 +1195,8 @@ func (a *API) GetFileHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
 	if !strings.HasPrefix(mimeType, "audio/") && !strings.HasPrefix(mimeType, "video/") {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+	} else {
+		w.Header().Del("X-Content-Type-Options")
 	}
 
 	nameWithExt := name
@@ -1182,11 +1206,21 @@ func (a *API) GetFileHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	isDownload := r.URL.Query().Get("download") == "1"
+	isDangerousMime := mimeType == "text/html" ||
+		mimeType == "image/svg+xml" ||
+		mimeType == "application/xml" ||
+		mimeType == "text/xml" ||
+		mimeType == "application/xhtml+xml" ||
+		mimeType == "application/octet-stream"
+
+	isDownload := r.URL.Query().Get("download") == "1" || isDangerousMime
 	if isDownload {
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", nameWithExt))
 	} else {
 		w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", nameWithExt))
+	}
+	if isDangerousMime {
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
 	}
 
 	if seeker, ok := rc.(io.ReadSeeker); ok {

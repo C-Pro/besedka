@@ -193,3 +193,45 @@ func TestUpdateSongHandler_NormalizesMimeType(t *testing.T) {
 	assert.Empty(t, fileRec.Header().Get("X-Content-Type-Options"))
 }
 
+func TestUpdateSongHandler_SchemeValidation(t *testing.T) {
+	apiInst, as, st, _ := setupAPIKeyTest(t)
+	defer func() { _ = st.Close() }()
+
+	_, apiKey, err := as.AddBot("songschemeuser", "Song Scheme User", models.BotPermissions{
+		Write: true,
+	})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name       string
+		url        string
+		wantStatus int
+	}{
+		{"javascript scheme", "javascript:alert(1)", http.StatusBadRequest},
+		{"ftp scheme", "ftp://example.com/audio.mp3", http.StatusBadRequest},
+		{"data scheme", "data:audio/mp3;base64,AAAA", http.StatusBadRequest},
+		{"arbitrary path", "/etc/passwd", http.StatusBadRequest},
+		{"valid http", "http://example.com/song.mp3", http.StatusOK},
+		{"valid https", "https://example.com/song.mp3", http.StatusOK},
+		{"valid local file", "/api/files/abcdef.mp3", http.StatusOK},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			payload, _ := json.Marshal(map[string]string{
+				"songUrl": tc.url,
+			})
+			req := httptest.NewRequest("POST", "/api/users/me/song", bytes.NewReader(payload))
+			req.Header.Set("Authorization", "Bearer "+apiKey)
+			req.Header.Set("Content-Type", "application/json")
+
+			rec := httptest.NewRecorder()
+			handler := apiInst.RequireAuth(apiInst.UpdateSongHandler)
+			handler(rec, req)
+
+			assert.Equal(t, tc.wantStatus, rec.Code)
+		})
+	}
+}
+
+

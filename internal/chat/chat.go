@@ -67,8 +67,8 @@ func New(config Config) *Chat {
 func (c *Chat) AddRecord(record ChatRecord) error {
 	c.mux.Lock()
 
-	c.LastSeq++
-	record.Seq = c.LastSeq
+	nextSeq := c.LastSeq + 1
+	record.Seq = nextSeq
 
 	// Persist
 	if c.storage != nil {
@@ -86,6 +86,8 @@ func (c *Chat) AddRecord(record ChatRecord) error {
 			return fmt.Errorf("failed to persist message: %w", err)
 		}
 	}
+
+	c.LastSeq = nextSeq
 
 	// Add record to ring buffer
 	switch {

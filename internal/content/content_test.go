@@ -129,6 +129,10 @@ func TestExtractMentions(t *testing.T) {
 		{"Single mention", "Hello @alice!", []string{"alice"}},
 		{"Multiple mentions", "Hey @alice and @bob_123, look at @charlie", []string{"alice", "bob_123", "charlie"}},
 		{"Duplicate mentions", "Ping @alice and @alice again", []string{"alice"}},
+		{"Email address not mention", "Contact me at alice@example.com", nil},
+		{"Trailing punctuation", "Hello @alice. How is @bob-? Also @carol_", []string{"alice", "bob", "carol"}},
+		{"Internal punctuation preserved", "Hello @alice.smith and @bob_jones-jr", []string{"alice.smith", "bob_jones-jr"}},
+		{"Email followed by mention", "Send to foo@bar.com or @admin", []string{"admin"}},
 	}
 
 	for _, tt := range tests {

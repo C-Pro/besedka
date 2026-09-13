@@ -2,10 +2,19 @@ const CACHE_VERSION = '{{.CacheVersion}}';
 const CACHE_FILES = [
     '/js/app.js',
     '/js/state.js',
+    '/js/mentions.js',
+    '/js/id3.js',
     '/js/components/ChatList.js',
     '/js/components/ChatWindow.js',
+    '/js/components/ImageOverlay.js',
     '/js/components/InfoPanel.js',
+    '/js/components/LocationMap.js',
+    '/js/components/MentionAutocomplete.js',
+    '/js/components/MusicPlayer.js',
     '/js/components/ProfileModal.js',
+    '/js/components/ProfileSettingsModal.js',
+    '/js/components/SettingsModal.js',
+    '/js/components/UserProfileModal.js',
     '/js/d3.min.js',
     '/css/style.css',
     '/css/layout.css',
@@ -101,7 +110,7 @@ self.addEventListener('push', function (event) {
         icon: '/besedka.png',
         badge: '/favicon-32x32.png',
         vibrate: [100, 50, 100],
-        tag: data.url || 'besedka-notification', // Replace notifications with same tag
+        tag: (data.chatID && data.seq) ? `besedka-${data.chatID}-${data.seq}` : (data.url ? `${data.url}-${Date.now()}` : `besedka-notification-${Date.now()}`),
         renotify: true, // Vibrate even if replaced
         actions: [
             { action: 'reply', type: 'text', title: 'Reply', placeholder: 'Type your message...' }

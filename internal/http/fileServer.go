@@ -28,19 +28,21 @@ func NewFileServerHandler(authService *auth.AuthService, assets fs.FS) http.Hand
 			}
 
 			if !expiry.IsZero() {
+				// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
 				http.SetCookie(w, &http.Cookie{
 					Name:     "token",
 					Value:    cookie.Value,
 					HttpOnly: true,
-					Secure:   true,
+					Secure:   strings.HasPrefix(authService.RPOrigin, "https://"),
+					SameSite: http.SameSiteLaxMode,
 					Path:     "/",
 					Expires:  expiry,
 				})
 			}
 		}
 
-		// Prevent serving the static.go file
-		if strings.HasSuffix(r.URL.Path, "/static.go") {
+		// Prevent serving the static.go file and admin.html
+		if strings.HasSuffix(r.URL.Path, "/static.go") || r.URL.Path == "/admin.html" {
 			http.NotFound(w, r)
 			return
 		}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"sort"
 	"strings"
 	"sync"
@@ -45,6 +46,8 @@ type Hub struct {
 	pushService  PushService
 	pushQueue    chan pushTask
 
+	lastLocationUpdate map[string]time.Time
+
 	lastSeenSeq   map[userChatKey]int64
 	changedSeq    []models.LastSeenEntry
 	changedSeqMux sync.Mutex
@@ -72,14 +75,15 @@ type PushService interface {
 
 func NewHub(ctx context.Context, userProvider userProvider, storage storage, pushService PushService) *Hub {
 	h := &Hub{
-		chats:          make(map[string]*chat.Chat),
-		connectedUsers: make(map[string][]chan models.ServerMessage),
-		userLocations:  geche.NewMapTTLCache[string, models.Location](ctx, locationTTL, locationCleanup),
-		userProvider:   userProvider,
-		storage:        storage,
-		pushService:    pushService,
-		pushQueue:      make(chan pushTask, pushQueueSize),
-		lastSeenSeq:    make(map[userChatKey]int64),
+		chats:              make(map[string]*chat.Chat),
+		connectedUsers:     make(map[string][]chan models.ServerMessage),
+		userLocations:      geche.NewMapTTLCache[string, models.Location](ctx, locationTTL, locationCleanup),
+		lastLocationUpdate: make(map[string]time.Time),
+		userProvider:       userProvider,
+		storage:            storage,
+		pushService:        pushService,
+		pushQueue:          make(chan pushTask, pushQueueSize),
+		lastSeenSeq:        make(map[userChatKey]int64),
 	}
 
 	for i := 0; i < pushWorkers; i++ {
@@ -132,8 +136,10 @@ func (h *Hub) pushWorker(ctx context.Context) {
 			if !ok {
 				return
 			}
-			if err := h.pushService.SendNotification(task.userID, task.payload); err != nil {
-				slog.Error("failed to send push notification", "userID", task.userID, "error", err)
+			if h.pushService != nil {
+				if err := h.pushService.SendNotification(task.userID, task.payload); err != nil {
+					slog.Error("failed to send push notification", "userID", task.userID, "error", err)
+				}
 			}
 		}
 	}
@@ -351,6 +357,8 @@ func (h *Hub) leaveLocked(userID string, expectedCh chan models.ServerMessage, b
 		}
 	}
 
+	delete(h.lastLocationUpdate, userID)
+
 	// Leave all relevant chats
 	for chatID, c := range h.chats {
 		if chatID == "townhall" || isUserInDM(userID, chatID) {
@@ -489,8 +497,26 @@ func (h *Hub) Dispatch(userID string, msg models.ClientMessage, senderCh chan mo
 		return
 	}
 
+	if h.userProvider != nil {
+		u, err := h.userProvider.GetUser(userID)
+		if err == nil {
+			if u.Type == models.UserTypeBot && c.ID == "townhall" && !u.BotPermissions.Write {
+				return
+			}
+			if u.Type == models.UserTypeWebhook && c.ID != u.TargetChatID {
+				return
+			}
+		}
+	}
+
 	switch msg.Type {
 	case models.ClientMessageTypeSend:
+		if strings.TrimSpace(msg.Content) == "" && len(msg.Attachments) == 0 {
+			return
+		}
+		if len(msg.Content) > 65536 {
+			return
+		}
 		for i := range msg.Attachments {
 			if len(msg.Attachments[i].Name) > 255 {
 				msg.Attachments[i].Name = msg.Attachments[i].Name[:255]
@@ -549,12 +575,26 @@ func (h *Hub) handleLocation(userID string, msg models.ClientMessage) {
 		return
 	}
 
-	h.userLocations.Set(userID, *msg.Location)
+	loc := *msg.Location
+	if math.IsNaN(loc.Lat) || math.IsNaN(loc.Lng) || loc.Lat < -90 || loc.Lat > 90 || loc.Lng < -180 || loc.Lng > 180 {
+		return
+	}
+
+	now := time.Now()
+	h.mu.Lock()
+	if last, exists := h.lastLocationUpdate[userID]; exists && now.Sub(last) < time.Second {
+		h.mu.Unlock()
+		return
+	}
+	h.lastLocationUpdate[userID] = now
+	h.mu.Unlock()
+
+	h.userLocations.Set(userID, loc)
 
 	go h.BroadcastToAll(models.ServerMessage{
 		Type: models.ServerMessageTypeLocation,
 		UserLocations: []models.UserLocation{
-			{UserID: userID, Location: *msg.Location},
+			{UserID: userID, Location: loc},
 		},
 	}, "")
 }
@@ -781,15 +821,21 @@ func (h *Hub) handleRecordCallback(receiverID string, chatID string, record chat
 				senderName = sender.UserName
 			}
 
-			formatted := record.FormattedContent
-			if formatted == "" {
-				formatted = content.FormatMessage(record.Content)
+			body := strings.TrimSpace(record.Content)
+			if body == "" {
+				if len(record.Attachments) > 0 {
+					body = "Sent an attachment"
+				} else {
+					body = "Sent a message"
+				}
 			}
 
-			payload := map[string]string{
-				"title": senderName,
-				"body":  content.Sanitize(formatted),
-				"url":   fmt.Sprintf("/?chat=%s", chatID),
+			payload := map[string]any{
+				"title":  senderName,
+				"body":   body,
+				"url":    fmt.Sprintf("/?chat=%s", chatID),
+				"chatID": chatID,
+				"seq":    record.Seq,
 			}
 
 			payloadBytes, _ := json.Marshal(payload)
@@ -879,7 +925,6 @@ func (h *Hub) UpdateLastSeen(userID string, chatID string, seq int64, skipCh cha
 	}
 
 	h.mu.Lock()
-	defer h.mu.Unlock()
 
 	c, ok := h.chats[chatID]
 	if ok && seq > int64(c.LastSeq) {
@@ -899,10 +944,15 @@ func (h *Hub) UpdateLastSeen(userID string, chatID string, seq int64, skipCh cha
 		})
 		h.changedSeqMux.Unlock()
 
-		go h.sendToUserExcept(userID, models.ServerMessage{
+		h.mu.Unlock()
+
+		h.sendToUserExcept(userID, models.ServerMessage{
 			Type:   models.ServerMessageTypeRead,
 			ChatID: chatID,
 			Seq:    seq,
 		}, skipCh)
+		return
 	}
+
+	h.mu.Unlock()
 }

@@ -92,6 +92,16 @@ func (s *BboltStorage) ListFileMetadata() ([]FileMetadata, error) {
 	return metas, err
 }
 
+// SaveFileBlobBytes saves a file blob directly from byte slice, encrypting it at rest without duplicate buffering.
+func (s *BboltStorage) SaveFileBlobBytes(data []byte, hash string) error {
+	encrypted, err := s.crypter.Encrypt(data)
+	if err != nil {
+		return fmt.Errorf("failed to encrypt file blob: %w", err)
+	}
+
+	return s.fs.Save(bytes.NewReader(encrypted), hash)
+}
+
 // SaveFileBlob saves a file blob, encrypting it at rest.
 func (s *BboltStorage) SaveFileBlob(r io.Reader, hash string) error {
 	data, err := io.ReadAll(r)
@@ -99,12 +109,7 @@ func (s *BboltStorage) SaveFileBlob(r io.Reader, hash string) error {
 		return fmt.Errorf("failed to read file blob: %w", err)
 	}
 
-	data, err = s.crypter.Encrypt(data)
-	if err != nil {
-		return fmt.Errorf("failed to encrypt file blob: %w", err)
-	}
-
-	return s.fs.Save(bytes.NewReader(data), hash)
+	return s.SaveFileBlobBytes(data, hash)
 }
 
 type readSeekCloser struct {

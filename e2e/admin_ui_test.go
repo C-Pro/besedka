@@ -151,6 +151,7 @@ func TestAdminUI(t *testing.T) {
 	form.Add("username", "testuser")
 	req, _ = oshttp.NewRequest("POST", ts.URL+"/admin/users", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Referer", ts.URL+"/")
 	req.SetBasicAuth("admin", "password")
 
 	resp, err = client.Do(req)
@@ -172,6 +173,7 @@ func TestAdminUI(t *testing.T) {
 	form.Add("id", users[0].ID)
 	req, _ = oshttp.NewRequest("POST", ts.URL+"/admin/users/delete", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Referer", ts.URL+"/")
 	req.SetBasicAuth("admin", "password")
 
 	// Go client follows redirects

@@ -1,7 +1,6 @@
 package images
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -36,7 +35,7 @@ func AttachThumbnail(store *storage.BboltStorage, meta *storage.FileMetadata, da
 	hasher.Write(thumb)
 	thumbHash := hex.EncodeToString(hasher.Sum(nil))
 
-	if err := store.SaveFileBlob(bytes.NewReader(thumb), thumbHash); err != nil {
+	if err := store.SaveFileBlobBytes(thumb, thumbHash); err != nil {
 		return false, fmt.Errorf("failed to save thumbnail blob: %w", err)
 	}
 

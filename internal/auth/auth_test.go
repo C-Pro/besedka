@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -443,6 +444,15 @@ func TestAuthService(t *testing.T) {
 				},
 				wantMsg: loginFailedMessage,
 			},
+			{
+				name: "Empty Password",
+				req: LoginRequest{
+					Username: "user1",
+					Password: "",
+					TOTP:     validCodes[0],
+				},
+				wantMsg: loginFailedMessage,
+			},
 		}
 
 		for _, tt := range tests {
@@ -748,11 +758,32 @@ func TestAuthService(t *testing.T) {
 			t.Fatalf("Failed to generate TOTP: %v", err)
 		}
 
+		// Test password length validation (< 8 and > 128)
+		shortResp, _ := svc.CompleteRegistration(RegistrationRequest{
+			Token:       token,
+			DisplayName: "User One",
+			Password:    "short",
+			TOTP:        code,
+		})
+		if shortResp.Success {
+			t.Error("Expected registration failure for password shorter than 8 chars")
+		}
+
+		longResp, _ := svc.CompleteRegistration(RegistrationRequest{
+			Token:       token,
+			DisplayName: "User One",
+			Password:    strings.Repeat("a", 129),
+			TOTP:        code,
+		})
+		if longResp.Success {
+			t.Error("Expected registration failure for password longer than 128 chars")
+		}
+
 		// Register (CompleteSetup)
 		regResp, sessionToken := svc.CompleteRegistration(RegistrationRequest{
 			Token:       token,
 			DisplayName: "User One",
-			Password:    "pass2",
+			Password:    "password2",
 			TOTP:        code,
 		})
 
@@ -766,7 +797,7 @@ func TestAuthService(t *testing.T) {
 		// Login with NEW password and TOTP
 		loginResp, _ := svc.Login(LoginRequest{
 			Username: "user1",
-			Password: "pass2",
+			Password: "password2",
 			TOTP:     code,
 		})
 
@@ -836,7 +867,7 @@ func TestAuthService(t *testing.T) {
 		regResp, _ := svc.CompleteRegistration(RegistrationRequest{
 			Token:       token,
 			DisplayName: "Persist User",
-			Password:    "newpass",
+			Password:    "newpassword",
 			TOTP:        code,
 		})
 		if !regResp.Success {
@@ -1455,3 +1486,133 @@ func TestUserSettingsService(t *testing.T) {
 		t.Errorf("expected ErrNotFound updating unknown user, got %v", err)
 	}
 }
+
+func TestLogin_ConcurrentRace(t *testing.T) {
+	cfg := Config{
+		Secret:                  base64.StdEncoding.EncodeToString([]byte("test-secret")),
+		TokenExpiry:             1 * time.Hour,
+		RegistrationTokenExpiry: 1 * time.Hour,
+	}
+	store := &MockStorage{
+		creds:     make(map[string]UserCredentials),
+		tokens:    make(map[string]string),
+		regTokens: make(map[string]string),
+	}
+	svc, err := NewAuthService(context.Background(), cfg, store)
+	if err != nil {
+		t.Fatalf("NewAuthService failed: %v", err)
+	}
+
+	regToken, err := svc.AddUser("racetester", "Race Tester")
+	if err != nil {
+		t.Fatalf("AddUser failed: %v", err)
+	}
+
+	info, err := svc.GetRegistrationInfo(regToken)
+	if err != nil {
+		t.Fatalf("GetRegistrationInfo failed: %v", err)
+	}
+
+	now := time.Now()
+	code, err := GenerateTOTP(info.TOTPSecret, now)
+	if err != nil {
+		t.Fatalf("GenerateTOTP failed: %v", err)
+	}
+
+	resp, _ := svc.CompleteRegistration(RegistrationRequest{
+		Token:    regToken,
+		Password: "password12345",
+		TOTP:     code,
+	})
+	if !resp.Success {
+		t.Fatalf("CompleteRegistration failed: %s", resp.Message)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			pwd := "wrongpass"
+			if idx%2 == 0 {
+				pwd = "password12345"
+			}
+			svc.Login(LoginRequest{
+				Username: "racetester",
+				Password: pwd,
+				TOTP:     code,
+			})
+		}(i)
+	}
+	wg.Wait()
+}
+
+func TestGetUserID_InactiveUser(t *testing.T) {
+	cfg := Config{
+		Secret:                  base64.StdEncoding.EncodeToString([]byte("test-secret")),
+		TokenExpiry:             1 * time.Hour,
+		RegistrationTokenExpiry: 1 * time.Hour,
+	}
+	store := &MockStorage{
+		creds:     make(map[string]UserCredentials),
+		tokens:    make(map[string]string),
+		regTokens: make(map[string]string),
+	}
+	svc, err := NewAuthService(context.Background(), cfg, store)
+	if err != nil {
+		t.Fatalf("NewAuthService failed: %v", err)
+	}
+
+	token, err := svc.AddUser("pendinguser", "Pending User")
+	if err != nil {
+		t.Fatalf("AddUser failed: %v", err)
+	}
+	info, err := svc.GetRegistrationInfo(token)
+	if err != nil {
+		t.Fatalf("GetRegistrationInfo failed: %v", err)
+	}
+	code, err := GenerateTOTP(info.TOTPSecret, time.Now())
+	if err != nil {
+		t.Fatalf("GenerateTOTP failed: %v", err)
+	}
+
+	resp, _ := svc.CompleteRegistration(RegistrationRequest{
+		Token:    token,
+		Password: "password12345",
+		TOTP:     code,
+	})
+	if !resp.Success {
+		t.Fatalf("CompleteRegistration failed: %s", resp.Message)
+	}
+
+	loginResp, _ := svc.Login(LoginRequest{
+		Username: "pendinguser",
+		Password: "password12345",
+		TOTP:     code,
+	})
+	if !loginResp.Success {
+		t.Fatalf("Login failed: %s", loginResp.Message)
+	}
+
+	uid, _, err := svc.GetUserID(loginResp.Token)
+	if err != nil {
+		t.Fatalf("GetUserID failed for active user: %v", err)
+	}
+	if uid == "" {
+		t.Fatal("expected non-empty uid")
+	}
+
+	// Change user status to deleted directly in user map to test GetUserID status check
+	tx := svc.users.Lock()
+	u, _ := tx.Get(uid)
+	u.Status = models.UserStatusDeleted
+	tx.Set(uid, u)
+	tx.Unlock()
+
+	_, _, err = svc.GetUserID(loginResp.Token)
+	if !errors.Is(err, ErrUserInactive) {
+		t.Fatalf("expected ErrUserInactive, got: %v", err)
+	}
+}
+
+
