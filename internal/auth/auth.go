@@ -736,6 +736,13 @@ func (as *AuthService) Login(req LoginRequest) (LoginResponse, string) {
 		}
 	}
 
+	if req.Password == "" {
+		return LoginResponse{
+			Success: false,
+			Message: loginFailedMessage,
+		}, ""
+	}
+
 	// Use constant-time comparison for password hashes
 	currentHash := as.hashPassword(req.Username, req.Password)
 	if !hmac.Equal([]byte(user.PasswordHash), []byte(currentHash)) {
@@ -937,6 +944,13 @@ func (as *AuthService) CompleteRegistration(req RegistrationRequest) (Registrati
 		return RegistrationResponse{
 			Success: false,
 			Message: "User already registered",
+		}, ""
+	}
+
+	if len(req.Password) < 8 || len(req.Password) > 128 {
+		return RegistrationResponse{
+			Success: false,
+			Message: "Password must be between 8 and 128 characters long",
 		}, ""
 	}
 

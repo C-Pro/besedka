@@ -444,6 +444,15 @@ func TestAuthService(t *testing.T) {
 				},
 				wantMsg: loginFailedMessage,
 			},
+			{
+				name: "Empty Password",
+				req: LoginRequest{
+					Username: "user1",
+					Password: "",
+					TOTP:     validCodes[0],
+				},
+				wantMsg: loginFailedMessage,
+			},
 		}
 
 		for _, tt := range tests {
@@ -749,11 +758,32 @@ func TestAuthService(t *testing.T) {
 			t.Fatalf("Failed to generate TOTP: %v", err)
 		}
 
+		// Test password length validation (< 8 and > 128)
+		shortResp, _ := svc.CompleteRegistration(RegistrationRequest{
+			Token:       token,
+			DisplayName: "User One",
+			Password:    "short",
+			TOTP:        code,
+		})
+		if shortResp.Success {
+			t.Error("Expected registration failure for password shorter than 8 chars")
+		}
+
+		longResp, _ := svc.CompleteRegistration(RegistrationRequest{
+			Token:       token,
+			DisplayName: "User One",
+			Password:    strings.Repeat("a", 129),
+			TOTP:        code,
+		})
+		if longResp.Success {
+			t.Error("Expected registration failure for password longer than 128 chars")
+		}
+
 		// Register (CompleteSetup)
 		regResp, sessionToken := svc.CompleteRegistration(RegistrationRequest{
 			Token:       token,
 			DisplayName: "User One",
-			Password:    "pass2",
+			Password:    "password2",
 			TOTP:        code,
 		})
 
@@ -767,7 +797,7 @@ func TestAuthService(t *testing.T) {
 		// Login with NEW password and TOTP
 		loginResp, _ := svc.Login(LoginRequest{
 			Username: "user1",
-			Password: "pass2",
+			Password: "password2",
 			TOTP:     code,
 		})
 
@@ -837,7 +867,7 @@ func TestAuthService(t *testing.T) {
 		regResp, _ := svc.CompleteRegistration(RegistrationRequest{
 			Token:       token,
 			DisplayName: "Persist User",
-			Password:    "newpass",
+			Password:    "newpassword",
 			TOTP:        code,
 		})
 		if !regResp.Success {
