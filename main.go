@@ -82,6 +82,16 @@ func run(ctx context.Context, cli cliOptions) error {
 		return fmt.Errorf("invalid BaseURL: %w", err)
 	}
 
+	host := baseURL.Hostname()
+	if host != "localhost" && host != "127.0.0.1" && host != "::1" {
+		if cfg.AdminPassword == "1337chat" || cfg.AdminPassword == "admin" || cfg.AdminPassword == "password" {
+			slog.Warn("using default admin credentials in non-localhost configuration")
+		}
+		if cfg.AuthSecret == "very-secure-secret-key-for-development-mode" {
+			slog.Warn("using development AUTH_SECRET in non-localhost configuration")
+		}
+	}
+
 	authConfig := auth.Config{
 		Secret:        base64.StdEncoding.EncodeToString([]byte(cfg.AuthSecret)),
 		TokenExpiry:   cfg.TokenExpiry,

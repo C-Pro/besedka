@@ -279,3 +279,26 @@ func TestWebSocket_QueryTokenRejected(t *testing.T) {
 		t.Errorf("expected 401 Unauthorized for query param token, got %d", resp.StatusCode)
 	}
 }
+
+func TestSecurityHeaders(t *testing.T) {
+	tsURL, _, _, _, cleanup := setupTestAPIServer(t)
+	defer cleanup()
+
+	client := &http.Client{}
+	resp, err := client.Get(tsURL + "/api/register-info")
+	if err != nil {
+		t.Fatalf("GET /api/register-info failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if got := resp.Header.Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("expected X-Content-Type-Options: nosniff, got %q", got)
+	}
+	if got := resp.Header.Get("X-Frame-Options"); got != "SAMEORIGIN" {
+		t.Errorf("expected X-Frame-Options: SAMEORIGIN, got %q", got)
+	}
+	if got := resp.Header.Get("Referrer-Policy"); got != "strict-origin-when-cross-origin" {
+		t.Errorf("expected Referrer-Policy: strict-origin-when-cross-origin, got %q", got)
+	}
+}
+

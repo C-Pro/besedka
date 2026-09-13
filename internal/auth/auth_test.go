@@ -1547,3 +1547,72 @@ func TestLogin_ConcurrentRace(t *testing.T) {
 	wg.Wait()
 }
 
+func TestGetUserID_InactiveUser(t *testing.T) {
+	cfg := Config{
+		Secret:                  base64.StdEncoding.EncodeToString([]byte("test-secret")),
+		TokenExpiry:             1 * time.Hour,
+		RegistrationTokenExpiry: 1 * time.Hour,
+	}
+	store := &MockStorage{
+		creds:     make(map[string]UserCredentials),
+		tokens:    make(map[string]string),
+		regTokens: make(map[string]string),
+	}
+	svc, err := NewAuthService(context.Background(), cfg, store)
+	if err != nil {
+		t.Fatalf("NewAuthService failed: %v", err)
+	}
+
+	token, err := svc.AddUser("pendinguser", "Pending User")
+	if err != nil {
+		t.Fatalf("AddUser failed: %v", err)
+	}
+	info, err := svc.GetRegistrationInfo(token)
+	if err != nil {
+		t.Fatalf("GetRegistrationInfo failed: %v", err)
+	}
+	code, err := GenerateTOTP(info.TOTPSecret, time.Now())
+	if err != nil {
+		t.Fatalf("GenerateTOTP failed: %v", err)
+	}
+
+	resp, _ := svc.CompleteRegistration(RegistrationRequest{
+		Token:    token,
+		Password: "password12345",
+		TOTP:     code,
+	})
+	if !resp.Success {
+		t.Fatalf("CompleteRegistration failed: %s", resp.Message)
+	}
+
+	loginResp, _ := svc.Login(LoginRequest{
+		Username: "pendinguser",
+		Password: "password12345",
+		TOTP:     code,
+	})
+	if !loginResp.Success {
+		t.Fatalf("Login failed: %s", loginResp.Message)
+	}
+
+	uid, _, err := svc.GetUserID(loginResp.Token)
+	if err != nil {
+		t.Fatalf("GetUserID failed for active user: %v", err)
+	}
+	if uid == "" {
+		t.Fatal("expected non-empty uid")
+	}
+
+	// Change user status to deleted directly in user map to test GetUserID status check
+	tx := svc.users.Lock()
+	u, _ := tx.Get(uid)
+	u.Status = models.UserStatusDeleted
+	tx.Set(uid, u)
+	tx.Unlock()
+
+	_, _, err = svc.GetUserID(loginResp.Token)
+	if !errors.Is(err, ErrUserInactive) {
+		t.Fatalf("expected ErrUserInactive, got: %v", err)
+	}
+}
+
+

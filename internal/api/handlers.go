@@ -1046,9 +1046,16 @@ func (a *API) handleSongJSON(w http.ResponseWriter, r *http.Request) (string, st
 			http.Error(w, "URL too long", http.StatusBadRequest)
 			return "", "", "", errors.New("URL too long")
 		}
-		if _, err := url.Parse(req.SongURL); err != nil {
+		u, err := url.Parse(req.SongURL)
+		if err != nil {
 			http.Error(w, "Invalid URL", http.StatusBadRequest)
 			return "", "", "", err
+		}
+		isHTTP := (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
+		isLocalFile := u.Scheme == "" && strings.HasPrefix(req.SongURL, "/api/files/")
+		if !isHTTP && !isLocalFile {
+			http.Error(w, "Invalid URL scheme", http.StatusBadRequest)
+			return "", "", "", errors.New("invalid URL scheme")
 		}
 	}
 
@@ -1188,6 +1195,8 @@ func (a *API) GetFileHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
 	if !strings.HasPrefix(mimeType, "audio/") && !strings.HasPrefix(mimeType, "video/") {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+	} else {
+		w.Header().Del("X-Content-Type-Options")
 	}
 
 	nameWithExt := name

@@ -35,6 +35,7 @@ var (
 	ErrUserNotFound     = errors.New("user not found")
 	ErrEmptyDisplayName = errors.New("display name cannot be empty")
 	ErrBioTooLong       = errors.New("bio too long (max 128 characters)")
+	ErrUserInactive     = errors.New("user is inactive")
 )
 
 type storage interface {
@@ -1072,6 +1073,10 @@ func (as *AuthService) GetUserID(token string) (string, time.Time, error) {
 	user, err := tx.Get(session.UserID)
 	if err != nil {
 		return "", time.Time{}, err
+	}
+
+	if user.Status != models.UserStatusActive {
+		return "", time.Time{}, ErrUserInactive
 	}
 
 	now := as.now()
