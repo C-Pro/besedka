@@ -64,6 +64,8 @@ func (m *mockWS) SetReadDeadline(t time.Time) error {
 	return nil
 }
 
+func (m *mockWS) SetReadLimit(limit int64) {}
+
 type mockHub struct {
 	joinCh     chan string
 	leaveCh    chan string

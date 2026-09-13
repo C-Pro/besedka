@@ -18,6 +18,7 @@ type wsConnection interface {
 	WriteJSON(v any) error
 	ReadJSON(v any) error
 	SetReadDeadline(t time.Time) error
+	SetReadLimit(limit int64)
 }
 
 type messageHub interface {
@@ -86,6 +87,7 @@ func (c *Connection) Handle(parentCtx context.Context) error {
 }
 
 func (c *Connection) pumpMessages(ctx context.Context) error {
+	c.ws.SetReadLimit(64 * 1024)
 	if err := c.ws.SetReadDeadline(time.Now().Add(readDeadline)); err != nil {
 		return err
 	}

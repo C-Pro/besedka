@@ -992,3 +992,116 @@ Loop1:
 	}
 }
 
+func TestHub_Dispatch_ValidationAndPermissions(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	readOnlyBot := models.User{
+		ID:             "bot-ro",
+		DisplayName:    "RO Bot",
+		Type:           models.UserTypeBot,
+		BotPermissions: models.BotPermissions{Write: false},
+	}
+	writableBot := models.User{
+		ID:             "bot-rw",
+		DisplayName:    "RW Bot",
+		Type:           models.UserTypeBot,
+		BotPermissions: models.BotPermissions{Write: true},
+	}
+	webhookUser := models.User{
+		ID:           "wh-user",
+		DisplayName:  "Webhook",
+		Type:         models.UserTypeWebhook,
+		TargetChatID: "townhall",
+	}
+	normalUser := models.User{
+		ID:          "normal-user",
+		DisplayName: "Normal",
+		Type:        models.UserTypeHuman,
+	}
+
+	storage := NewMockStorage()
+	userProvider := &MockUserProvider{
+		users: []models.User{readOnlyBot, writableBot, webhookUser, normalUser},
+	}
+	h := NewHub(ctx, userProvider, storage, nil)
+
+	normalCh := h.Join(normalUser.ID)
+
+	// 1. Empty and whitespace messages should be rejected
+	h.Dispatch(normalUser.ID, models.ClientMessage{
+		Type:    models.ClientMessageTypeSend,
+		ChatID:  "townhall",
+		Content: "",
+	}, normalCh)
+	h.Dispatch(normalUser.ID, models.ClientMessage{
+		Type:    models.ClientMessageTypeSend,
+		ChatID:  "townhall",
+		Content: "   \t\n  ",
+	}, normalCh)
+
+	if len(storage.messages["townhall"]) != 0 {
+		t.Fatalf("expected 0 messages stored for empty/whitespace sends, got %d", len(storage.messages["townhall"]))
+	}
+
+	// 2. Huge message (>64KB) should be rejected
+	hugeContent := string(make([]byte, 70000))
+	h.Dispatch(normalUser.ID, models.ClientMessage{
+		Type:    models.ClientMessageTypeSend,
+		ChatID:  "townhall",
+		Content: hugeContent,
+	}, normalCh)
+
+	if len(storage.messages["townhall"]) != 0 {
+		t.Fatalf("expected 0 messages stored for huge send, got %d", len(storage.messages["townhall"]))
+	}
+
+	// 3. Read-only bot in townhall rejected
+	h.Dispatch(readOnlyBot.ID, models.ClientMessage{
+		Type:    models.ClientMessageTypeSend,
+		ChatID:  "townhall",
+		Content: "hello from ro bot",
+	}, nil)
+
+	if len(storage.messages["townhall"]) != 0 {
+		t.Fatalf("expected 0 messages stored for read-only bot, got %d", len(storage.messages["townhall"]))
+	}
+
+	// 4. Webhook targeting townhall sending to other chat should be rejected
+	h.Dispatch(webhookUser.ID, models.ClientMessage{
+		Type:    models.ClientMessageTypeSend,
+		ChatID:  "dm-fake",
+		Content: "hello from webhook",
+	}, nil)
+
+	if len(storage.messages["dm-fake"]) != 0 {
+		t.Fatalf("expected 0 messages stored for webhook targeting wrong chat, got %d", len(storage.messages["dm-fake"]))
+	}
+
+	// 5. Bot with Write permission allowed in townhall
+	h.Dispatch(writableBot.ID, models.ClientMessage{
+		Type:    models.ClientMessageTypeSend,
+		ChatID:  "townhall",
+		Content: "hello from rw bot",
+	}, nil)
+
+	if len(storage.messages["townhall"]) != 1 {
+		t.Fatalf("expected 1 message stored for writable bot, got %d", len(storage.messages["townhall"]))
+	}
+
+	// 6. Message with attachments and empty text content allowed
+	h.Dispatch(normalUser.ID, models.ClientMessage{
+		Type:    models.ClientMessageTypeSend,
+		ChatID:  "townhall",
+		Content: "",
+		Attachments: []models.Attachment{
+			{FileID: "file1", Name: "image.png", MimeType: "image/png"},
+		},
+	}, normalCh)
+
+	if len(storage.messages["townhall"]) != 2 {
+		t.Fatalf("expected 2 messages stored after attachment send, got %d", len(storage.messages["townhall"]))
+	}
+}
+
+

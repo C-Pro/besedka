@@ -132,8 +132,10 @@ func (h *Hub) pushWorker(ctx context.Context) {
 			if !ok {
 				return
 			}
-			if err := h.pushService.SendNotification(task.userID, task.payload); err != nil {
-				slog.Error("failed to send push notification", "userID", task.userID, "error", err)
+			if h.pushService != nil {
+				if err := h.pushService.SendNotification(task.userID, task.payload); err != nil {
+					slog.Error("failed to send push notification", "userID", task.userID, "error", err)
+				}
 			}
 		}
 	}
@@ -489,8 +491,26 @@ func (h *Hub) Dispatch(userID string, msg models.ClientMessage, senderCh chan mo
 		return
 	}
 
+	if h.userProvider != nil {
+		u, err := h.userProvider.GetUser(userID)
+		if err == nil {
+			if u.Type == models.UserTypeBot && c.ID == "townhall" && !u.BotPermissions.Write {
+				return
+			}
+			if u.Type == models.UserTypeWebhook && c.ID != u.TargetChatID {
+				return
+			}
+		}
+	}
+
 	switch msg.Type {
 	case models.ClientMessageTypeSend:
+		if strings.TrimSpace(msg.Content) == "" && len(msg.Attachments) == 0 {
+			return
+		}
+		if len(msg.Content) > 65536 {
+			return
+		}
 		for i := range msg.Attachments {
 			if len(msg.Attachments[i].Name) > 255 {
 				msg.Attachments[i].Name = msg.Attachments[i].Name[:255]

@@ -452,7 +452,7 @@ func (a *API) SendMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Content == "" {
+	if strings.TrimSpace(req.Content) == "" {
 		http.Error(w, "Message content cannot be empty", http.StatusBadRequest)
 		return
 	}
@@ -1175,7 +1175,9 @@ func (a *API) GetFileHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", mimeType)
 	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if !strings.HasPrefix(mimeType, "audio/") && !strings.HasPrefix(mimeType, "video/") {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+	}
 
 	nameWithExt := name
 	if filepath.Ext(nameWithExt) == "" {
