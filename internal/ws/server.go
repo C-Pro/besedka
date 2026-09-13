@@ -48,9 +48,6 @@ func (s *Server) HandleConnections(w http.ResponseWriter, r *http.Request) {
 				token = c.Value
 			}
 		}
-		if token == "" {
-			token = r.URL.Query().Get("token")
-		}
 
 		if strings.HasPrefix(token, "bsk_") {
 			if u, err := s.auth.GetUserByAPIKey(token); err == nil {

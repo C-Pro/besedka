@@ -275,6 +275,7 @@ func (a *API) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) RegisterInfoHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store, private")
 	token := r.URL.Query().Get("token")
 	if token == "" {
 		http.Error(w, "Token required", http.StatusBadRequest)

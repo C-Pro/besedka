@@ -246,3 +246,36 @@ func TestHumanPermissionsOnActualRoutes(t *testing.T) {
 		t.Errorf("expected 200 OK for human posting message, got %d", respPost.StatusCode)
 	}
 }
+
+func TestWebSocket_QueryTokenRejected(t *testing.T) {
+	tsURL, as, _, _, cleanup := setupTestAPIServer(t)
+	defer cleanup()
+
+	_, err := as.AddUser("ws_user", "WS User")
+	if err != nil {
+		t.Fatalf("AddUser failed: %v", err)
+	}
+	user, err := as.GetUserByUsername("ws_user")
+	if err != nil {
+		t.Fatalf("GetUserByUsername failed: %v", err)
+	}
+	if err := as.ActivateUser(user.ID); err != nil {
+		t.Fatalf("ActivateUser failed: %v", err)
+	}
+	key, err := as.ResetAPIKey(user.ID)
+	if err != nil {
+		t.Fatalf("ResetAPIKey failed: %v", err)
+	}
+
+	client := &http.Client{}
+	req, _ := http.NewRequest(http.MethodGet, tsURL+"/api/chat?token="+key, nil)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("GET /api/chat?token=... failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("expected 401 Unauthorized for query param token, got %d", resp.StatusCode)
+	}
+}

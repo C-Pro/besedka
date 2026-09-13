@@ -113,6 +113,7 @@ func TestIntegration(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, "no-store, private", resp.Header.Get("Cache-Control"))
 
 	var regInfo auth.RegistrationInfoResponse
 	err = json.NewDecoder(resp.Body).Decode(&regInfo)
