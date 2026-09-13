@@ -166,6 +166,7 @@ func TestFileServerHeaders(t *testing.T) {
 	writeTestFile("sw.js", []byte("sw content"))
 	writeTestFile("js/app.js", []byte("console.log('hello');"))
 	writeTestFile("besedka.png", []byte("image bytes"))
+	writeTestFile("admin.html", []byte("admin page content"))
 
 	handler := NewFileServerHandler(authService, os.DirFS(tmpDir))
 
@@ -214,6 +215,11 @@ func TestFileServerHeaders(t *testing.T) {
 			expectedStatus: http.StatusOK,
 			expectedCache:  "no-store, no-cache, must-revalidate, max-age=0",
 		},
+		{
+			name:           "Admin HTML blocked with 404",
+			path:           "/admin.html",
+			expectedStatus: http.StatusNotFound,
+		},
 	}
 
 	for _, tc := range tests {
@@ -243,4 +249,69 @@ func TestFileServerHeaders(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFileServer_CookieSecureAttribute(t *testing.T) {
+	tmpDir := t.TempDir()
+	fs := os.DirFS(tmpDir)
+
+	runCase := func(t *testing.T, origin string, expectSecure bool) {
+		cfg := auth.Config{
+			Secret:        base64.StdEncoding.EncodeToString([]byte("server-secret")),
+			TokenExpiry:   100 * time.Millisecond,
+			RPDisplayName: "Besedka Test",
+			RPID:          "localhost",
+			RPOrigin:      origin,
+		}
+		store := &mockStorage{
+			creds:     make(map[string]auth.UserCredentials),
+			tokens:    make(map[string]string),
+			regTokens: make(map[string]string),
+		}
+		store.creds["uid"] = auth.UserCredentials{
+			User: models.User{
+				ID:       "uid",
+				UserName: "user",
+				Status:   models.UserStatusActive,
+			},
+		}
+		store.tokens[hashToken("tok123")] = "uid"
+		svc, err := auth.NewAuthService(context.Background(), cfg, store)
+		if err != nil {
+			t.Fatalf("failed to create auth service: %v", err)
+		}
+		time.Sleep(60 * time.Millisecond)
+
+		handler := NewFileServerHandler(svc, fs)
+		req := httptest.NewRequest("GET", "/", nil)
+		req.AddCookie(&http.Cookie{Name: "token", Value: "tok123"})
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+
+		cookies := rr.Result().Cookies()
+		var tokenCookie *http.Cookie
+		for _, c := range cookies {
+			if c.Name == "token" {
+				tokenCookie = c
+				break
+			}
+		}
+		if tokenCookie == nil {
+			t.Fatal("expected Set-Cookie token")
+		}
+		if tokenCookie.Secure != expectSecure {
+			t.Errorf("for origin %s expected Secure=%v, got %v", origin, expectSecure, tokenCookie.Secure)
+		}
+		if tokenCookie.SameSite != http.SameSiteLaxMode {
+			t.Errorf("expected SameSite=Lax, got %v", tokenCookie.SameSite)
+		}
+	}
+
+	t.Run("HTTP Origin", func(t *testing.T) {
+		runCase(t, "http://localhost:8080", false)
+	})
+
+	t.Run("HTTPS Origin", func(t *testing.T) {
+		runCase(t, "https://chat.example.com", true)
+	})
 }

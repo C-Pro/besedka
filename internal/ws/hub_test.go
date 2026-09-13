@@ -3,6 +3,7 @@ package ws
 import (
 	"besedka/internal/models"
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"testing"
@@ -99,10 +100,25 @@ func (m *MockStorage) ListLastSeen() ([]models.LastSeenEntry, error) {
 	return copied, nil
 }
 
-type MockPushService struct{}
+type MockPushService struct {
+	mu       sync.Mutex
+	payloads map[string][]byte
+}
 
 func (m *MockPushService) SendNotification(userID string, payload []byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.payloads == nil {
+		m.payloads = make(map[string][]byte)
+	}
+	m.payloads[userID] = payload
 	return nil
+}
+
+func (m *MockPushService) GetLastPayload(userID string) []byte {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.payloads[userID]
 }
 
 // drainMessages consumes up to count messages from a channel during test setup.
@@ -991,4 +1007,301 @@ Loop1:
 		}
 	}
 }
+
+func TestHub_Dispatch_ValidationAndPermissions(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	readOnlyBot := models.User{
+		ID:             "bot-ro",
+		DisplayName:    "RO Bot",
+		Type:           models.UserTypeBot,
+		BotPermissions: models.BotPermissions{Write: false},
+	}
+	writableBot := models.User{
+		ID:             "bot-rw",
+		DisplayName:    "RW Bot",
+		Type:           models.UserTypeBot,
+		BotPermissions: models.BotPermissions{Write: true},
+	}
+	webhookUser := models.User{
+		ID:           "wh-user",
+		DisplayName:  "Webhook",
+		Type:         models.UserTypeWebhook,
+		TargetChatID: "townhall",
+	}
+	normalUser := models.User{
+		ID:          "normal-user",
+		DisplayName: "Normal",
+		Type:        models.UserTypeHuman,
+	}
+
+	storage := NewMockStorage()
+	userProvider := &MockUserProvider{
+		users: []models.User{readOnlyBot, writableBot, webhookUser, normalUser},
+	}
+	h := NewHub(ctx, userProvider, storage, nil)
+
+	normalCh := h.Join(normalUser.ID)
+
+	// 1. Empty and whitespace messages should be rejected
+	h.Dispatch(normalUser.ID, models.ClientMessage{
+		Type:    models.ClientMessageTypeSend,
+		ChatID:  "townhall",
+		Content: "",
+	}, normalCh)
+	h.Dispatch(normalUser.ID, models.ClientMessage{
+		Type:    models.ClientMessageTypeSend,
+		ChatID:  "townhall",
+		Content: "   \t\n  ",
+	}, normalCh)
+
+	if len(storage.messages["townhall"]) != 0 {
+		t.Fatalf("expected 0 messages stored for empty/whitespace sends, got %d", len(storage.messages["townhall"]))
+	}
+
+	// 2. Huge message (>64KB) should be rejected
+	hugeContent := string(make([]byte, 70000))
+	h.Dispatch(normalUser.ID, models.ClientMessage{
+		Type:    models.ClientMessageTypeSend,
+		ChatID:  "townhall",
+		Content: hugeContent,
+	}, normalCh)
+
+	if len(storage.messages["townhall"]) != 0 {
+		t.Fatalf("expected 0 messages stored for huge send, got %d", len(storage.messages["townhall"]))
+	}
+
+	// 3. Read-only bot in townhall rejected
+	h.Dispatch(readOnlyBot.ID, models.ClientMessage{
+		Type:    models.ClientMessageTypeSend,
+		ChatID:  "townhall",
+		Content: "hello from ro bot",
+	}, nil)
+
+	if len(storage.messages["townhall"]) != 0 {
+		t.Fatalf("expected 0 messages stored for read-only bot, got %d", len(storage.messages["townhall"]))
+	}
+
+	// 4. Webhook targeting townhall sending to other chat should be rejected
+	h.Dispatch(webhookUser.ID, models.ClientMessage{
+		Type:    models.ClientMessageTypeSend,
+		ChatID:  "dm-fake",
+		Content: "hello from webhook",
+	}, nil)
+
+	if len(storage.messages["dm-fake"]) != 0 {
+		t.Fatalf("expected 0 messages stored for webhook targeting wrong chat, got %d", len(storage.messages["dm-fake"]))
+	}
+
+	// 5. Bot with Write permission allowed in townhall
+	h.Dispatch(writableBot.ID, models.ClientMessage{
+		Type:    models.ClientMessageTypeSend,
+		ChatID:  "townhall",
+		Content: "hello from rw bot",
+	}, nil)
+
+	if len(storage.messages["townhall"]) != 1 {
+		t.Fatalf("expected 1 message stored for writable bot, got %d", len(storage.messages["townhall"]))
+	}
+
+	// 6. Message with attachments and empty text content allowed
+	h.Dispatch(normalUser.ID, models.ClientMessage{
+		Type:    models.ClientMessageTypeSend,
+		ChatID:  "townhall",
+		Content: "",
+		Attachments: []models.Attachment{
+			{FileID: "file1", Name: "image.png", MimeType: "image/png"},
+		},
+	}, normalCh)
+
+	if len(storage.messages["townhall"]) != 2 {
+		t.Fatalf("expected 2 messages stored after attachment send, got %d", len(storage.messages["townhall"]))
+	}
+}
+
+func TestHub_PushNotification_BodyFormatting(t *testing.T) {
+	alice := models.User{ID: "sender1", UserName: "sender", DisplayName: "Alice"}
+	bob := models.User{ID: "receiver1", UserName: "receiver", DisplayName: "Bob"}
+	provider := &MockUserProvider{
+		users: []models.User{alice, bob},
+	}
+	storage := NewMockStorage()
+	pushSvc := &MockPushService{}
+	h := NewHub(context.Background(), provider, storage, pushSvc)
+
+	h.EnsureDMsFor(alice, []models.User{bob})
+	dmID := getDMID(alice.ID, bob.ID)
+
+	senderCh := h.Join(alice.ID)
+	defer h.Leave(alice.ID, senderCh)
+
+	// 1. Text message with markdown formatting
+	h.Dispatch(alice.ID, models.ClientMessage{
+		Type:    models.ClientMessageTypeSend,
+		ChatID:  dmID,
+		Content: "**hello** _world_",
+	}, senderCh)
+
+	time.Sleep(50 * time.Millisecond)
+	payload1 := pushSvc.GetLastPayload("receiver1")
+	if payload1 == nil {
+		t.Fatal("expected push notification payload for receiver1")
+	}
+
+	var data1 map[string]any
+	if err := json.Unmarshal(payload1, &data1); err != nil {
+		t.Fatalf("unmarshal push payload failed: %v", err)
+	}
+	if data1["body"] != "**hello** _world_" {
+		t.Errorf("expected plain content in push body, got %q", data1["body"])
+	}
+	if data1["chatID"] != dmID {
+		t.Errorf("expected chatID %s, got %v", dmID, data1["chatID"])
+	}
+
+	// 2. Attachment-only message with empty content
+	h.Dispatch(alice.ID, models.ClientMessage{
+		Type:    models.ClientMessageTypeSend,
+		ChatID:  dmID,
+		Content: "",
+		Attachments: []models.Attachment{
+			{FileID: "f1", Name: "photo.jpg"},
+		},
+	}, senderCh)
+
+	time.Sleep(50 * time.Millisecond)
+	payload2 := pushSvc.GetLastPayload("receiver1")
+	if payload2 == nil {
+		t.Fatal("expected push notification payload for attachment message")
+	}
+
+	var data2 map[string]any
+	if err := json.Unmarshal(payload2, &data2); err != nil {
+		t.Fatalf("unmarshal push payload failed: %v", err)
+	}
+	if data2["body"] != "Sent an attachment" {
+		t.Errorf("expected 'Sent an attachment' in push body, got %q", data2["body"])
+	}
+}
+
+func TestHub_LocationValidationAndThrottling(t *testing.T) {
+	user := models.User{ID: "loc_u1", DisplayName: "Loc User"}
+	provider := &MockUserProvider{users: []models.User{user}}
+	store := NewMockStorage()
+	h := NewHub(context.Background(), provider, store, &MockPushService{})
+
+	ch := h.Join(user.ID)
+	defer h.Leave(user.ID, ch)
+
+	// 1. Invalid coordinates: Lat > 90
+	badLat := models.Location{Lat: 91.0, Lng: 0.0}
+	h.Dispatch(user.ID, models.ClientMessage{
+		Type:     models.ClientMessageTypeLocation,
+		Location: &badLat,
+	}, nil)
+
+	select {
+	case msg := <-ch:
+		if msg.Type == models.ServerMessageTypeLocation {
+			t.Fatalf("expected invalid latitude to be rejected, but received location message")
+		}
+	case <-time.After(50 * time.Millisecond):
+		// Expected: nothing received
+	}
+
+	// 2. Invalid coordinates: Lng < -180
+	badLng := models.Location{Lat: 0.0, Lng: -181.0}
+	h.Dispatch(user.ID, models.ClientMessage{
+		Type:     models.ClientMessageTypeLocation,
+		Location: &badLng,
+	}, nil)
+
+	select {
+	case msg := <-ch:
+		if msg.Type == models.ServerMessageTypeLocation {
+			t.Fatalf("expected invalid longitude to be rejected, but received location message")
+		}
+	case <-time.After(50 * time.Millisecond):
+		// Expected
+	}
+
+	// 3. Valid coordinates: accepted
+	goodLoc := models.Location{Lat: 51.5074, Lng: -0.1278}
+	h.Dispatch(user.ID, models.ClientMessage{
+		Type:     models.ClientMessageTypeLocation,
+		Location: &goodLoc,
+	}, nil)
+
+	select {
+	case msg := <-ch:
+		if msg.Type != models.ServerMessageTypeLocation {
+			t.Fatalf("expected location message, got %v", msg.Type)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timeout waiting for valid location broadcast")
+	}
+
+	// 4. Rate-limiting: immediate subsequent update within 1s should be throttled
+	fastLoc := models.Location{Lat: 52.0, Lng: 0.0}
+	h.Dispatch(user.ID, models.ClientMessage{
+		Type:     models.ClientMessageTypeLocation,
+		Location: &fastLoc,
+	}, nil)
+
+	select {
+	case msg := <-ch:
+		if msg.Type == models.ServerMessageTypeLocation {
+			t.Fatalf("expected rapid location update to be throttled, got %v", msg)
+		}
+	case <-time.After(50 * time.Millisecond):
+		// Expected: throttled
+	}
+}
+
+func TestHub_UpdateLastSeen_MultiDeviceDelivery(t *testing.T) {
+	user := models.User{ID: "seen_u1", DisplayName: "Seen User"}
+	provider := &MockUserProvider{users: []models.User{user}}
+	store := NewMockStorage()
+	_ = store.UpsertChat(models.Chat{
+		ID:      "townhall",
+		Name:    "Town Hall",
+		LastSeq: 10,
+	})
+	h := NewHub(context.Background(), provider, store, &MockPushService{})
+
+	// User connects on two devices
+	device1 := h.Join(user.ID)
+	device2 := h.Join(user.ID)
+	defer h.Leave(user.ID, device1)
+	defer h.Leave(user.ID, device2)
+
+	h.EnsureDMsFor(user, []models.User{})
+
+	// Device 1 reports read seq 5
+	h.UpdateLastSeen(user.ID, "townhall", 5, device1)
+
+	// Device 2 should receive read receipt
+	select {
+	case msg := <-device2:
+		if msg.Type != models.ServerMessageTypeRead || msg.Seq != 5 {
+			t.Fatalf("expected read receipt for seq 5 on device 2, got %+v", msg)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timeout waiting for read receipt on device 2")
+	}
+
+	// Device 1 should NOT receive read receipt because skipCh was passed
+	select {
+	case msg := <-device1:
+		if msg.Type == models.ServerMessageTypeRead {
+			t.Fatalf("device 1 should have been skipped, but received read message: %+v", msg)
+		}
+	case <-time.After(50 * time.Millisecond):
+		// Expected
+	}
+}
+
+
+
 

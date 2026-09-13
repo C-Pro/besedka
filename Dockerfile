@@ -8,8 +8,13 @@ RUN adduser -D -g '' appuser
 
 RUN apk add --no-cache git
 
-# Copy source code (includes vendor directory)
-COPY . .
+# Copy dependencies and source code explicitly
+COPY go.mod go.sum ./
+COPY vendor/ vendor/
+COPY main.go ./
+COPY cmd/ cmd/
+COPY internal/ internal/
+COPY static/ static/
 
 # Build the application
 # CGO_ENABLED=0 is required for scratch image

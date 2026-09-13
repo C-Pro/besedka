@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -112,6 +113,7 @@ func TestIntegration(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, "no-store, private", resp.Header.Get("Cache-Control"))
 
 	var regInfo auth.RegistrationInfoResponse
 	err = json.NewDecoder(resp.Body).Decode(&regInfo)
@@ -328,10 +330,49 @@ func TestIntegration(t *testing.T) {
 	defer func() { _ = respGetFile.Body.Close() }()
 	require.Equal(t, http.StatusOK, respGetFile.StatusCode)
 
+	require.Equal(t, "nosniff", respGetFile.Header.Get("X-Content-Type-Options"))
 	var downloaded bytes.Buffer
 	_, err = downloaded.ReadFrom(respGetFile.Body)
 	require.NoError(t, err)
 	require.Equal(t, fileContent, downloaded.Bytes())
+
+	// SVG upload to /api/upload/image must be rejected
+	svgPayload := []byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`)
+	reqSVGImg, err := http.NewRequest("POST", fmt.Sprintf("http://localhost%s/api/upload/image", apiAddr), bytes.NewReader(svgPayload))
+	require.NoError(t, err)
+	reqSVGImg.AddCookie(&http.Cookie{Name: "token", Value: sessionToken})
+	reqSVGImg.Header.Set("Origin", fmt.Sprintf("http://localhost%s", apiAddr))
+	respSVGImg, err := client.Do(reqSVGImg)
+	require.NoError(t, err)
+	defer func() { _ = respSVGImg.Body.Close() }()
+	require.Equal(t, http.StatusBadRequest, respSVGImg.StatusCode)
+
+	// SVG upload to /api/upload/file should be served with attachment and sandbox CSP
+	reqSVGFile, err := http.NewRequest("POST", fmt.Sprintf("http://localhost%s/api/upload/file", apiAddr), bytes.NewReader(svgPayload))
+	require.NoError(t, err)
+	reqSVGFile.AddCookie(&http.Cookie{Name: "token", Value: sessionToken})
+	reqSVGFile.Header.Set("Origin", fmt.Sprintf("http://localhost%s", apiAddr))
+	respSVGFile, err := client.Do(reqSVGFile)
+	require.NoError(t, err)
+	defer func() { _ = respSVGFile.Body.Close() }()
+	require.Equal(t, http.StatusOK, respSVGFile.StatusCode)
+	var svgFileResp struct {
+		ID string `json:"id"`
+	}
+	err = json.NewDecoder(respSVGFile.Body).Decode(&svgFileResp)
+	require.NoError(t, err)
+	require.NotEmpty(t, svgFileResp.ID)
+
+	reqGetSVGFile, err := http.NewRequest("GET", fmt.Sprintf("http://localhost%s/api/files/%s", apiAddr, svgFileResp.ID), nil)
+	require.NoError(t, err)
+	reqGetSVGFile.AddCookie(&http.Cookie{Name: "token", Value: sessionToken})
+	respGetSVGFile, err := client.Do(reqGetSVGFile)
+	require.NoError(t, err)
+	defer func() { _ = respGetSVGFile.Body.Close() }()
+	require.Equal(t, http.StatusOK, respGetSVGFile.StatusCode)
+	require.Equal(t, "nosniff", respGetSVGFile.Header.Get("X-Content-Type-Options"))
+	require.Contains(t, respGetSVGFile.Header.Get("Content-Disposition"), "attachment")
+	require.Equal(t, "default-src 'none'; sandbox", respGetSVGFile.Header.Get("Content-Security-Policy"))
 
 	// Step 5: List Users (Verify Login and Avatar)
 	reqUsers, _ := http.NewRequest("GET", fmt.Sprintf("http://localhost%s/api/users", apiAddr), nil)
@@ -351,9 +392,44 @@ func TestIntegration(t *testing.T) {
 	require.Equal(t, avatarResp.AvatarURL, users[0].AvatarURL, "Avatar URL should match the uploaded avatar")
 	testUserID := users[0].ID
 
-	// Step 7: Admin Delete User Revokes Tokens
+	// Step 6: Push Subscribe CSRF protection
+	// Cross-origin rejected
+	reqPushEvil, _ := http.NewRequest("POST", fmt.Sprintf("http://localhost%s/api/push/subscribe", apiAddr), strings.NewReader(`{}`))
+	reqPushEvil.AddCookie(&http.Cookie{Name: "token", Value: sessionToken})
+	reqPushEvil.Header.Set("Origin", "http://evil.com")
+	respPushEvil, err := client.Do(reqPushEvil)
+	require.NoError(t, err)
+	_ = respPushEvil.Body.Close()
+	require.Equal(t, http.StatusForbidden, respPushEvil.StatusCode)
 
-	// Delete user via Admin API
+	// Missing Origin with cookie auth rejected
+	reqPushNoOrigin, _ := http.NewRequest("POST", fmt.Sprintf("http://localhost%s/api/push/subscribe", apiAddr), strings.NewReader(`{}`))
+	reqPushNoOrigin.AddCookie(&http.Cookie{Name: "token", Value: sessionToken})
+	respPushNoOrigin, err := client.Do(reqPushNoOrigin)
+	require.NoError(t, err)
+	_ = respPushNoOrigin.Body.Close()
+	require.Equal(t, http.StatusForbidden, respPushNoOrigin.StatusCode)
+
+	// Same origin accepted (reaches handler body decode, returns 400 for empty json body)
+	reqPushValid, _ := http.NewRequest("POST", fmt.Sprintf("http://localhost%s/api/push/subscribe", apiAddr), strings.NewReader(`{}`))
+	reqPushValid.AddCookie(&http.Cookie{Name: "token", Value: sessionToken})
+	reqPushValid.Header.Set("Origin", fmt.Sprintf("http://localhost%s", apiAddr))
+	respPushValid, err := client.Do(reqPushValid)
+	require.NoError(t, err)
+	_ = respPushValid.Body.Close()
+	require.Equal(t, http.StatusBadRequest, respPushValid.StatusCode)
+
+	// Step 7: Admin Delete User Revokes Tokens
+	// Cross-origin request to admin API should be rejected
+	reqDelEvil, _ := http.NewRequest("DELETE", fmt.Sprintf("http://%s/api/users?id=%s", adminAddr, testUserID), nil)
+	reqDelEvil.SetBasicAuth("admin", "1337chat")
+	reqDelEvil.Header.Set("Origin", "http://evil.com")
+	respDelEvil, err := client.Do(reqDelEvil)
+	require.NoError(t, err)
+	_ = respDelEvil.Body.Close()
+	require.Equal(t, http.StatusForbidden, respDelEvil.StatusCode)
+
+	// Delete user via Admin API (valid CLI request without Origin)
 	reqDel, _ := http.NewRequest("DELETE", fmt.Sprintf("http://%s/api/users?id=%s", adminAddr, testUserID), nil)
 	reqDel.SetBasicAuth("admin", "1337chat")
 	client = &http.Client{}

@@ -151,21 +151,6 @@ func (h *AdminHandler) AddUserHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create DMs for the new user
-	allUsers, err := h.authService.GetUsers()
-	if err == nil {
-		var newUser models.User
-		for _, u := range allUsers {
-			if u.UserName == req.Username {
-				newUser = u
-				break
-			}
-		}
-		if newUser.ID != "" {
-			h.hub.EnsureDMsFor(newUser, allUsers)
-		}
-	}
-
 	base := strings.TrimRight(h.baseURL, "/")
 	resp := AddUserResponse{
 		Success:   true,
@@ -368,7 +353,7 @@ func (h *AdminHandler) SetUserAvatarHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if !filetype.IsImage(data) && !isSVG(data) {
+	if !filetype.IsImage(data) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(models.APIResponse{
@@ -381,8 +366,6 @@ func (h *AdminHandler) SetUserAvatarHandler(w http.ResponseWriter, r *http.Reque
 	mimeType := "application/octet-stream"
 	if kind, err := filetype.Match(data); err == nil && kind != filetype.Unknown {
 		mimeType = audio.NormalizeMimeType(kind.MIME.Value)
-	} else if isSVG(data) {
-		mimeType = "image/svg+xml"
 	}
 
 	hasher := sha256.New()
@@ -399,7 +382,7 @@ func (h *AdminHandler) SetUserAvatarHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if err := h.storage.SaveFileBlob(bytes.NewReader(data), hash); err != nil {
+	if err := h.storage.SaveFileBlobBytes(data, hash); err != nil {
 		slog.Error("failed to save avatar file blob", "error", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -446,6 +429,10 @@ func (h *AdminHandler) SetUserAvatarHandler(w http.ResponseWriter, r *http.Reque
 			Message: "Failed to update user avatar URL",
 		})
 		return
+	}
+
+	if updatedUser, err := h.authService.GetUser(userID); err == nil {
+		go h.hub.BroadcastNewUser(updatedUser)
 	}
 
 	w.Header().Set("Content-Type", "application/json")

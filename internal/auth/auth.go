@@ -35,6 +35,7 @@ var (
 	ErrUserNotFound     = errors.New("user not found")
 	ErrEmptyDisplayName = errors.New("display name cannot be empty")
 	ErrBioTooLong       = errors.New("bio too long (max 128 characters)")
+	ErrUserInactive     = errors.New("user is inactive")
 )
 
 type storage interface {
@@ -697,7 +698,7 @@ func (as *AuthService) GetAllUsers() ([]models.User, error) {
 
 func (as *AuthService) Login(req LoginRequest) (LoginResponse, string) {
 	now := as.now()
-	tx := as.users.RLock()
+	tx := as.users.Lock()
 	defer tx.Unlock()
 
 	id, err := as.usernames.Get(req.Username)
@@ -734,6 +735,13 @@ func (as *AuthService) Login(req LoginRequest) (LoginResponse, string) {
 				Message: fmt.Sprintf("Too many failed login attempts. Next attempt in %d seconds", nextAttempt-now.Unix()),
 			}, ""
 		}
+	}
+
+	if req.Password == "" {
+		return LoginResponse{
+			Success: false,
+			Message: loginFailedMessage,
+		}, ""
 	}
 
 	// Use constant-time comparison for password hashes
@@ -940,6 +948,13 @@ func (as *AuthService) CompleteRegistration(req RegistrationRequest) (Registrati
 		}, ""
 	}
 
+	if len(req.Password) < 8 || len(req.Password) > 128 {
+		return RegistrationResponse{
+			Success: false,
+			Message: "Password must be between 8 and 128 characters long",
+		}, ""
+	}
+
 	if !as.checkTOTP(user.TOTPSecret, req.TOTP, user.LastTOTP) {
 		return RegistrationResponse{
 			Success: false,
@@ -955,7 +970,7 @@ func (as *AuthService) CompleteRegistration(req RegistrationRequest) (Registrati
 	if req.DisplayName != "" {
 		user.DisplayName = req.DisplayName
 	}
-	user.LastTOTP = 0 // Activate user
+	user.LastTOTP = -2 // Activate user (avoid colliding with valid TOTP 000000)
 	user.Status = models.UserStatusActive
 
 	if err := as.storage.UpsertCredentials(*user); err != nil {
@@ -1058,6 +1073,10 @@ func (as *AuthService) GetUserID(token string) (string, time.Time, error) {
 	user, err := tx.Get(session.UserID)
 	if err != nil {
 		return "", time.Time{}, err
+	}
+
+	if user.Status != models.UserStatusActive {
+		return "", time.Time{}, ErrUserInactive
 	}
 
 	now := as.now()

@@ -16,9 +16,11 @@ import (
 // Run a local MinIO and a bucket first, e.g.:
 //
 //	docker run -d --rm -p 9000:9000 -e MINIO_ROOT_USER=minioadmin \
-//	  -e MINIO_ROOT_PASSWORD=minioadmin minio/minio server /data
-//	mc alias set local http://localhost:9000 minioadmin minioadmin
-//	mc mb local/besedka-test
+//	  -e MINIO_ROOT_PASSWORD=minioadmin quay.io/minio/minio:latest server /data
+//	docker run --rm --network host --entrypoint sh quay.io/minio/mc:latest -c "
+//	  mc alias set local http://localhost:9000 minioadmin minioadmin &&
+//	  mc mb local/besedka-test
+//	"
 //
 // Then:
 //

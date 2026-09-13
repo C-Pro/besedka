@@ -252,15 +252,15 @@ Messages support the following safe subset of Markdown formatting:
 | **Blockquotes** | `> quote text` | `<blockquote>quote text</blockquote>` | |
 | **Unordered Lists** | `- item` or `* item` | `<ul><li>item</li></ul>` | |
 | **Ordered Lists** | `1. item` | `<ol><li>item</li></ol>` | |
+| **Tables** | `| col | col |` | `<table><thead>...</thead><tbody>...</tbody></table>` | GitHub Flavored Markdown (GFM) tables with optional column alignment (`:---`, `:---:`, `---:`) |
 | **Line Breaks** | Double newline or trailing spaces | `<p>`, `<br>` | Hard line wraps enabled |
 
 ### 3. Unsupported / Stripped Elements
 - **Markdown Images** (`![alt](url)`): Image tags in Markdown are **not** rendered and will be stripped by the sanitizer. Images must be sent as file attachments via `/api/upload/image` or `/api/upload/file`.
-- **Tables**: GFM tables (`| col | col |`) are not supported and are stripped or rendered as plain text.
 - **Embedded HTML**: Any raw HTML markup in messages is stripped.
 
 ### 4. Mentions
-- `@username` mentions are automatically parsed matching `@([a-zA-Z0-9._-]+)` to trigger user mention notifications.
+- `@username` mentions are automatically parsed matching `(?:^|[^\w.-])@([\w.-]+)` (with trailing punctuation trimmed) to trigger user mention notifications without matching email addresses.
 
 ---
 

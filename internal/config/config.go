@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"strconv"
 	"time"
 )
 
@@ -80,6 +81,26 @@ func Load() (*Config, error) {
 		}
 	}
 
+	maxImageSize, err := getEnvInt64("MAX_IMAGE_SIZE", 10<<20)
+	if err != nil {
+		return nil, err
+	}
+
+	maxAvatarSize, err := getEnvInt64("MAX_AVATAR_SIZE", 5<<20)
+	if err != nil {
+		return nil, err
+	}
+
+	maxFileSize, err := getEnvInt64("MAX_FILE_SIZE", 25<<20)
+	if err != nil {
+		return nil, err
+	}
+
+	s3BackupKeep, err := getEnvInt64("S3_BACKUP_KEEP", 7)
+	if err != nil {
+		return nil, err
+	}
+
 	cfg := &Config{
 		DBFile:              getEnv("BESEDKA_DB", "besedka.db"),
 		AdminAddr:           getEnv("ADMIN_ADDR", "localhost:8081"),
@@ -90,9 +111,9 @@ func Load() (*Config, error) {
 		AdminPassword:       getEnv("ADMIN_PASSWORD", "1337chat"),
 		AuthSecret:          os.Getenv("AUTH_SECRET"),
 		TokenExpiry:         tokenExpiry,
-		MaxImageSize:        getEnvInt64("MAX_IMAGE_SIZE", 10<<20),
-		MaxAvatarSize:       getEnvInt64("MAX_AVATAR_SIZE", 5<<20),
-		MaxFileSize:         getEnvInt64("MAX_FILE_SIZE", 25<<20),
+		MaxImageSize:        maxImageSize,
+		MaxAvatarSize:       maxAvatarSize,
+		MaxFileSize:         maxFileSize,
 		TLSCert:             tlsCert,
 		TLSKey:              tlsKey,
 		TLSAutoCertPath:     tlsAutoCertPath,
@@ -100,15 +121,15 @@ func Load() (*Config, error) {
 		HTTPChallengePort:   getEnv("HTTP_CHALLENGE_PORT", "80"),
 		ChatName:            getEnv("CHAT_NAME", "Besedka"),
 
-		S3Endpoint:       os.Getenv("S3_ENDPOINT"),
-		S3Region:         getEnv("S3_REGION", "us-east-1"),
-		S3Bucket:         os.Getenv("S3_BUCKET"),
-		S3AccessKey:      os.Getenv("S3_ACCESS_KEY"),
-		S3SecretKey:      os.Getenv("S3_SECRET_KEY"),
+		S3Endpoint:           os.Getenv("S3_ENDPOINT"),
+		S3Region:             getEnv("S3_REGION", "us-east-1"),
+		S3Bucket:             os.Getenv("S3_BUCKET"),
+		S3AccessKey:          os.Getenv("S3_ACCESS_KEY"),
+		S3SecretKey:          os.Getenv("S3_SECRET_KEY"),
 		S3PathStyle:          getEnv("S3_PATH_STYLE", "true") == "true" || getEnv("S3_PATH_STYLE", "true") == "1",
 		S3BackupInterval:     backupInterval,
 		S3BackupIncrInterval: backupIncrInterval,
-		S3BackupKeep:         getEnvInt64("S3_BACKUP_KEEP", 7),
+		S3BackupKeep:         s3BackupKeep,
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -176,12 +197,14 @@ func getEnv(key, fallback string) string {
 	return fallback
 }
 
-func getEnvInt64(key string, fallback int64) int64 {
-	if value, ok := os.LookupEnv(key); ok {
-		var i int64
-		if _, err := fmt.Sscanf(value, "%d", &i); err == nil && i > 0 {
-			return i
-		}
+func getEnvInt64(key string, fallback int64) (int64, error) {
+	value, ok := os.LookupEnv(key)
+	if !ok || value == "" {
+		return fallback, nil
 	}
-	return fallback
+	i, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || i <= 0 {
+		return 0, fmt.Errorf("invalid %s: %q must be a positive integer", key, value)
+	}
+	return i, nil
 }
