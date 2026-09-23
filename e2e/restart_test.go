@@ -33,6 +33,30 @@ func TestE2ERestartRecovery(t *testing.T) {
 	alicePage, err := aliceContext.NewPage()
 	require.NoError(t, err)
 	registerUser(t, alicePage, aliceSetupLink, "Alice Smith", "password123")
+	_, err = alicePage.WaitForFunction(`async () => {
+		const registration = await navigator.serviceWorker.getRegistration('/');
+		const controller = navigator.serviceWorker.controller;
+		return !!registration && !!controller &&
+			registration.active?.state === 'activated' &&
+			controller === registration.active &&
+			!registration.installing && !registration.waiting;
+	}`, nil, playwright.PageWaitForFunctionOptions{Timeout: playwright.Float(10000)})
+	require.NoError(t, err, "service worker should control Alice's page before restart")
+
+	fetchServiceWorker := func() []byte {
+		t.Helper()
+		response, err := aliceContext.Request().Get(server.BaseURL + "/sw.js")
+		require.NoError(t, err)
+		defer response.Dispose()
+		require.True(t, response.Ok(), "GET /sw.js returned %d", response.Status())
+		body, err := response.Body()
+		require.NoError(t, err)
+		require.Contains(t, string(body), "const CACHE_VERSION = '")
+		require.NotContains(t, string(body), "{{.CacheVersion}}")
+		return body
+	}
+
+	serviceWorkerBeforeRestart := fetchServiceWorker()
 
 	// 3. Register Bob and log off
 	t.Log("Registering Bob...")
@@ -97,6 +121,39 @@ func TestE2ERestartRecovery(t *testing.T) {
 	t.Log("Restarting server...")
 	server.Restart(t)
 	t.Log("Server restarted.")
+	serviceWorkerAfterRestart := fetchServiceWorker()
+	require.Equal(t, serviceWorkerBeforeRestart, serviceWorkerAfterRestart,
+		"restarting the same build must not change the rendered service worker")
+
+	updateResult, err := alicePage.Evaluate(`async () => Promise.race([
+		(async () => {
+			const registration = await navigator.serviceWorker.getRegistration('/');
+			const original = navigator.serviceWorker.controller;
+			if (!registration || !original || registration.active !== original) {
+				throw new Error('page is not controlled by its active worker');
+			}
+
+			await registration.update();
+			return {
+				sameController: navigator.serviceWorker.controller === original,
+				sameActive: registration.active === original,
+				installing: !!registration.installing,
+				waiting: !!registration.waiting,
+				banner: !!document.querySelector('#update-banner')
+			};
+		})(),
+		new Promise((_, reject) => setTimeout(
+			() => reject(new Error('service worker update timed out')), 5000
+		))
+	])`)
+	require.NoError(t, err)
+	workerState := updateResult.(map[string]interface{})
+	require.True(t, workerState["sameController"].(bool))
+	require.True(t, workerState["sameActive"].(bool))
+	require.False(t, workerState["installing"].(bool))
+	require.False(t, workerState["waiting"].(bool))
+	require.False(t, workerState["banner"].(bool),
+		"restarting the same build should not show an update banner")
 
 	// 5. Post-restart Verification
 

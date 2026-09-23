@@ -2,7 +2,9 @@ package assets
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"path"
@@ -42,8 +44,41 @@ var compileTime = func() time.Time {
 // Go template owned by the admin server (see internal/http/adminServer.go) and is served
 // raw here.
 func Load(chatName string, originalFS fs.FS) (fs.FS, error) {
-	cacheVersion := compileTime.UTC().Format("20060102150405")
+	cacheVersion, err := contentVersion(chatName, originalFS)
+	if err != nil {
+		return nil, fmt.Errorf("calculate asset cache version: %w", err)
+	}
 	return &overlayFS{original: originalFS, chatName: chatName, cacheVersion: cacheVersion}, nil
+}
+
+func contentVersion(chatName string, originalFS fs.FS) (string, error) {
+	h := sha256.New()
+	_, _ = h.Write([]byte(chatName))
+	_, _ = h.Write([]byte{0})
+
+	err := fs.WalkDir(originalFS, ".", func(name string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+
+		content, err := fs.ReadFile(originalFS, name)
+		if err != nil {
+			return err
+		}
+		fileHash := sha256.Sum256(content)
+		_, _ = h.Write([]byte(name))
+		_, _ = h.Write([]byte{0})
+		_, _ = h.Write(fileHash[:])
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%x", h.Sum(nil))[:16], nil
 }
 
 type overlayFS struct {

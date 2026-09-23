@@ -38,6 +38,85 @@ func TestE2ENavigationBack(t *testing.T) {
 
 		require.Contains(t, page.URL(), server.BaseURL+"/")
 
+		err = page.AddInitScript(playwright.Script{Content: playwright.String(`(() => {
+			if (window !== window.top) return;
+			const pathsKey = '__e2eVisitedPaths';
+			const paths = JSON.parse(sessionStorage.getItem(pathsKey) || '[]');
+			paths.push(location.pathname);
+			sessionStorage.setItem(pathsKey, JSON.stringify(paths));
+
+			const nativeFetch = window.fetch.bind(window);
+			window.fetch = async (...args) => {
+				const input = args[0];
+				const value = typeof input === 'string' ? input : input?.url;
+				const pathname = new URL(value, location.href).pathname;
+				if (pathname === '/api/me' && sessionStorage.getItem('__e2ePauseNextMe') === 'true') {
+					sessionStorage.removeItem('__e2ePauseNextMe');
+					window.__e2eSessionCheckPaused = true;
+					await new Promise(resolve => { window.__e2eReleaseSessionCheck = resolve; });
+				}
+				return nativeFetch(...args);
+			};
+		})()`)})
+		require.NoError(t, err)
+
+		resetVisitedPaths := func() {
+			t.Helper()
+			_, err := page.Evaluate(`() => sessionStorage.setItem('__e2eVisitedPaths', '[]')`)
+			require.NoError(t, err)
+		}
+		assertLoginNotVisited := func() {
+			t.Helper()
+			visited, err := page.Evaluate(`() => JSON.parse(sessionStorage.getItem('__e2eVisitedPaths') || '[]').includes('/login.html')`)
+			require.NoError(t, err)
+			require.False(t, visited.(bool), "transient session failure must not visit the login document")
+		}
+
+		failures := []struct {
+			name   string
+			inject func(playwright.Route) error
+		}{
+			{
+				name: "aborted request",
+				inject: func(route playwright.Route) error {
+					return route.Abort("failed")
+				},
+			},
+			{
+				name: "service unavailable",
+				inject: func(route playwright.Route) error {
+					return route.Fulfill(playwright.RouteFulfillOptions{
+						Status: playwright.Int(503),
+						Body:   "temporarily unavailable",
+					})
+				},
+			},
+		}
+
+		for _, failure := range failures {
+			resetVisitedPaths()
+			injected := make(chan error, 1)
+			err = page.Route("**/api/me", func(route playwright.Route) {
+				injected <- failure.inject(route)
+			}, 1)
+			require.NoError(t, err)
+
+			_, err = page.Reload()
+			require.NoError(t, err)
+			select {
+			case err := <-injected:
+				require.NoError(t, err)
+			case <-time.After(5 * time.Second):
+				t.Fatalf("the %s was not injected", failure.name)
+			}
+			err = page.Locator(".app-layout").WaitFor(playwright.LocatorWaitForOptions{
+				State:   playwright.WaitForSelectorStateVisible,
+				Timeout: playwright.Float(5000),
+			})
+			require.NoError(t, err, "valid session should recover from %s", failure.name)
+			assertLoginNotVisited()
+		}
+
 		// 3. Press Back
 		t.Log("Pressing back button...")
 		_, err = page.GoBack()
@@ -47,6 +126,48 @@ func TestE2ENavigationBack(t *testing.T) {
 		url := page.URL()
 		t.Logf("URL after back: %s", url)
 		require.False(t, strings.Contains(url, "login.html"), "Should NOT be on login page after pressing back")
+
+		// If a valid session ever lands on the login route, the login page should
+		// recover to the chat without requiring a browser Back action.
+		_, err = page.Goto(server.BaseURL + "/login.html")
+		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			return !strings.Contains(page.URL(), "login.html")
+		}, 5*time.Second, 100*time.Millisecond)
+		err = page.Locator(".app-layout").WaitFor(playwright.LocatorWaitForOptions{
+			State: playwright.WaitForSelectorStateVisible,
+		})
+		require.NoError(t, err)
+
+		// Exercise a real 401 from /api/me: let the authenticated app document
+		// load, pause its session request, remove the cookie, then release it.
+		resetVisitedPaths()
+		_, err = page.Evaluate(`() => sessionStorage.setItem('__e2ePauseNextMe', 'true')`)
+		require.NoError(t, err)
+		_, err = page.Reload()
+		require.NoError(t, err)
+		_, err = page.WaitForFunction(`() => window.__e2eSessionCheckPaused === true`, nil,
+			playwright.PageWaitForFunctionOptions{Timeout: playwright.Float(5000)})
+		require.NoError(t, err)
+
+		response, err := page.ExpectResponse("**/api/me", func() error {
+			if err := context.ClearCookies(playwright.BrowserContextClearCookiesOptions{Name: "token"}); err != nil {
+				return err
+			}
+			_, err := page.Evaluate(`() => window.__e2eReleaseSessionCheck()`)
+			return err
+		})
+		require.NoError(t, err)
+		require.Equal(t, 401, response.Status())
+		err = page.Locator(".login-container").WaitFor(playwright.LocatorWaitForOptions{
+			State:   playwright.WaitForSelectorStateVisible,
+			Timeout: playwright.Float(5000),
+		})
+		require.NoError(t, err)
+		require.Contains(t, page.URL(), "/login.html")
+		paths, err := page.Evaluate(`() => sessionStorage.getItem('__e2eVisitedPaths')`)
+		require.NoError(t, err)
+		require.JSONEq(t, `["/", "/login.html"]`, paths.(string))
 	})
 
 	// Scenario 2: Mobile - Back within the app tabs

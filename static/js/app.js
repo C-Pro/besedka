@@ -169,11 +169,20 @@ function renderApp() {
     let touchStartY = 0;
     let touchEndX = 0;
     let touchEndY = 0;
+    let touchStartedInHorizontalScroller = false;
     const minSwipeDistance = 50;
+
+    const startsInHorizontalScroller = (event) => event.composedPath().some(node => {
+        if (!(node instanceof Element)) return false;
+        const overflowX = window.getComputedStyle(node).overflowX;
+        return (overflowX === 'auto' || overflowX === 'scroll') &&
+            node.scrollWidth > node.clientWidth;
+    });
 
     const onTouchStart = (e) => {
         touchStartX = e.changedTouches[0].screenX;
         touchStartY = e.changedTouches[0].screenY;
+        touchStartedInHorizontalScroller = startsInHorizontalScroller(e);
     };
 
     const onTouchEnd = (e) => {
@@ -182,13 +191,14 @@ function renderApp() {
         handleSwipe();
     };
 
-    document.addEventListener('touchstart', onTouchStart);
-    document.addEventListener('touchend', onTouchEnd);
+    document.addEventListener('touchstart', onTouchStart, { passive: true });
+    document.addEventListener('touchend', onTouchEnd, { passive: true });
 
     const handleSwipe = () => {
         // Don't switch tabs while the image overlay is open; it handles its
         // own swipe navigation between images.
         if (document.getElementById('image-overlay')?.classList.contains('active')) return;
+        if (touchStartedInHorizontalScroller) return;
         const distanceX = touchEndX - touchStartX;
         const distanceY = touchEndY - touchStartY;
         if (Math.abs(distanceX) < minSwipeDistance) return;
@@ -438,32 +448,33 @@ async function setupPushNotifications() {
     }
 }
 
-function init() {
-    // Check authentication logic is primarily handled by the server (sending back 401 on data fetch).
-    // However, we can try to fetch the initial data. If it fails with 401, redirect to login.
+async function verifySession() {
+    try {
+        const isValid = await store.checkSession();
+        if (!isValid) window.location.replace('/login.html');
+        return isValid;
+    } catch (error) {
+        console.warn('Session check temporarily unavailable:', error);
+        return null;
+    }
+}
 
-    // We can add a simple check method to store to verify session validity
-    store.checkSession().then(isValid => {
-        if (!isValid) {
-            window.location.href = '/login.html';
-        } else {
-            renderApp();
-            store.fetchUsers();
-            store.fetchChats();
-            store.fetchSettings();
-            store.connectWebSocket();
-            setupPushNotifications();
+async function init() {
+    const isValid = await verifySession();
+    if (isValid === false) return;
+    if (isValid === null) {
+        setTimeout(init, 1000);
+        return;
+    }
 
-            // Setup periodic session check (every 5 minutes)
-            setInterval(() => {
-                store.checkSession().then(valid => {
-                    if (!valid) {
-                        window.location.href = '/login.html';
-                    }
-                });
-            }, 300000); // 5 minutes
-        }
-    });
+    renderApp();
+    store.fetchUsers();
+    store.fetchChats();
+    store.fetchSettings();
+    store.connectWebSocket();
+    setupPushNotifications();
+
+    setInterval(verifySession, 300000);
 }
 
 init();

@@ -510,7 +510,7 @@ export function createProfileSettingsModal(store) {
     });
 
     logoutAfterResetBtn.addEventListener('click', () => {
-        window.location.href = '/login.html';
+        window.location.replace('/login.html');
     });
 
     // Passkeys Logic

@@ -3,8 +3,10 @@
 package e2e
 
 import (
-	"github.com/mxschmitt/playwright-go"
 	"testing"
+	"time"
+
+	"github.com/mxschmitt/playwright-go"
 )
 
 func TestE2EPasskeys(t *testing.T) {
@@ -34,11 +36,11 @@ func TestE2EPasskeys(t *testing.T) {
 	}
 	_, err = cdp.Send("WebAuthn.addVirtualAuthenticator", map[string]interface{}{
 		"options": map[string]interface{}{
-			"protocol":            "ctap2",
-			"transport":           "internal",
-			"hasResidentKey":      true,
-			"hasUserVerification": true,
-			"isUserVerified":      true,
+			"protocol":                    "ctap2",
+			"transport":                   "internal",
+			"hasResidentKey":              true,
+			"hasUserVerification":         true,
+			"isUserVerified":              true,
 			"automaticPresenceSimulation": true,
 		},
 	})
@@ -84,40 +86,83 @@ func TestE2EPasskeys(t *testing.T) {
 		t.Fatalf("expected 1 passkey, got %d. error: %v", count, err)
 	}
 
-	// Log out
 	err = page.Locator("#profile-modal-close").Click()
 	if err != nil {
 		t.Fatalf("failed to close profile modal: %v", err)
 	}
-	err = page.Locator("#desktop-profile-avatar").Click()
-	if err != nil {
-		t.Fatalf("failed to click avatar: %v", err)
-	}
-	err = page.Locator("#desktop-logoff-btn").Click()
-	if err != nil {
-		t.Fatalf("failed to click logoff: %v", err)
+
+	logout := func() {
+		t.Helper()
+		if err := page.Locator("#desktop-profile-avatar").Click(); err != nil {
+			t.Fatalf("failed to click avatar: %v", err)
+		}
+		response, err := page.ExpectResponse("**/api/me", func() error {
+			return page.Locator("#desktop-logoff-btn").Click()
+		})
+		if err != nil {
+			t.Fatalf("failed to observe login-page session check: %v", err)
+		}
+		if response.Status() != 401 {
+			t.Fatalf("login-page session check returned %d, want 401", response.Status())
+		}
+		if err := page.Locator(".login-container").WaitFor(playwright.LocatorWaitForOptions{
+			State: playwright.WaitForSelectorStateVisible,
+		}); err != nil {
+			t.Fatalf("login modal not found: %v", err)
+		}
 	}
 
-	// Verify login screen
-	err = page.Locator(".login-container").WaitFor(playwright.LocatorWaitForOptions{
-		State: playwright.WaitForSelectorStateVisible,
-	})
-	if err != nil {
-		t.Fatalf("login modal not found: %v", err)
+	failures := []struct {
+		name   string
+		inject func(playwright.Route) error
+	}{
+		{
+			name: "aborted request",
+			inject: func(route playwright.Route) error {
+				return route.Abort("failed")
+			},
+		},
+		{
+			name: "service unavailable",
+			inject: func(route playwright.Route) error {
+				return route.Fulfill(playwright.RouteFulfillOptions{
+					Status: playwright.Int(503),
+					Body:   "temporarily unavailable",
+				})
+			},
+		},
 	}
 
-	// Login with passkey
-	err = page.Locator("#passkey-login-btn").Click()
-	if err != nil {
-		t.Fatalf("failed to click passkey login: %v", err)
-	}
+	for _, failure := range failures {
+		t.Logf("Logging in with a passkey after %s", failure.name)
+		logout()
 
-	// Verify logged in
-	err = page.Locator(".app-layout").WaitFor(playwright.LocatorWaitForOptions{
-		State: playwright.WaitForSelectorStateVisible,
-	})
-	if err != nil {
-		t.Fatalf("failed to login via passkey: %v", err)
+		injected := make(chan error, 1)
+		err = page.Route("**/api/me", func(route playwright.Route) {
+			injected <- failure.inject(route)
+		}, 1)
+		if err != nil {
+			t.Fatalf("failed to install /api/me route: %v", err)
+		}
+
+		if err := page.Locator("#passkey-login-btn").Click(); err != nil {
+			t.Fatalf("failed to click passkey login: %v", err)
+		}
+		select {
+		case err := <-injected:
+			if err != nil {
+				t.Fatalf("failed to inject %s: %v", failure.name, err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("the %s was not injected", failure.name)
+		}
+
+		if err := page.Locator(".app-layout").WaitFor(playwright.LocatorWaitForOptions{
+			State:   playwright.WaitForSelectorStateVisible,
+			Timeout: playwright.Float(10000),
+		}); err != nil {
+			t.Fatalf("failed to login via passkey after %s: %v", failure.name, err)
+		}
 	}
 
 	// Delete passkey

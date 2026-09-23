@@ -289,6 +289,11 @@ export function createChatWindow(container) {
 
         // Add copy buttons to code blocks
         div.querySelectorAll('.message-content pre').forEach(pre => {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'code-block';
+            pre.before(wrapper);
+            wrapper.appendChild(pre);
+
             const btn = document.createElement('button');
             btn.className = 'copy-code-btn';
             btn.title = 'Copy code';
@@ -313,7 +318,7 @@ export function createChatWindow(container) {
                     }, 2000);
                 } catch (err) { console.error('Failed to copy: ', err); }
             };
-            pre.appendChild(btn);
+            wrapper.appendChild(btn);
         });
 
         // Handle image loads for scrolling

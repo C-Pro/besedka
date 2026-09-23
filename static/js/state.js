@@ -9,6 +9,8 @@ const DEFAULT_NOTIFICATION_SETTINGS = {
     suppressWhenChatOpen: true
 };
 
+const SESSION_CHECK_TIMEOUT_MS = 10000;
+
 // Simple State Management
 class Store {
     constructor() {
@@ -103,9 +105,10 @@ class Store {
     }
 
     async checkSession() {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), SESSION_CHECK_TIMEOUT_MS);
         try {
-            // We use /api/me to check session and get current user info at the same time
-            const response = await fetch('/api/me');
+            const response = await fetch('/api/me', { signal: controller.signal });
             if (response.ok) {
                 const user = await response.json();
                 this.setState({ currentUser: user });
@@ -117,9 +120,12 @@ class Store {
                 }
                 return true;
             }
-            return false;
-        } catch {
-            return false;
+            if (response.status === 401) {
+                return false;
+            }
+            throw new Error(`Session check failed with status ${response.status}`);
+        } finally {
+            clearTimeout(timeout);
         }
     }
 
@@ -138,7 +144,7 @@ class Store {
         try {
             const response = await fetch('/api/me');
             if (response.status === 401) {
-                window.location.href = '/login.html';
+                window.location.replace('/login.html');
                 return;
             }
             if (response.ok) {
@@ -238,7 +244,7 @@ class Store {
                 }
                 this.stopLocationSharing();
 
-                window.location.href = '/login.html';
+                window.location.replace('/login.html');
             } else {
                 console.error('Logoff failed', await response.text());
             }
@@ -307,11 +313,7 @@ class Store {
             const text = await response.text();
             throw new Error(text || 'Failed to finish passkey login');
         }
-        const data = await response.json();
-        
-        // Populate state using /api/me just like checkSession does
-        await this.checkSession();
-        return data;
+        return await response.json();
     }
 
     async uploadImage(file, signal) {
@@ -530,7 +532,7 @@ class Store {
         try {
             const response = await fetch('/api/users');
             if (response.status === 401) {
-                window.location.href = '/login.html';
+                window.location.replace('/login.html');
                 return;
             }
             const users = await response.json();
@@ -544,7 +546,7 @@ class Store {
         try {
             const response = await fetch('/api/chats');
             if (response.status === 401) {
-                window.location.href = '/login.html';
+                window.location.replace('/login.html');
                 return;
             }
             const chats = await response.json();

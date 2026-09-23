@@ -113,6 +113,51 @@ func TestE2EMobileScrollSwipe(t *testing.T) {
 
 	require.Eventually(t, isAtBottom, 5*time.Second, 100*time.Millisecond, "Scroll position should be at the bottom after sending 10 messages")
 
+	// A code block owns horizontal scrolling, while its copy button stays pinned
+	// to the visible frame and its pan gesture does not navigate between tabs.
+	longCode := "```text\n" + strings.Repeat("long-code-segment-", 30) + "\n```"
+	err = page.Locator("#message-input").Fill(longCode)
+	require.NoError(t, err)
+	err = page.Locator("#send-btn").Click()
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		count, _ := page.Locator(".code-block pre").Count()
+		return count > 0
+	}, 5*time.Second, 100*time.Millisecond)
+
+	result, err := page.Evaluate(`() => {
+		const pre = document.querySelector('.code-block pre');
+		const button = document.querySelector('.code-block > .copy-code-btn');
+		const before = button.getBoundingClientRect().right;
+		pre.scrollLeft = pre.scrollWidth;
+		const after = button.getBoundingClientRect().right;
+		return {
+			buttonPinned: Math.abs(after - before) <= 1,
+			scrolled: pre.scrollLeft > 0,
+			buttonOutsideScroller: !pre.contains(button)
+		};
+	}`)
+	require.NoError(t, err)
+	metrics := result.(map[string]interface{})
+	require.True(t, metrics["buttonPinned"].(bool), "copy button should stay fixed while code scrolls")
+	require.True(t, metrics["scrolled"].(bool), "code block should be horizontally scrollable")
+	require.True(t, metrics["buttonOutsideScroller"].(bool), "copy button should not be inside the scrolling element")
+
+	_, err = page.Evaluate(`() => {
+		const code = document.querySelector('.code-block code');
+		const startEvent = new Event('touchstart', { bubbles: true, composed: true });
+		startEvent.changedTouches = [{ screenX: 300, screenY: 300 }];
+		code.dispatchEvent(startEvent);
+
+		const endEvent = new Event('touchend', { bubbles: true, composed: true });
+		endEvent.changedTouches = [{ screenX: 50, screenY: 300 }];
+		code.dispatchEvent(endEvent);
+	}`)
+	require.NoError(t, err)
+	visible, err := page.Locator("#chat-area").IsVisible()
+	require.NoError(t, err)
+	require.True(t, visible, "horizontal code scrolling should not navigate to the info panel")
+
 	// Swipe right to the map view (info-panel). Physically, dragging finger left moves view to info-panel.
 	t.Log("Swiping to map view (info-panel)...")
 	_, err = page.Evaluate(`() => {

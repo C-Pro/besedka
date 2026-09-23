@@ -43,7 +43,10 @@ func TestLoad(t *testing.T) {
 		t.Fatalf("Load failed: %v", err)
 	}
 
-	expectedVersion := compileTime.UTC().Format("20060102150405")
+	expectedVersion, err := contentVersion(chatName, mockFS)
+	if err != nil {
+		t.Fatalf("contentVersion failed: %v", err)
+	}
 	tests := []struct {
 		path     string
 		expected string
@@ -69,6 +72,45 @@ func TestLoad(t *testing.T) {
 			t.Errorf("for %s, expected %q, got %q", tt.path, tt.expected, string(content))
 		}
 		_ = file.Close()
+	}
+}
+
+func TestContentVersion(t *testing.T) {
+	base := fstest.MapFS{
+		"app.js": {Data: []byte("console.log('one')")},
+		"sw.js":  {Data: []byte("const CACHE_VERSION = '{{.CacheVersion}}';")},
+	}
+
+	first, err := contentVersion("Besedka", base)
+	if err != nil {
+		t.Fatalf("contentVersion failed: %v", err)
+	}
+	second, err := contentVersion("Besedka", base)
+	if err != nil {
+		t.Fatalf("contentVersion failed: %v", err)
+	}
+	if first != second {
+		t.Fatalf("same assets produced different versions: %q and %q", first, second)
+	}
+
+	changedAsset := fstest.MapFS{
+		"app.js": {Data: []byte("console.log('two')")},
+		"sw.js":  {Data: []byte("const CACHE_VERSION = '{{.CacheVersion}}';")},
+	}
+	assetVersion, err := contentVersion("Besedka", changedAsset)
+	if err != nil {
+		t.Fatalf("contentVersion failed: %v", err)
+	}
+	if assetVersion == first {
+		t.Fatal("asset content change did not change the cache version")
+	}
+
+	nameVersion, err := contentVersion("OtherChat", base)
+	if err != nil {
+		t.Fatalf("contentVersion failed: %v", err)
+	}
+	if nameVersion == first {
+		t.Fatal("chat name change did not change the cache version")
 	}
 }
 

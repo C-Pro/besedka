@@ -12,6 +12,18 @@ const passwordInput = document.getElementById('password');
 const otpInput = document.getElementById('otp');
 const passkeyLoginBtn = document.getElementById('passkey-login-btn');
 
+const redirectAuthenticatedUser = async () => {
+    try {
+        if (await store.checkSession()) {
+            window.location.replace('/');
+        }
+    } catch {
+        setTimeout(redirectAuthenticatedUser, 1000);
+    }
+};
+
+redirectAuthenticatedUser();
+
 const showError = (msg) => {
     errorDiv.textContent = msg;
     errorDiv.style.display = 'block';
