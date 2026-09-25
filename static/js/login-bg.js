@@ -8,6 +8,8 @@ export function initLoginBackground(canvas) {
     let dpr = 1;
     let animationFrameId = null;
     let isRunning = false;
+    let gridLineRGB = '59, 130, 246';
+    let gridHighlightRGB = '96, 165, 250';
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     const COLS = 54;
@@ -18,6 +20,12 @@ export function initLoginBackground(canvas) {
 
     const ripples = [];
     let lastRippleTime = 0;
+
+    function updateThemeColors() {
+        const styles = getComputedStyle(document.documentElement);
+        gridLineRGB = styles.getPropertyValue('--login-grid-line-rgb').trim() || gridLineRGB;
+        gridHighlightRGB = styles.getPropertyValue('--login-grid-highlight-rgb').trim() || gridHighlightRGB;
+    }
 
     function initGrid() {
         gridU = [];
@@ -140,7 +148,7 @@ export function initLoginBackground(canvas) {
         for (let r = 0; r < ROWS; r++) {
             const near = pts[r][0].nearFactor;
             const alpha = Math.max(0.06, Math.min(0.55, 0.10 + 0.45 * near));
-            ctx.strokeStyle = `rgba(59, 130, 246, ${alpha.toFixed(3)})`;
+            ctx.strokeStyle = `rgba(${gridLineRGB}, ${alpha.toFixed(3)})`;
             ctx.lineWidth = Math.max(0.9, 1.4 * pts[r][0].depth);
 
             ctx.beginPath();
@@ -162,9 +170,9 @@ export function initLoginBackground(canvas) {
             const pNear = pts[0][c];
             const pFar = pts[ROWS - 1][c];
             const grad = ctx.createLinearGradient(pFar.x, pFar.y, pNear.x, pNear.y);
-            grad.addColorStop(0, 'rgba(59, 130, 246, 0.06)');
-            grad.addColorStop(0.3, 'rgba(59, 130, 246, 0.25)');
-            grad.addColorStop(1, 'rgba(96, 165, 250, 0.60)');
+            grad.addColorStop(0, `rgba(${gridLineRGB}, 0.06)`);
+            grad.addColorStop(0.3, `rgba(${gridLineRGB}, 0.25)`);
+            grad.addColorStop(1, `rgba(${gridHighlightRGB}, 0.60)`);
 
             ctx.strokeStyle = grad;
             ctx.lineWidth = 1.1;
@@ -194,8 +202,12 @@ export function initLoginBackground(canvas) {
     }
 
     initGrid();
+    updateThemeColors();
     resize();
     window.addEventListener('resize', resize, { passive: true });
+    window.addEventListener('besedka-appearance-change', (event) => {
+        if (event.detail?.changedProperty === 'theme') updateThemeColors();
+    });
 
     document.addEventListener('visibilitychange', () => {
         if (document.hidden) {

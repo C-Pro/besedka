@@ -23,9 +23,9 @@ export class LocationMap {
 
             // SVG Background
             this.svg.append("rect")
+                .attr("class", "map-background")
                 .attr("width", "100%")
-                .attr("height", "100%")
-                .attr("fill", "#0f172a");
+                .attr("height", "100%");
                 
             this.projection = d3.geoMercator()
                 .scale(this.height / 6.2)
@@ -40,9 +40,7 @@ export class LocationMap {
             this.mapLayer.append("path")
                 .datum({type: "Sphere"})
                 .attr("class", "sphere")
-                .attr("d", this.path)
-                .attr("fill", "#0f172a") // ocean
-                .attr("stroke", "rgba(255, 255, 255, 0.1)");
+                .attr("d", this.path);
                 
             this.worldData = null;
 
@@ -111,8 +109,6 @@ export class LocationMap {
                 .enter().append("path")
                 .attr("class", "land")
                 .attr("d", this.path)
-                .attr("fill", "#334155")
-                .attr("stroke", "#1e293b")
                 .attr("stroke-width", 0.5);
                 
             this.updateProjection();
@@ -285,9 +281,8 @@ export class LocationMap {
 
         // Add Avatar Background
         enter.append('circle')
+            .attr('class', 'map-marker-background')
             .attr('r', 12)
-            .attr('fill', '#3b82f6')
-            .attr('stroke', '#ffffff')
             .attr('stroke-width', 2);
 
         // Add Avatar Image or Initials
@@ -321,7 +316,7 @@ export class LocationMap {
                     .style("border-radius", "50%")
                     .style("object-fit", "cover")
                     .style("pointer-events", "none")
-                    .style("border", "2px solid white")
+                    .attr("class", "map-marker-avatar")
                     .style("box-sizing", "border-box");
                     
                 // Optional: remove standard circle, we just use foreign object
@@ -331,11 +326,11 @@ export class LocationMap {
                 // Initials
                 const initial = name.charAt(0).toUpperCase();
                 el.append('text')
+                    .attr('class', 'map-marker-initial')
                     .attr('text-anchor', 'middle')
                     .attr('dominant-baseline', 'central')
                     .attr('font-size', '10px')
                     .attr('font-weight', 'bold')
-                    .attr('fill', '#ffffff')
                     .text(initial)
                     .append('title').text(name); // Tooltip
             }

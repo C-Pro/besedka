@@ -1,6 +1,7 @@
 const CACHE_VERSION = '{{.CacheVersion}}';
 const CACHE_FILES = [
     '/js/app.js',
+    '/js/appearance.js',
     '/js/state.js',
     '/js/mentions.js',
     '/js/id3.js',

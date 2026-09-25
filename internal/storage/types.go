@@ -99,9 +99,14 @@ type DBNotificationSettings struct {
 	SuppressWhenChatOpen bool `msgpack:"suppressWhenChatOpen"`
 }
 
+type DBAppearanceSettings struct {
+	Theme string `msgpack:"theme"`
+}
+
 type DBUserSettings struct {
 	UserID        string                 `msgpack:"userId"`
 	Notifications DBNotificationSettings `msgpack:"notifications"`
+	Appearance    DBAppearanceSettings   `msgpack:"appearance"`
 }
 
 func (s *DBUserSettings) Key() []byte {
@@ -127,18 +132,20 @@ func userSettingsToDB(userID string, s models.UserSettings) *DBUserSettings {
 			SoundMentions:        s.Notifications.SoundMentions,
 			SuppressWhenChatOpen: s.Notifications.SuppressWhenChatOpen,
 		},
+		Appearance: DBAppearanceSettings{Theme: s.Appearance.Theme},
 	}
 }
 
 func (s *DBUserSettings) toModel() models.UserSettings {
-	return models.UserSettings{
+	return models.NormalizeUserSettings(models.UserSettings{
 		Notifications: models.NotificationSettings{
 			SoundAllMessages:     s.Notifications.SoundAllMessages,
 			SoundDirectMessages:  s.Notifications.SoundDirectMessages,
 			SoundMentions:        s.Notifications.SoundMentions,
 			SuppressWhenChatOpen: s.Notifications.SuppressWhenChatOpen,
 		},
-	}
+		Appearance: models.AppearanceSettings{Theme: s.Appearance.Theme},
+	})
 }
 
 type DBChat struct {

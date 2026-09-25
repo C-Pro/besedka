@@ -421,7 +421,7 @@ func (as *AuthService) GetUserSettings(userID string) (models.UserSettings, erro
 	if !found {
 		return models.DefaultUserSettings(), nil
 	}
-	return settings, nil
+	return models.NormalizeUserSettings(settings), nil
 }
 
 // UpdateUserSettings persists the user's preferences.

@@ -9,6 +9,10 @@ const DEFAULT_NOTIFICATION_SETTINGS = {
     suppressWhenChatOpen: true
 };
 
+const DEFAULT_APPEARANCE_SETTINGS = {
+    theme: 'dark'
+};
+
 const SESSION_CHECK_TIMEOUT_MS = 10000;
 
 // Simple State Management
@@ -41,9 +45,13 @@ class Store {
         this.sessionLimit = null;
         this.cookieExpiryInterval = setInterval(() => this.checkCookieExpiry(), 60000);
 
-        // Notification settings are persisted server-side; start with defaults
-        // so sound logic is well-defined before fetchSettings() resolves.
-        this.settings = { notifications: { ...DEFAULT_NOTIFICATION_SETTINGS } };
+        // User settings are persisted server-side. Start with notification
+        // defaults and the locally cached theme until fetchSettings() resolves.
+        const cachedTheme = window.besedkaAppearance?.getThemePreference?.() || DEFAULT_APPEARANCE_SETTINGS.theme;
+        this.settings = {
+            notifications: { ...DEFAULT_NOTIFICATION_SETTINGS },
+            appearance: { ...DEFAULT_APPEARANCE_SETTINGS, theme: cachedTheme }
+        };
 
         // Notification sound. Browsers block audio until a user gesture, so we
         // prime the element on the first interaction. _soundPlays is exposed for
@@ -1153,8 +1161,16 @@ class Store {
                 notifications: {
                     ...DEFAULT_NOTIFICATION_SETTINGS,
                     ...(settings.notifications || {})
+                },
+                appearance: {
+                    ...DEFAULT_APPEARANCE_SETTINGS,
+                    ...(settings.appearance || {})
                 }
             };
+            if (!window.besedkaAppearance?.isValidThemePreference?.(this.settings.appearance.theme)) {
+                this.settings.appearance.theme = DEFAULT_APPEARANCE_SETTINGS.theme;
+            }
+            window.besedkaAppearance?.setThemePreference?.(this.settings.appearance.theme);
             this.notify();
         } catch (e) {
             console.error('Failed to fetch settings:', e);
@@ -1183,6 +1199,38 @@ class Store {
                 ...this.settings,
                 notifications: { ...this.settings.notifications, [key]: previous }
             };
+            this.notify();
+            throw e;
+        }
+    }
+
+    async setThemePreference(theme) {
+        if (!window.besedkaAppearance?.isValidThemePreference?.(theme)) {
+            throw new Error(`Invalid theme preference: ${theme}`);
+        }
+
+        const previous = this.settings.appearance.theme;
+        this.settings = {
+            ...this.settings,
+            appearance: { ...this.settings.appearance, theme }
+        };
+        window.besedkaAppearance.setThemePreference(theme);
+        this.notify();
+
+        try {
+            const response = await fetch('/api/users/me/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(this.settings)
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        } catch (e) {
+            console.error('Failed to save theme preference:', e);
+            this.settings = {
+                ...this.settings,
+                appearance: { ...this.settings.appearance, theme: previous }
+            };
+            window.besedkaAppearance.setThemePreference(previous);
             this.notify();
             throw e;
         }
