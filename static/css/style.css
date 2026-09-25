@@ -1,5 +1,8 @@
-:root {
-    /* Colors - Premium Dark Theme */
+:root,
+:root[data-theme="dark"] {
+    color-scheme: dark;
+
+    /* Colors - Dark Theme */
     --bg-app: #0f1117;
     --bg-panel: #161b22;
     --bg-message-in: #1f242c;
@@ -20,9 +23,42 @@
     --border-subtle: #30363d;
     --accent-color: #3b82f6;
     --accent-hover: #60a5fa;
+    --overlay-bg: rgba(0, 0, 0, 0.5);
+    --overlay-strong: rgba(0, 0, 0, 0.95);
+    --shadow-color: rgba(0, 0, 0, 0.5);
+    --subtle-fill: rgba(255, 255, 255, 0.03);
+    --subtle-fill-hover: rgba(255, 255, 255, 0.08);
+    --success-color: #10b981;
+    --success-bg: rgba(16, 185, 129, 0.15);
+    --offline-color: #9ca3af;
+    --offline-bg: rgba(156, 163, 175, 0.15);
+    --danger-bg: rgba(239, 68, 68, 0.05);
+    --danger-border: rgba(239, 68, 68, 0.2);
+    --map-ocean: #0f172a;
+    --map-land: #334155;
+    --map-border: #1e293b;
+    --map-marker-stroke: #ffffff;
+    --login-grid-line: #3b82f6;
+    --login-grid-highlight: #60a5fa;
+    --login-grid-line-rgb: 59, 130, 246;
+    --login-grid-highlight-rgb: 96, 165, 250;
+    --mention-color: #60a5fa;
+    --mention-self-color: #fbbf24;
+    --mention-self-bg: rgba(251, 191, 36, 0.18);
+    --user-color-0: #ff5252;
+    --user-color-1: #ff4081;
+    --user-color-2: #e040fb;
+    --user-color-3: #7c4dff;
+    --user-color-4: #536dfe;
+    --user-color-5: #448aff;
+    --user-color-6: #40c4ff;
+    --user-color-7: #1de9b6;
+    --bot-color: #64b5f6;
+    --webhook-color: #ffb74d;
 
     /* Aliases for components */
     --surface-bg: var(--bg-panel);
+    --bg-surface: var(--bg-panel);
     --bg-primary: var(--bg-app);
     --bg-secondary: var(--bg-panel);
     --border-color: var(--border-subtle);
@@ -60,6 +96,70 @@
     --transition-normal: 0.3s ease;
 }
 
+:root[data-theme="light"] {
+    color-scheme: light;
+
+    --bg-app: #f6f8fa;
+    --bg-panel: #ffffff;
+    --bg-message-in: #eaeef2;
+    --bg-message-out: #0969da;
+    --bg-hover: #eaeef2;
+    --bg-input: #ffffff;
+
+    --text-primary: #1f2328;
+    --text-glow-shadow: rgba(9, 105, 218, 0.18);
+    --text-secondary: #57606a;
+    --text-muted: #6e7781;
+    --text-on-accent: #ffffff;
+
+    --link-color: #1a7f37;
+    --link-visited: #116329;
+    --link-hover: #2da44e;
+
+    --border-subtle: #d0d7de;
+    --accent-color: #0969da;
+    --accent-hover: #0550ae;
+    --overlay-bg: rgba(31, 35, 40, 0.45);
+    --overlay-strong: rgba(0, 0, 0, 0.92);
+    --shadow-color: rgba(31, 35, 40, 0.18);
+    --subtle-fill: rgba(31, 35, 40, 0.04);
+    --subtle-fill-hover: rgba(31, 35, 40, 0.08);
+    --success-color: #1a7f37;
+    --success-bg: rgba(26, 127, 55, 0.12);
+    --offline-color: #6e7781;
+    --offline-bg: rgba(110, 119, 129, 0.12);
+    --danger-bg: rgba(207, 34, 46, 0.06);
+    --danger-border: rgba(207, 34, 46, 0.22);
+    --map-ocean: #dbeafe;
+    --map-land: #cbd5e1;
+    --map-border: #94a3b8;
+    --map-marker-stroke: #ffffff;
+    --login-grid-line: #2563eb;
+    --login-grid-highlight: #1d4ed8;
+    --login-grid-line-rgb: 37, 99, 235;
+    --login-grid-highlight-rgb: 29, 78, 216;
+    --mention-color: #0550ae;
+    --mention-self-color: #7d4e00;
+    --mention-self-bg: rgba(191, 135, 0, 0.16);
+    --user-color-0: #cf222e;
+    --user-color-1: #bf3989;
+    --user-color-2: #8250df;
+    --user-color-3: #6639ba;
+    --user-color-4: #315cbd;
+    --user-color-5: #0969da;
+    --user-color-6: #007d9c;
+    --user-color-7: #1a7f37;
+    --bot-color: #0550ae;
+    --webhook-color: #9a6700;
+
+    --surface-bg: var(--bg-panel);
+    --bg-primary: var(--bg-app);
+    --bg-secondary: var(--bg-panel);
+    --border-color: var(--border-subtle);
+    --primary-color: var(--accent-color);
+    --danger-color: #cf222e;
+}
+
 * {
     box-sizing: border-box;
     margin: 0;
@@ -67,6 +167,7 @@
 }
 
 html {
+    font-size: var(--app-font-size, 100%);
     height: 100%;
     overflow: hidden;
     overscroll-behavior: none;
