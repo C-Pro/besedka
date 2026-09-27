@@ -162,7 +162,10 @@ All endpoints below require a valid session token.
 ### Get Users
 **Endpoint:** `GET /api/users`
 
-**Description:** Returns all users of the system.
+**Description:** Returns all users of the system. Accessible to human users and bots only (webhook tokens are rejected with `403 Forbidden`).
+
+**Response Headers:**
+- `Cache-Control: private, no-store`
 
 **Response:**
 ```json
@@ -174,10 +177,14 @@ All endpoints below require a valid session token.
     "presence": {
       "online": boolean,
       "lastSeen": "unix_timestamp"
-    }
+    },
+    "timeZone": "string",             // Optional, present only when user is online and sharing location
+    "preferredLanguage": "string"     // Optional, present only when user is online and sharing location
   }
 ]
 ```
+
+> **Note:** `timeZone` (IANA, e.g. `"America/New_York"`) and `preferredLanguage` (BCP 47, e.g. `"en-US"`) are ephemeral in-memory fields populated from WebSocket `userInfo` messages. They are never persisted to the database and are cleared when the user disables location sharing or goes offline.
 
 ### Get Chats
 **Endpoint:** `GET /api/chats`
@@ -310,6 +317,21 @@ Fetches older messages from a chat by sequence range.
   "toSeq": 100
 }
 ```
+
+#### User Info
+Shares the user's time zone and preferred language with the server. Sent when location sharing is enabled (on connect/reconnect and when toggled on). Send with `sharingEnabled: false` to clear the data.
+```json
+{
+  "type": "userInfo",
+  "sharingEnabled": true,
+  "timeZone": "America/New_York",
+  "preferredLanguage": "en-US"
+}
+```
+- `timeZone`: IANA time zone identifier (max 128 characters).
+- `preferredLanguage`: BCP 47 language tag (max 64 characters).
+- `sharingEnabled`: When `false`, clears the stored time zone and language for this connection.
+- Data is stored in-memory only and is available via `GET /api/users`.
 
 ### Server Messages
 
