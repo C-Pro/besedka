@@ -1,0 +1,8 @@
+{
+  "track_id": "user-info_20260927",
+  "type": "feature",
+  "status": "new",
+  "created_at": "2026-09-27T13:16:00Z",
+  "updated_at": "2026-09-27T13:16:00Z",
+  "description": "User info. I want some extra user info in the API: user time zone and preferred language. Both will be sent when \"share location\" toggle is on. We don't need to send it regularly like we do for location updates, but can send once when client initially joins. This information will be saved in memory only, and returned only via get users API. It should also be avaialble to both human clients and bots."
+}
