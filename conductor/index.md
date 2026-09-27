@@ -17,5 +17,5 @@
 
 ---
 
-- [ ] **Track: User info**
+- [x] **Track: User info**
 *Link: [./tracks/user-info_20260927/](./tracks/user-info_20260927/)*
