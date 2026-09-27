@@ -251,6 +251,8 @@ class Store {
                     this.heartbeatInterval = null;
                 }
                 this.stopLocationSharing();
+                localStorage.removeItem('locationSharing');
+                this.locationSharingEnabled = false;
 
                 window.location.replace('/login.html');
             } else {
@@ -629,6 +631,7 @@ class Store {
             }
 
             if (this.locationSharingEnabled) {
+                this.sendUserInfo(true);
                 this.startLocationSharing();
             }
         };
@@ -1085,12 +1088,50 @@ class Store {
         this.setState({ userLocations: newLocations });
     }
 
+    getUserInfo() {
+        let timeZone = '';
+        try {
+            timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+        } catch (e) {
+            console.warn('Failed to resolve time zone:', e);
+        }
+
+        let preferredLanguage = '';
+        try {
+            preferredLanguage = navigator.language || navigator.languages?.[0] || '';
+        } catch (e) {
+            console.warn('Failed to resolve preferred language:', e);
+        }
+
+        return { timeZone, preferredLanguage };
+    }
+
+    sendUserInfo(sharingEnabled) {
+        if (!sharingEnabled) {
+            this.sendWebSocketMessage({
+                type: 'userInfo',
+                sharingEnabled: false
+            });
+            return;
+        }
+
+        const { timeZone, preferredLanguage } = this.getUserInfo();
+        this.sendWebSocketMessage({
+            type: 'userInfo',
+            sharingEnabled: true,
+            timeZone,
+            preferredLanguage
+        });
+    }
+
     toggleLocationSharing(enabled) {
         this.locationSharingEnabled = enabled;
         localStorage.setItem('locationSharing', enabled);
         if (enabled) {
+            this.sendUserInfo(true);
             this.startLocationSharing();
         } else {
+            this.sendUserInfo(false);
             this.stopLocationSharing();
         }
         this.notify();

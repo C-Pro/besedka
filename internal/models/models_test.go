@@ -105,3 +105,64 @@ func TestServerMessageJSONOmitempty(t *testing.T) {
 		t.Errorf("expected 'user' and 'chat' to be present, got: %s", str)
 	}
 }
+
+func TestUserInfoJSONSerialization(t *testing.T) {
+	// User with empty TimeZone and PreferredLanguage should omit them
+	uEmpty := User{ID: "u1", UserName: "alice"}
+	data, err := json.Marshal(uEmpty)
+	if err != nil {
+		t.Fatalf("unexpected marshal error: %v", err)
+	}
+	str := string(data)
+	if strings.Contains(str, `"timeZone"`) || strings.Contains(str, `"preferredLanguage"`) {
+		t.Errorf("expected timeZone and preferredLanguage to be omitted, got: %s", str)
+	}
+
+	// User with TimeZone and PreferredLanguage
+	uFull := User{
+		ID:                "u2",
+		UserName:          "bob",
+		TimeZone:          "Asia/Tokyo",
+		PreferredLanguage: "ja-JP",
+	}
+	data, err = json.Marshal(uFull)
+	if err != nil {
+		t.Fatalf("unexpected marshal error: %v", err)
+	}
+	str = string(data)
+	if !strings.Contains(str, `"timeZone":"Asia/Tokyo"`) || !strings.Contains(str, `"preferredLanguage":"ja-JP"`) {
+		t.Errorf("expected timeZone and preferredLanguage to be present, got: %s", str)
+	}
+
+	// ClientMessage with userInfo
+	enabled := true
+	clientMsg := ClientMessage{
+		Type:              ClientMessageTypeUserInfo,
+		TimeZone:          "Europe/London",
+		PreferredLanguage: "en-GB",
+		SharingEnabled:    &enabled,
+	}
+	data, err = json.Marshal(clientMsg)
+	if err != nil {
+		t.Fatalf("unexpected marshal error: %v", err)
+	}
+	str = string(data)
+	if !strings.Contains(str, `"type":"userInfo"`) ||
+		!strings.Contains(str, `"timeZone":"Europe/London"`) ||
+		!strings.Contains(str, `"preferredLanguage":"en-GB"`) ||
+		!strings.Contains(str, `"sharingEnabled":true`) {
+		t.Errorf("expected userInfo fields present in clientMsg, got: %s", str)
+	}
+
+	// Deserialization check
+	var decoded ClientMessage
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unexpected unmarshal error: %v", err)
+	}
+	if decoded.Type != ClientMessageTypeUserInfo ||
+		decoded.TimeZone != "Europe/London" ||
+		decoded.PreferredLanguage != "en-GB" ||
+		decoded.SharingEnabled == nil || !*decoded.SharingEnabled {
+		t.Errorf("unexpected decoded clientMsg: %+v", decoded)
+	}
+}

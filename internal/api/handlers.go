@@ -309,14 +309,23 @@ func (a *API) UsersHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Escape output and update online status
+	statusAndInfo := a.hub.GetUsersStatusAndInfo()
+
+	// Escape output and update online status and extra info
 	for i := range users {
 		users[i].DisplayName = content.Escape(users[i].DisplayName)
 		users[i].UserName = content.Escape(users[i].UserName)
 		users[i].Bio = content.Escape(users[i].Bio)
-		users[i].Presence.Online = a.hub.IsUserOnline(users[i].ID)
+		if si, ok := statusAndInfo[users[i].ID]; ok {
+			users[i].Presence.Online = si.Online
+			users[i].TimeZone = content.Escape(si.TimeZone)
+			users[i].PreferredLanguage = content.Escape(si.PreferredLanguage)
+		} else {
+			users[i].Presence.Online = false
+		}
 	}
 
+	w.Header().Set("Cache-Control", "private, no-store")
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(users); err != nil {
 		slog.Error("failed to encode users response", "error", err)

@@ -147,7 +147,7 @@ func (c *Connection) processClientMessage(msg models.ClientMessage) error {
 	switch msg.Type {
 	case models.ClientMessageTypeJoin, models.ClientMessageTypeSend, models.ClientMessageTypeFetch, models.ClientMessageTypeRead:
 		c.hub.Dispatch(c.userID, msg, c.fromServer)
-	case models.ClientMessageTypeLocation:
+	case models.ClientMessageTypeLocation, models.ClientMessageTypeUserInfo:
 		c.hub.Dispatch(c.userID, msg, c.fromServer)
 	}
 

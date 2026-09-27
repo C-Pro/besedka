@@ -48,7 +48,7 @@ func NewAPIServer(cfg *config.Config, authService *auth.AuthService, hub *ws.Hub
 	mux.HandleFunc("POST /api/register", api.RequireSameOrigin(apiHandlers.RegisterHandler))
 	mux.HandleFunc("GET /api/register-info", apiHandlers.RegisterInfoHandler)
 	mux.HandleFunc("POST /api/reset-password", apiHandlers.RequireAuth(api.RequireSameOrigin(apiHandlers.ResetPasswordHandler)))
-	mux.HandleFunc("GET /api/users", apiHandlers.RequireAuth(apiHandlers.UsersHandler))
+	mux.HandleFunc("GET /api/users", apiHandlers.RequireAuth(api.RequireUserTypes(apiHandlers.UsersHandler, models.UserTypeHuman, models.UserTypeBot)))
 	mux.HandleFunc("GET /api/chats", apiHandlers.RequireAuth(apiHandlers.ChatsHandler))
 	mux.HandleFunc("GET /api/chats/{id}/messages", apiHandlers.RequireAuth(api.RequireUserTypes(apiHandlers.ChatMessagesHandler, models.UserTypeHuman, models.UserTypeBot)))
 	mux.HandleFunc("POST /api/chats/{id}/messages", apiHandlers.RequireAuth(api.RequireSameOrigin(api.RequireUserTypes(apiHandlers.SendMessageHandler, models.UserTypeHuman, models.UserTypeBot))))

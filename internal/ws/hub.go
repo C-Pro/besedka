@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"besedka/internal/chat"
 	"besedka/internal/content"
@@ -36,10 +37,23 @@ type userChatKey struct {
 	ChatID string
 }
 
+type UserExtraInfo struct {
+	TimeZone          string
+	PreferredLanguage string
+	UpdatedAt         time.Time
+}
+
+type UserStatusAndInfo struct {
+	Online            bool
+	TimeZone          string
+	PreferredLanguage string
+}
+
 type Hub struct {
 	chats          map[string]*chat.Chat
 	connectedUsers map[string][]chan models.ServerMessage
 	userLocations  *geche.MapTTLCache[string, models.Location]
+	userExtraInfo  map[string]map[chan models.ServerMessage]UserExtraInfo
 
 	userProvider userProvider
 	storage      storage
@@ -78,6 +92,7 @@ func NewHub(ctx context.Context, userProvider userProvider, storage storage, pus
 		chats:              make(map[string]*chat.Chat),
 		connectedUsers:     make(map[string][]chan models.ServerMessage),
 		userLocations:      geche.NewMapTTLCache[string, models.Location](ctx, locationTTL, locationCleanup),
+		userExtraInfo:      make(map[string]map[chan models.ServerMessage]UserExtraInfo),
 		lastLocationUpdate: make(map[string]time.Time),
 		userProvider:       userProvider,
 		storage:            storage,
@@ -329,7 +344,15 @@ func (h *Hub) leaveLocked(userID string, expectedCh chan models.ServerMessage, b
 			h.safeClose(ch)
 		}
 		delete(h.connectedUsers, userID)
+		delete(h.userExtraInfo, userID)
 	} else {
+		if conns, ok := h.userExtraInfo[userID]; ok {
+			delete(conns, expectedCh)
+			if len(conns) == 0 {
+				delete(h.userExtraInfo, userID)
+			}
+		}
+
 		// Find and remove the expected channel
 		found := false
 		newChannels := make([]chan models.ServerMessage, 0, len(channels))
@@ -350,6 +373,7 @@ func (h *Hub) leaveLocked(userID string, expectedCh chan models.ServerMessage, b
 
 		if len(newChannels) == 0 {
 			delete(h.connectedUsers, userID)
+			delete(h.userExtraInfo, userID)
 		} else {
 			h.connectedUsers[userID] = newChannels
 			// If there are still connections, we don't need to leave chats or broadcast offline.
@@ -479,9 +503,13 @@ func (h *Hub) sendToChannels(channels []chan models.ServerMessage, msg models.Se
 }
 
 func (h *Hub) Dispatch(userID string, msg models.ClientMessage, senderCh chan models.ServerMessage) {
-	// Location messages do not belong to any chatID, so handle them separately.
+	// Location and UserInfo messages do not belong to any chatID, so handle them separately.
 	if msg.Type == models.ClientMessageTypeLocation {
 		h.handleLocation(userID, msg)
+		return
+	}
+	if msg.Type == models.ClientMessageTypeUserInfo {
+		h.handleUserInfo(userID, msg, senderCh)
 		return
 	}
 
@@ -597,6 +625,90 @@ func (h *Hub) handleLocation(userID string, msg models.ClientMessage) {
 			{UserID: userID, Location: loc},
 		},
 	}, "")
+}
+
+func (h *Hub) handleUserInfo(userID string, msg models.ClientMessage, senderCh chan models.ServerMessage) {
+	if senderCh == nil {
+		return
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// If sharing is explicitly disabled, remove this connection's contribution
+	if msg.SharingEnabled != nil && !*msg.SharingEnabled {
+		if conns, ok := h.userExtraInfo[userID]; ok {
+			delete(conns, senderCh)
+			if len(conns) == 0 {
+				delete(h.userExtraInfo, userID)
+			}
+		}
+		return
+	}
+
+	if len(msg.TimeZone) > 128 || len(msg.PreferredLanguage) > 64 {
+		return
+	}
+	if strings.IndexFunc(msg.TimeZone, unicode.IsControl) >= 0 || strings.IndexFunc(msg.PreferredLanguage, unicode.IsControl) >= 0 {
+		return
+	}
+
+	tz := strings.TrimSpace(msg.TimeZone)
+	lang := strings.TrimSpace(msg.PreferredLanguage)
+
+	if tz == "" && lang == "" {
+		if conns, ok := h.userExtraInfo[userID]; ok {
+			delete(conns, senderCh)
+			if len(conns) == 0 {
+				delete(h.userExtraInfo, userID)
+			}
+		}
+		return
+	}
+
+	if h.userExtraInfo == nil {
+		h.userExtraInfo = make(map[string]map[chan models.ServerMessage]UserExtraInfo)
+	}
+	if _, ok := h.userExtraInfo[userID]; !ok {
+		h.userExtraInfo[userID] = make(map[chan models.ServerMessage]UserExtraInfo)
+	}
+
+	h.userExtraInfo[userID][senderCh] = UserExtraInfo{
+		TimeZone:          tz,
+		PreferredLanguage: lang,
+		UpdatedAt:         time.Now(),
+	}
+}
+
+func (h *Hub) GetUsersStatusAndInfo() map[string]UserStatusAndInfo {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	result := make(map[string]UserStatusAndInfo)
+
+	for userID, channels := range h.connectedUsers {
+		if len(channels) > 0 {
+			result[userID] = UserStatusAndInfo{Online: true}
+		}
+	}
+
+	for userID, conns := range h.userExtraInfo {
+		info, ok := result[userID]
+		if !ok || !info.Online {
+			continue
+		}
+		var latest UserExtraInfo
+		for _, extra := range conns {
+			if extra.UpdatedAt.After(latest.UpdatedAt) {
+				latest = extra
+			}
+		}
+		info.TimeZone = latest.TimeZone
+		info.PreferredLanguage = latest.PreferredLanguage
+		result[userID] = info
+	}
+
+	return result
 }
 
 func (h *Hub) sendToUser(userID string, msg models.ServerMessage) {

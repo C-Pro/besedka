@@ -186,3 +186,79 @@ func TestUploadAvatarHandler_BroadcastsNewUser(t *testing.T) {
 	}
 }
 
+func TestUsersHandler_UserInfoAndAccessControl(t *testing.T) {
+	apiInst, as, st, hub := setupAPIKeyTest(t)
+	defer func() { _ = st.Close() }()
+
+	// Add human user
+	_, err := as.AddUser("alice", "Alice Human")
+	require.NoError(t, err)
+	aliceUser, err := as.GetUserByUsername("alice")
+	require.NoError(t, err)
+	require.NoError(t, as.ActivateUser(aliceUser.ID))
+
+	// Add bot user
+	botUser, botKey, err := as.AddBot("testbot", "Test Bot", models.BotPermissions{ReadAll: true})
+	require.NoError(t, err)
+
+	// Add webhook user
+	_, webhookKey, err := as.AddWebhook("testwebhook", "Test Webhook", "townhall")
+	require.NoError(t, err)
+
+	// User connects and sends userInfo
+	ch := hub.Join(aliceUser.ID)
+	defer hub.Leave(aliceUser.ID, ch)
+
+	enabled := true
+	hub.Dispatch(aliceUser.ID, models.ClientMessage{
+		Type:              models.ClientMessageTypeUserInfo,
+		TimeZone:          "America/Chicago",
+		PreferredLanguage: "en-US",
+		SharingEnabled:    &enabled,
+	}, ch)
+
+	usersHandler := apiInst.RequireAuth(RequireUserTypes(apiInst.UsersHandler, models.UserTypeHuman, models.UserTypeBot))
+
+	// 1. Webhook calling GET /api/users should be forbidden
+	reqWebhook := httptest.NewRequest(http.MethodGet, "/api/users", nil)
+	reqWebhook.Header.Set("Authorization", "Bearer "+webhookKey)
+	wWebhook := httptest.NewRecorder()
+	usersHandler(wWebhook, reqWebhook)
+	assert.Equal(t, http.StatusForbidden, wWebhook.Code)
+
+	// 2. Bot calling GET /api/users should succeed
+	reqBot := httptest.NewRequest(http.MethodGet, "/api/users", nil)
+	reqBot.Header.Set("Authorization", "Bearer "+botKey)
+	wBot := httptest.NewRecorder()
+	usersHandler(wBot, reqBot)
+	assert.Equal(t, http.StatusOK, wBot.Code)
+	assert.Equal(t, "private, no-store", wBot.Header().Get("Cache-Control"))
+
+	var users []models.User
+	require.NoError(t, json.Unmarshal(wBot.Body.Bytes(), &users))
+
+	// Find Alice and verify TimeZone and PreferredLanguage
+	var foundAlice, foundBot bool
+	for _, u := range users {
+		if u.ID == aliceUser.ID {
+			foundAlice = true
+			assert.True(t, u.Presence.Online)
+			assert.Equal(t, "America/Chicago", u.TimeZone)
+			assert.Equal(t, "en-US", u.PreferredLanguage)
+		}
+		if u.ID == botUser.ID {
+			foundBot = true
+			assert.Empty(t, u.TimeZone)
+			assert.Empty(t, u.PreferredLanguage)
+		}
+	}
+	assert.True(t, foundAlice)
+	assert.True(t, foundBot)
+
+	// 3. Confirm that auth storage / bbolt never persists TimeZone / PreferredLanguage
+	storedAlice, err := as.GetUser(aliceUser.ID)
+	require.NoError(t, err)
+	assert.Empty(t, storedAlice.TimeZone)
+	assert.Empty(t, storedAlice.PreferredLanguage)
+}
+

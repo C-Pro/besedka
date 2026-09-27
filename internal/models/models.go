@@ -67,9 +67,11 @@ type User struct {
 	BotPermissions BotPermissions `json:"botPermissions,omitempty"`
 	TargetChatID   string         `json:"targetChatId,omitempty"`
 	SongURL        string         `json:"songUrl,omitempty"`
-	SongTitle      string         `json:"songTitle,omitempty"`
-	SongArtist     string         `json:"songArtist,omitempty"`
-	Bio            string         `json:"bio,omitempty"`
+	SongTitle         string         `json:"songTitle,omitempty"`
+	SongArtist        string         `json:"songArtist,omitempty"`
+	Bio               string         `json:"bio,omitempty"`
+	TimeZone          string         `json:"timeZone,omitempty"`
+	PreferredLanguage string         `json:"preferredLanguage,omitempty"`
 }
 
 // Presence represents the online status of a user.
@@ -208,8 +210,11 @@ type ClientMessage struct {
 	Attachments []Attachment      `json:"attachments,omitempty"`
 	FromSeq     int64             `json:"fromSeq,omitempty"`
 	ToSeq       int64             `json:"toSeq,omitempty"`
-	Location    *Location         `json:"location,omitempty"`
-	Seq         int64             `json:"seq,omitempty"` // Sequence number for read receipts
+	Location          *Location         `json:"location,omitempty"`
+	Seq               int64             `json:"seq,omitempty"` // Sequence number for read receipts
+	TimeZone          string            `json:"timeZone,omitempty"`
+	PreferredLanguage string            `json:"preferredLanguage,omitempty"`
+	SharingEnabled    *bool             `json:"sharingEnabled,omitempty"`
 }
 
 // ServerMessage represents a message to the client.
@@ -249,6 +254,7 @@ const (
 	ClientMessageTypePong     ClientMessageType = "pong"
 	ClientMessageTypeLocation ClientMessageType = "location"
 	ClientMessageTypeRead     ClientMessageType = "read"
+	ClientMessageTypeUserInfo ClientMessageType = "userInfo"
 )
 
 type ServerMessageType string

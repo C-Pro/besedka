@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1299,6 +1300,182 @@ func TestHub_UpdateLastSeen_MultiDeviceDelivery(t *testing.T) {
 		}
 	case <-time.After(50 * time.Millisecond):
 		// Expected
+	}
+}
+
+func TestHub_UserInfoLifecycle(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	user := models.User{ID: "u1", UserName: "alice"}
+	h := NewHub(ctx, &MockUserProvider{users: []models.User{user}}, NewMockStorage(), nil)
+
+	ch := h.Join(user.ID)
+
+	// Initially online, but no userInfo
+	statusMap := h.GetUsersStatusAndInfo()
+	if !statusMap[user.ID].Online {
+		t.Fatalf("expected user to be online")
+	}
+	if statusMap[user.ID].TimeZone != "" || statusMap[user.ID].PreferredLanguage != "" {
+		t.Fatalf("expected empty userInfo initially, got %+v", statusMap[user.ID])
+	}
+
+	// Send userInfo with sharing enabled
+	enabled := true
+	h.Dispatch(user.ID, models.ClientMessage{
+		Type:              models.ClientMessageTypeUserInfo,
+		TimeZone:          "America/New_York",
+		PreferredLanguage: "en-US",
+		SharingEnabled:    &enabled,
+	}, ch)
+
+	statusMap = h.GetUsersStatusAndInfo()
+	if statusMap[user.ID].TimeZone != "America/New_York" || statusMap[user.ID].PreferredLanguage != "en-US" {
+		t.Fatalf("expected updated userInfo, got %+v", statusMap[user.ID])
+	}
+
+	// Disable sharing
+	disabled := false
+	h.Dispatch(user.ID, models.ClientMessage{
+		Type:           models.ClientMessageTypeUserInfo,
+		SharingEnabled: &disabled,
+	}, ch)
+
+	statusMap = h.GetUsersStatusAndInfo()
+	if statusMap[user.ID].TimeZone != "" || statusMap[user.ID].PreferredLanguage != "" {
+		t.Fatalf("expected empty userInfo after disabling, got %+v", statusMap[user.ID])
+	}
+
+	// Re-enable
+	h.Dispatch(user.ID, models.ClientMessage{
+		Type:              models.ClientMessageTypeUserInfo,
+		TimeZone:          "Europe/Berlin",
+		PreferredLanguage: "de-DE",
+		SharingEnabled:    &enabled,
+	}, ch)
+
+	statusMap = h.GetUsersStatusAndInfo()
+	if statusMap[user.ID].TimeZone != "Europe/Berlin" || statusMap[user.ID].PreferredLanguage != "de-DE" {
+		t.Fatalf("expected re-enabled userInfo, got %+v", statusMap[user.ID])
+	}
+
+	// Disconnect user
+	h.Leave(user.ID, ch)
+
+	statusMap = h.GetUsersStatusAndInfo()
+	if statusMap[user.ID].Online {
+		t.Fatalf("expected user to be offline")
+	}
+	if statusMap[user.ID].TimeZone != "" || statusMap[user.ID].PreferredLanguage != "" {
+		t.Fatalf("expected empty userInfo after disconnect, got %+v", statusMap[user.ID])
+	}
+}
+
+func TestHub_UserInfoMultiSession(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	user := models.User{ID: "u1", UserName: "alice"}
+	h := NewHub(ctx, &MockUserProvider{users: []models.User{user}}, NewMockStorage(), nil)
+
+	conn1 := h.Join(user.ID)
+	conn2 := h.Join(user.ID)
+
+	enabled := true
+	h.Dispatch(user.ID, models.ClientMessage{
+		Type:              models.ClientMessageTypeUserInfo,
+		TimeZone:          "America/New_York",
+		PreferredLanguage: "en-US",
+		SharingEnabled:    &enabled,
+	}, conn1)
+
+	time.Sleep(10 * time.Millisecond)
+
+	h.Dispatch(user.ID, models.ClientMessage{
+		Type:              models.ClientMessageTypeUserInfo,
+		TimeZone:          "Europe/London",
+		PreferredLanguage: "en-GB",
+		SharingEnabled:    &enabled,
+	}, conn2)
+
+	// Latest contribution (conn2) should win
+	statusMap := h.GetUsersStatusAndInfo()
+	if statusMap[user.ID].TimeZone != "Europe/London" || statusMap[user.ID].PreferredLanguage != "en-GB" {
+		t.Fatalf("expected conn2 userInfo, got %+v", statusMap[user.ID])
+	}
+
+	// conn2 disables sharing -> should fall back to conn1
+	disabled := false
+	h.Dispatch(user.ID, models.ClientMessage{
+		Type:           models.ClientMessageTypeUserInfo,
+		SharingEnabled: &disabled,
+	}, conn2)
+
+	statusMap = h.GetUsersStatusAndInfo()
+	if statusMap[user.ID].TimeZone != "America/New_York" || statusMap[user.ID].PreferredLanguage != "en-US" {
+		t.Fatalf("expected fallback to conn1 userInfo, got %+v", statusMap[user.ID])
+	}
+
+	// conn1 leaves -> user goes offline and data is erased
+	h.Leave(user.ID, conn1)
+	h.Leave(user.ID, conn2)
+
+	statusMap = h.GetUsersStatusAndInfo()
+	if statusMap[user.ID].Online || statusMap[user.ID].TimeZone != "" {
+		t.Fatalf("expected offline and cleared, got %+v", statusMap[user.ID])
+	}
+}
+
+func TestHub_UserInfoValidation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	user := models.User{ID: "u1", UserName: "alice"}
+	h := NewHub(ctx, &MockUserProvider{users: []models.User{user}}, NewMockStorage(), nil)
+
+	ch := h.Join(user.ID)
+	defer h.Leave(user.ID, ch)
+
+	enabled := true
+	// Oversized timezone (> 128 chars) should be ignored
+	longTZ := strings.Repeat("A", 129)
+	h.Dispatch(user.ID, models.ClientMessage{
+		Type:              models.ClientMessageTypeUserInfo,
+		TimeZone:          longTZ,
+		PreferredLanguage: "en-US",
+		SharingEnabled:    &enabled,
+	}, ch)
+
+	statusMap := h.GetUsersStatusAndInfo()
+	if statusMap[user.ID].TimeZone != "" {
+		t.Fatalf("expected oversized timezone to be rejected, got %q", statusMap[user.ID].TimeZone)
+	}
+
+	// Control characters should be rejected
+	h.Dispatch(user.ID, models.ClientMessage{
+		Type:              models.ClientMessageTypeUserInfo,
+		TimeZone:          "America/New_York\n",
+		PreferredLanguage: "en-US",
+		SharingEnabled:    &enabled,
+	}, ch)
+
+	statusMap = h.GetUsersStatusAndInfo()
+	if statusMap[user.ID].TimeZone != "" {
+		t.Fatalf("expected timezone with control chars to be rejected, got %q", statusMap[user.ID].TimeZone)
+	}
+
+	// Valid inputs should be trimmed
+	h.Dispatch(user.ID, models.ClientMessage{
+		Type:              models.ClientMessageTypeUserInfo,
+		TimeZone:          "  Asia/Tokyo  ",
+		PreferredLanguage: " ja-JP ",
+		SharingEnabled:    &enabled,
+	}, ch)
+
+	statusMap = h.GetUsersStatusAndInfo()
+	if statusMap[user.ID].TimeZone != "Asia/Tokyo" || statusMap[user.ID].PreferredLanguage != "ja-JP" {
+		t.Fatalf("expected trimmed values, got %+v", statusMap[user.ID])
 	}
 }
 
