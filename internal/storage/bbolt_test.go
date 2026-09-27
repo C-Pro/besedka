@@ -491,6 +491,7 @@ func TestStorage(t *testing.T) {
 		want := models.DefaultUserSettings()
 		want.Notifications.SoundAllMessages = true
 		want.Notifications.SuppressWhenChatOpen = false
+		want.Appearance.Theme = models.ThemeLight
 		if err := store.UpsertUserSettings("settings_user", want); err != nil {
 			t.Fatalf("UpsertUserSettings failed: %v", err)
 		}
@@ -504,6 +505,20 @@ func TestStorage(t *testing.T) {
 		}
 		if got != want {
 			t.Errorf("settings roundtrip mismatch: got %+v, want %+v", got, want)
+		}
+
+		// Records written before appearance settings existed normalize to dark,
+		// preserving the historical UI instead of following the device theme.
+		legacy := (&DBUserSettings{
+			UserID: "legacy_settings_user",
+			Notifications: DBNotificationSettings{
+				SoundDirectMessages:  true,
+				SoundMentions:        true,
+				SuppressWhenChatOpen: true,
+			},
+		}).toModel()
+		if legacy.Appearance.Theme != models.ThemeDark {
+			t.Errorf("legacy theme = %q, want %q", legacy.Appearance.Theme, models.ThemeDark)
 		}
 
 		// Update overwrites the stored value.

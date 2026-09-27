@@ -6,6 +6,29 @@ import (
 	"testing"
 )
 
+func TestUserSettingsThemeDefaultsAndValidation(t *testing.T) {
+	settings := DefaultUserSettings()
+	if settings.Appearance.Theme != ThemeDark {
+		t.Fatalf("default theme = %q, want %q", settings.Appearance.Theme, ThemeDark)
+	}
+
+	legacy := NormalizeUserSettings(UserSettings{})
+	if legacy.Appearance.Theme != ThemeDark {
+		t.Fatalf("normalized legacy theme = %q, want %q", legacy.Appearance.Theme, ThemeDark)
+	}
+
+	for _, theme := range []string{ThemeDark, ThemeLight, ThemeSystem} {
+		if !IsValidTheme(theme) {
+			t.Errorf("expected %q to be valid", theme)
+		}
+	}
+	for _, theme := range []string{"", "auto", "sepia"} {
+		if IsValidTheme(theme) {
+			t.Errorf("expected %q to be invalid", theme)
+		}
+	}
+}
+
 func TestIsMessageVisible(t *testing.T) {
 	humanUser := User{ID: "h1", UserName: "alice", Type: UserTypeHuman}
 	webhookUser := User{ID: "w1", UserName: "wh", Type: UserTypeWebhook}

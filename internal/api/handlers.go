@@ -547,7 +547,11 @@ func (a *API) UpdateUserSettingsHandler(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Invalid settings payload", http.StatusBadRequest)
 		return
 	}
-
+	settings = models.NormalizeUserSettings(settings)
+	if !models.IsValidTheme(settings.Appearance.Theme) {
+		http.Error(w, "Invalid theme preference", http.StatusBadRequest)
+		return
+	}
 	if err := a.auth.UpdateUserSettings(user.ID, settings); err != nil {
 		if errors.Is(err, models.ErrNotFound) {
 			http.Error(w, "User not found", http.StatusNotFound)

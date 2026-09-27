@@ -28,12 +28,18 @@
     padding: 2rem;
     border-radius: var(--radius-lg);
     border: 1px solid var(--border-color);
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.05);
+    box-shadow: 0 16px 48px var(--shadow-color), 0 0 0 1px var(--subtle-fill-hover);
     width: 100%;
     max-width: 400px;
     display: flex;
     flex-direction: column;
     gap: 1rem;
+}
+
+.login-separator {
+    margin: 15px 0;
+    text-align: center;
+    color: var(--text-muted);
 }
 
 .login-header {
@@ -133,5 +139,5 @@
 }
 
 .login-footer a:hover {
-    color: #93c5fd;
+    color: var(--accent-hover);
 }

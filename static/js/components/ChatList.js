@@ -67,7 +67,7 @@ export function createChatList(container) {
         preview.replaceChildren();
         if (chat.isDm && chat.online) {
             const online = document.createElement('span');
-            online.style.color = '#4caf50';
+            online.style.color = 'var(--success-color)';
             online.style.fontSize = '0.8em';
             online.textContent = '● Online';
             preview.appendChild(online);

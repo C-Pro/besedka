@@ -86,16 +86,29 @@ type NotificationSettings struct {
 	SuppressWhenChatOpen bool `json:"suppressWhenChatOpen"`
 }
 
+const (
+	ThemeDark   = "dark"
+	ThemeLight  = "light"
+	ThemeSystem = "system"
+)
+
+// AppearanceSettings controls client-side presentation preferences.
+type AppearanceSettings struct {
+	Theme string `json:"theme"`
+}
+
 // UserSettings holds a user's persisted preferences. It is the single
 // extensibility point for per-user settings; add sibling sections here as
 // new preference groups are introduced.
 type UserSettings struct {
 	Notifications NotificationSettings `json:"notifications"`
+	Appearance    AppearanceSettings   `json:"appearance"`
 }
 
 // DefaultUserSettings returns the settings applied to a user who has never
 // saved any preferences. Direct-message and mention sounds are on by default,
-// "all messages" is off, and sounds are muted for the chat already on screen.
+// "all messages" is off, sounds are muted for the chat already on screen, and
+// the historical dark appearance remains the default.
 func DefaultUserSettings() UserSettings {
 	return UserSettings{
 		Notifications: NotificationSettings{
@@ -104,7 +117,22 @@ func DefaultUserSettings() UserSettings {
 			SoundMentions:        true,
 			SuppressWhenChatOpen: true,
 		},
+		Appearance: AppearanceSettings{Theme: ThemeDark},
 	}
+}
+
+// NormalizeUserSettings fills fields that are absent from settings records
+// written by older Besedka versions.
+func NormalizeUserSettings(settings UserSettings) UserSettings {
+	if settings.Appearance.Theme == "" {
+		settings.Appearance.Theme = ThemeDark
+	}
+	return settings
+}
+
+// IsValidTheme reports whether theme is a supported appearance preference.
+func IsValidTheme(theme string) bool {
+	return theme == ThemeDark || theme == ThemeLight || theme == ThemeSystem
 }
 
 // Chat represents a chat conversation.
