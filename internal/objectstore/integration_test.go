@@ -11,21 +11,16 @@ import (
 )
 
 // TestMinIORoundTrip exercises the client against a real S3-compatible server
-// (e.g. MinIO), which is the ultimate check that our SigV4 signing is accepted.
+// (e.g. S3Mock or MinIO), which is the ultimate check that our SigV4 signing is accepted.
 //
-// Run a local MinIO and a bucket first, e.g.:
+// Run a local S3Mock container first, e.g.:
 //
-//	docker run -d --rm -p 9000:9000 -e MINIO_ROOT_USER=minioadmin \
-//	  -e MINIO_ROOT_PASSWORD=minioadmin quay.io/minio/minio:latest server /data
-//	docker run --rm --network host --entrypoint sh quay.io/minio/mc:latest -c "
-//	  mc alias set local http://localhost:9000 minioadmin minioadmin &&
-//	  mc mb local/besedka-test
-//	"
+//	docker run -d --rm -p 9090:9090 -e initialBuckets=besedka-test -e COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS=besedka-test adobe/s3mock:latest
 //
 // Then:
 //
-//	S3_ENDPOINT=http://localhost:9000 S3_BUCKET=besedka-test \
-//	S3_ACCESS_KEY=minioadmin S3_SECRET_KEY=minioadmin \
+//	S3_ENDPOINT=http://localhost:9090 S3_BUCKET=besedka-test \
+//	S3_ACCESS_KEY=test S3_SECRET_KEY=test \
 //	  go test -tags integration ./internal/objectstore/
 func TestMinIORoundTrip(t *testing.T) {
 	endpoint := os.Getenv("S3_ENDPOINT")
