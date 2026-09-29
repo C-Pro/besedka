@@ -225,11 +225,82 @@ All endpoints below require a valid session token.
     "userId": "string",
     "content": "string",
     "rawContent": "string",
+    "type": "text | progress", // optional, defaults to "text"
+    "progress": {             // present when type is "progress"
+      "parentSeq": number,
+      "cardStatus": "running | completed | failed",
+      "title": "string",
+      "steps": [
+        {
+          "id": "string",
+          "title": "string",
+          "description": "string",
+          "status": "running | completed | failed"
+        }
+      ]
+    },
     "attachments": [
        // List of attachments
     ]
   }
 ]
+```
+
+### Send Chat Message
+**Endpoint:** `POST /api/chats/{id}/messages`
+
+**Description:** Sends a message to a chat. Supports standard text messages and bot progress cards (`type="progress"`). Progress messages are restricted to `bot` users with write permissions.
+
+**Request (Text Message):**
+```json
+{
+  "content": "string",
+  "attachments": []
+}
+```
+
+**Request (Root Progress Message - Bots Only):**
+```json
+{
+  "type": "progress",
+  "progress": {
+    "title": "Compiling news report...",
+    "cardStatus": "running",
+    "steps": [
+      {
+        "id": "step-1",
+        "title": "Gathering user preferences",
+        "description": "Checking news topics and sources",
+        "status": "running"
+      }
+    ]
+  }
+}
+```
+
+**Request (Child Step Event - Bots Only):**
+```json
+{
+  "type": "progress",
+  "progress": {
+    "parentSeq": 123,
+    "cardStatus": "running | completed | failed",
+    "step": {
+      "id": "step-2",
+      "title": "Fetching news sources",
+      "description": "Retrieved 15 articles",
+      "status": "running | completed | failed"
+    }
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "seq": 123,
+  "timestamp": 1700000000
+}
 ```
 
 ---

@@ -179,15 +179,47 @@ type LastSeenEntry struct {
 	Seq    int64  `json:"seq"`
 }
 
+type MessageType string
+
+const (
+	MessageTypeText     MessageType = "text"
+	MessageTypeProgress MessageType = "progress"
+)
+
+type ProgressStatus string
+
+const (
+	ProgressStatusRunning   ProgressStatus = "running"
+	ProgressStatusCompleted ProgressStatus = "completed"
+	ProgressStatusFailed    ProgressStatus = "failed"
+)
+
+type ProgressStep struct {
+	ID          string         `json:"id"`
+	Title       string         `json:"title"`
+	Description string         `json:"description,omitempty"`
+	Status      ProgressStatus `json:"status"`
+}
+
+type ProgressData struct {
+	ParentSeq  int64          `json:"parentSeq,omitempty"`
+	CardStatus ProgressStatus `json:"cardStatus,omitempty"`
+	Title      string         `json:"title,omitempty"`
+	Step       *ProgressStep  `json:"step,omitempty"`
+	Steps      []ProgressStep `json:"steps,omitempty"`
+}
+
 // Message represents a chat message.
 type Message struct {
-	Seq         int64        `json:"seq"`
-	Timestamp   int64        `json:"timestamp"` // Unix timestamp (seconds)
-	ChatID      string       `json:"chatId"`
-	UserID      string       `json:"userId"`
-	Content     string       `json:"content"`
-	RawContent  string       `json:"rawContent,omitempty"`
-	Attachments []Attachment `json:"attachments,omitempty"`
+	Seq         int64         `json:"seq"`
+	Timestamp   int64         `json:"timestamp"` // Unix timestamp (seconds)
+	ChatID      string        `json:"chatId"`
+	UserID      string        `json:"userId"`
+	Content     string        `json:"content"`
+	RawContent  string        `json:"rawContent,omitempty"`
+	Attachments []Attachment  `json:"attachments,omitempty"`
+	Type        MessageType   `json:"type,omitempty"`
+	Progress    *ProgressData `json:"progress,omitempty"`
 }
 
 // Location represents geographic coordinates.
@@ -204,17 +236,19 @@ type UserLocation struct {
 
 // ClientMessage represents a message sent from the client to the server.
 type ClientMessage struct {
-	Type        ClientMessageType `json:"type"`
-	ChatID      string            `json:"chatId,omitempty"`
-	Content     string            `json:"content,omitempty"`
-	Attachments []Attachment      `json:"attachments,omitempty"`
-	FromSeq     int64             `json:"fromSeq,omitempty"`
-	ToSeq       int64             `json:"toSeq,omitempty"`
+	Type              ClientMessageType `json:"type"`
+	ChatID            string            `json:"chatId,omitempty"`
+	Content           string            `json:"content,omitempty"`
+	Attachments       []Attachment      `json:"attachments,omitempty"`
+	FromSeq           int64             `json:"fromSeq,omitempty"`
+	ToSeq             int64             `json:"toSeq,omitempty"`
 	Location          *Location         `json:"location,omitempty"`
 	Seq               int64             `json:"seq,omitempty"` // Sequence number for read receipts
 	TimeZone          string            `json:"timeZone,omitempty"`
 	PreferredLanguage string            `json:"preferredLanguage,omitempty"`
 	SharingEnabled    *bool             `json:"sharingEnabled,omitempty"`
+	MessageType       MessageType       `json:"messageType,omitempty"`
+	Progress          *ProgressData     `json:"progress,omitempty"`
 }
 
 // ServerMessage represents a message to the client.

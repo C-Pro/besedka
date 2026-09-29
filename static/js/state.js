@@ -15,6 +15,96 @@ const DEFAULT_APPEARANCE_SETTINGS = {
 
 const SESSION_CHECK_TIMEOUT_MS = 10000;
 
+function isProgressChild(m) {
+    return !!(m && m.type === 'progress' && m.progress && m.progress.parentSeq > 0);
+}
+
+function normalizeMessage(chatId, m, currentUserId) {
+    const d = new Date(m.timestamp * 1000);
+    const pad = (n) => n.toString().padStart(2, '0');
+    let progress = null;
+    if (m.progress) {
+        const rawSteps = Array.isArray(m.progress.steps) ? m.progress.steps.map(s => ({ ...s })) : [];
+        const cardStatus = m.progress.cardStatus || '';
+        if (cardStatus === 'completed') {
+            for (let i = 0; i < rawSteps.length; i++) {
+                if (rawSteps[i].status !== 'failed') {
+                    rawSteps[i].status = 'completed';
+                }
+            }
+        }
+        progress = {
+            parentSeq: m.progress.parentSeq || 0,
+            title: m.progress.title || '',
+            cardStatus,
+            step: m.progress.step ? { ...m.progress.step } : null,
+            steps: rawSteps
+        };
+    }
+    return {
+        id: `${chatId}-${m.seq}`,
+        seq: m.seq,
+        text: m.content || '',
+        rawText: m.rawContent || '',
+        sender: m.userId === currentUserId ? 'me' : m.userId,
+        timestamp: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`,
+        rawTimestamp: m.timestamp * 1000,
+        userId: m.userId,
+        attachments: m.attachments || [],
+        type: m.type || 'text',
+        progress
+    };
+}
+
+function foldProgressChild(parent, child) {
+    if (!parent || !child || !child.progress) return parent;
+    const parentProg = parent.progress || { parentSeq: 0, title: '', cardStatus: 'running', steps: [] };
+    const steps = Array.isArray(parentProg.steps) ? parentProg.steps.map(s => ({ ...s })) : [];
+
+    let cardStatus = parentProg.cardStatus || 'running';
+    if (child.progress.cardStatus) {
+        cardStatus = child.progress.cardStatus;
+    }
+
+    if (child.progress.step) {
+        const st = { ...child.progress.step };
+        const idx = steps.findIndex(s => s.id === st.id);
+        if (idx >= 0) {
+            steps[idx] = {
+                ...steps[idx],
+                ...st,
+                title: st.title || steps[idx].title,
+                description: st.description !== undefined ? st.description : steps[idx].description,
+                status: st.status || steps[idx].status
+            };
+        } else if (steps.length < 100) {
+            for (let i = 0; i < steps.length; i++) {
+                if (steps[i].status === 'running') {
+                    steps[i].status = 'completed';
+                }
+            }
+            steps.push(st);
+        }
+    }
+
+    if (cardStatus === 'completed') {
+        for (let i = 0; i < steps.length; i++) {
+            if (steps[i].status !== 'failed') {
+                steps[i].status = 'completed';
+            }
+        }
+    }
+
+    return {
+        ...parent,
+        progress: {
+            ...parentProg,
+            cardStatus,
+            steps
+        }
+    };
+}
+
 // Simple State Management
 class Store {
     constructor() {
@@ -30,6 +120,8 @@ class Store {
             userLocations: new Map(), // userId -> { lat, lng, timestamp }
             unreadCounts: {}, // chatId -> count
             lastSeenSeqs: {}, // chatId -> sequence number
+            messageRevisions: {}, // chatId -> revision number
+            oldestLoadedSeqs: {}, // chatId -> lowest loaded sequence number
             forceScrollSignal: 0
         };
         this.listeners = [];
@@ -783,29 +875,10 @@ class Store {
     handleNewMessages(msg) {
         const chatId = msg.chatId;
         const currentMessages = this.state.messages[chatId] || [];
-        const wasLoadingHistory = this.state.isLoadingHistory[chatId];
+        const wasLoadingHistory = !!this.state.isLoadingHistory[chatId];
+        const rawIncoming = msg.messages || [];
 
-        const newMessages = [];
-        for (const m of (msg.messages || [])) {
-            newMessages.push({
-                id: `${chatId}-${m.seq}`, // unique id
-                seq: m.seq,
-                text: m.content,
-                rawText: m.rawContent,
-                sender: m.userId === this.state.currentUser?.id ? 'me' : m.userId,
-                timestamp: (() => {
-                    const d = new Date(m.timestamp * 1000);
-                    const pad = (n) => n.toString().padStart(2, '0');
-                    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-                })(),
-                rawTimestamp: m.timestamp * 1000,
-                userId: m.userId,
-                attachments: m.attachments || []
-            });
-        }
-
-        if (newMessages.length === 0) {
-            // If we get an empty array (e.g. at the beginning of chat), we still need to clear the loading state
+        if (rawIncoming.length === 0) {
             this.setState({
                 isLoadingHistory: {
                     ...this.state.isLoadingHistory,
@@ -815,21 +888,49 @@ class Store {
             return;
         }
 
-        // Merge messages by unique seq
-        const mergedMap = new Map();
-        for (const m of currentMessages) {
-            mergedMap.set(m.seq, m);
-        }
-        for (const m of newMessages) {
-            mergedMap.set(m.seq, m);
+        const isHistoryBatch = wasLoadingHistory || (currentMessages.length === 0 && rawIncoming.length > 1);
+
+        const minIncomingSeq = Math.min(...rawIncoming.map(m => m.seq));
+        const prevOldest = this.state.oldestLoadedSeqs?.[chatId] ?? Infinity;
+        const oldestLoadedSeqs = {
+            ...this.state.oldestLoadedSeqs,
+            [chatId]: Math.min(prevOldest, minIncomingSeq)
+        };
+
+        let updatedMessages = [...currentMessages];
+        let revisionIncrement = 0;
+
+        for (const rawMsg of rawIncoming) {
+            const norm = normalizeMessage(chatId, rawMsg, this.state.currentUser?.id);
+            if (isProgressChild(norm)) {
+                if (!isHistoryBatch) {
+                    const parentIdx = updatedMessages.findIndex(m => m.seq === norm.progress.parentSeq);
+                    if (parentIdx >= 0) {
+                        updatedMessages[parentIdx] = foldProgressChild(updatedMessages[parentIdx], norm);
+                        revisionIncrement++;
+                    }
+                }
+            } else {
+                const existingIdx = updatedMessages.findIndex(m => m.seq === norm.seq);
+                if (existingIdx >= 0) {
+                    if (norm.type === 'progress' && norm.progress) {
+                        updatedMessages[existingIdx] = norm;
+                        revisionIncrement++;
+                    } else {
+                        updatedMessages[existingIdx] = norm;
+                    }
+                } else {
+                    updatedMessages.push(norm);
+                }
+            }
         }
 
-        const mergedMessages = Array.from(mergedMap.values());
-        mergedMessages.sort((a, b) => a.seq - b.seq);
+        updatedMessages.sort((a, b) => a.seq - b.seq);
 
-        const maxSeq = mergedMessages.length > 0 ? mergedMessages[mergedMessages.length - 1].seq : 0;
-        
-        // Update lastSeq for this chat in state
+        const incomingMaxSeq = Math.max(...rawIncoming.map(m => m.seq));
+        const currentMaxSeq = currentMessages.length > 0 ? currentMessages[currentMessages.length - 1].seq : 0;
+        const maxSeq = Math.max(incomingMaxSeq, currentMaxSeq);
+
         const chats = this.state.chats.map(c => {
             if (c.id === chatId) {
                 const updatedLastSeq = Math.max(c.lastSeq || 0, maxSeq);
@@ -838,21 +939,27 @@ class Store {
             return c;
         });
 
+        const newRevisions = revisionIncrement > 0 ? {
+            ...this.state.messageRevisions,
+            [chatId]: (this.state.messageRevisions?.[chatId] || 0) + revisionIncrement
+        } : this.state.messageRevisions;
+
         this.setState({
             chats,
             messages: {
                 ...this.state.messages,
-                [chatId]: mergedMessages
+                [chatId]: updatedMessages
             },
+            messageRevisions: newRevisions,
+            oldestLoadedSeqs,
             isLoadingHistory: {
                 ...this.state.isLoadingHistory,
                 [chatId]: false
             }
         });
 
-        // Intercept current user's own sent messages to advance seen sequence immediately
         let maxUserSentSeq = 0;
-        for (const m of newMessages) {
+        for (const m of rawIncoming) {
             if (m.userId === this.state.currentUser?.id) {
                 if (m.seq > maxUserSentSeq) {
                     maxUserSentSeq = m.seq;
@@ -867,9 +974,11 @@ class Store {
             }
         }
 
+        const hasNonChild = rawIncoming.some(m => !isProgressChild(m));
+
         if (chatId === this.state.activeChatId && maxSeq > 0) {
             this.progressLastSeen(chatId, maxSeq);
-        } else {
+        } else if (hasNonChild) {
             const lastSeen = this.state.lastSeenSeqs[chatId] || 0;
             const newUnreadCounts = {
                 ...this.state.unreadCounts,
@@ -879,9 +988,7 @@ class Store {
             this.updateAppBadge();
         }
 
-        // Show local notification if message is from a different chat or tab is hidden
-        const isHistoryFetch = currentMessages.length === 0 && newMessages.length > 1;
-        if (!wasLoadingHistory && !isHistoryFetch) {
+        if (!wasLoadingHistory && !isHistoryBatch) {
             const now = Date.now();
             const lastSeq = currentMessages.length > 0 ? currentMessages[currentMessages.length - 1].seq : 0;
 
@@ -890,22 +997,25 @@ class Store {
             const myUserName = this.getCurrentUserName();
             let playSound = false;
 
-            for (const m of newMessages) {
+            for (const m of rawIncoming) {
+                if (isProgressChild(m)) {
+                    continue;
+                }
                 const alreadyExists = m.seq <= lastSeq;
-                const isOld = (now - m.rawTimestamp) > 5 * 60 * 1000;
+                const isOld = (now - (m.timestamp * 1000)) > 5 * 60 * 1000;
 
                 if (m.userId !== this.state.currentUser?.id && !alreadyExists && !isOld) {
                     const isDifferentChat = chatId !== this.state.activeChatId;
                     const isTabHidden = document.hidden;
 
+                    const norm = normalizeMessage(chatId, m, this.state.currentUser?.id);
+
                     if (isDifferentChat || isTabHidden) {
-                        this.showLocalNotification(chatId, m);
+                        this.showLocalNotification(chatId, norm);
                     }
 
-                    // Notification sound has its own gating, independent of the
-                    // visual notification above.
                     const mentionedMe = !!myUserName
-                        && getMentionedUserNames(m.rawText, this.state.users).has(myUserName.toLowerCase());
+                        && getMentionedUserNames(norm.rawText, this.state.users).has(myUserName.toLowerCase());
                     const shouldPlay = n.soundAllMessages
                         || (n.soundDirectMessages && chat?.isDm)
                         || (n.soundMentions && mentionedMe);
@@ -918,7 +1028,6 @@ class Store {
                 }
             }
 
-            // Play at most once per incoming batch to avoid overlapping audio.
             if (playSound) {
                 this.playNotificationSound();
             }
@@ -931,16 +1040,18 @@ class Store {
         try {
             const senderUser = this.state.users.find(u => u.id === message.userId);
             const senderName = senderUser ? (senderUser.displayName || senderUser.userName) : message.userId;
-            
+
             const chat = this.state.chats.find(c => c.id === chatId);
             let title = senderName;
             if (chat && !chat.isDm) {
                 title = `${senderName} in ${chat.name}`;
             }
 
+            const body = message.rawText || message.text || message.progress?.title || 'Sent a message';
+
             const registration = await navigator.serviceWorker.ready;
             await registration.showNotification(title, {
-                body: message.rawText || message.text,
+                body,
                 icon: senderUser?.avatarUrl || '/besedka.png',
                 tag: `/?chat=${chatId}`,
                 renotify: true,
@@ -1293,6 +1404,7 @@ class Store {
     }
 }
 
+export { Store, isProgressChild, normalizeMessage, foldProgressChild };
 export const store = new Store();
 
 export function bufferToBase64URL(buffer) {

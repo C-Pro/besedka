@@ -166,3 +166,101 @@ func TestUserInfoJSONSerialization(t *testing.T) {
 		t.Errorf("unexpected decoded clientMsg: %+v", decoded)
 	}
 }
+
+func TestProgressMessageJSONSerialization(t *testing.T) {
+	// Standard legacy message should omit type and progress
+	legacyMsg := Message{
+		Seq:       1,
+		Timestamp: 1700000000,
+		ChatID:    "townhall",
+		UserID:    "alice",
+		Content:   "Hello world",
+	}
+	data, err := json.Marshal(legacyMsg)
+	if err != nil {
+		t.Fatalf("unexpected marshal error: %v", err)
+	}
+	str := string(data)
+	if strings.Contains(str, `"type"`) || strings.Contains(str, `"progress"`) {
+		t.Errorf("expected type and progress to be omitted, got: %s", str)
+	}
+
+	// Root progress message
+	rootMsg := Message{
+		Seq:       10,
+		Timestamp: 1700000010,
+		ChatID:    "townhall",
+		UserID:    "newsbot",
+		Type:      MessageTypeProgress,
+		Progress: &ProgressData{
+			CardStatus: ProgressStatusRunning,
+			Title:      "Compiling news report...",
+			Steps: []ProgressStep{
+				{
+					ID:          "step-1",
+					Title:       "Gathering preferences",
+					Description: "Looking up saved topics",
+					Status:      ProgressStatusCompleted,
+				},
+				{
+					ID:     "step-2",
+					Title:  "Fetching news sources",
+					Status: ProgressStatusRunning,
+				},
+			},
+		},
+	}
+	data, err = json.Marshal(rootMsg)
+	if err != nil {
+		t.Fatalf("unexpected marshal error: %v", err)
+	}
+	var decodedMsg Message
+	if err := json.Unmarshal(data, &decodedMsg); err != nil {
+		t.Fatalf("unexpected unmarshal error: %v", err)
+	}
+	if decodedMsg.Type != MessageTypeProgress {
+		t.Errorf("expected type %q, got %q", MessageTypeProgress, decodedMsg.Type)
+	}
+	if decodedMsg.Progress == nil || decodedMsg.Progress.CardStatus != ProgressStatusRunning {
+		t.Errorf("expected cardStatus running, got %+v", decodedMsg.Progress)
+	}
+	if len(decodedMsg.Progress.Steps) != 2 {
+		t.Fatalf("expected 2 steps, got %d", len(decodedMsg.Progress.Steps))
+	}
+	if decodedMsg.Progress.Steps[0].ID != "step-1" || decodedMsg.Progress.Steps[0].Status != ProgressStatusCompleted {
+		t.Errorf("unexpected step 0: %+v", decodedMsg.Progress.Steps[0])
+	}
+
+	// ClientMessage with progress and messageType
+	clientMsg := ClientMessage{
+		Type:        ClientMessageTypeSend,
+		ChatID:      "townhall",
+		MessageType: MessageTypeProgress,
+		Progress: &ProgressData{
+			ParentSeq: 10,
+			Step: &ProgressStep{
+				ID:     "step-2",
+				Title:  "Fetching news sources",
+				Status: ProgressStatusCompleted,
+			},
+			CardStatus: ProgressStatusCompleted,
+		},
+	}
+	data, err = json.Marshal(clientMsg)
+	if err != nil {
+		t.Fatalf("unexpected marshal error: %v", err)
+	}
+	var decodedClient ClientMessage
+	if err := json.Unmarshal(data, &decodedClient); err != nil {
+		t.Fatalf("unexpected unmarshal error: %v", err)
+	}
+	if decodedClient.Type != ClientMessageTypeSend {
+		t.Errorf("expected client message type 'send', got %s", decodedClient.Type)
+	}
+	if decodedClient.MessageType != MessageTypeProgress {
+		t.Errorf("expected messageType 'progress', got %s", decodedClient.MessageType)
+	}
+	if decodedClient.Progress == nil || decodedClient.Progress.ParentSeq != 10 {
+		t.Errorf("unexpected progress payload: %+v", decodedClient.Progress)
+	}
+}

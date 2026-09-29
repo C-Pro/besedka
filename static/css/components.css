@@ -1706,3 +1706,196 @@
 .user-profile-actions .btn {
     width: 100%;
 }
+
+/* Bot Progress Card Component */
+.progress-card {
+    margin: 6px 0 6px 0;
+    max-width: 580px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md, 8px);
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 0.9rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    transition: border-color var(--transition-fast);
+}
+
+.progress-card:hover {
+    border-color: var(--accent-hover, #60a5fa);
+}
+
+.progress-card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    cursor: pointer;
+    user-select: none;
+    background: var(--subtle-fill, rgba(255, 255, 255, 0.03));
+    transition: background-color var(--transition-fast);
+}
+
+.progress-card-header:hover {
+    background: var(--subtle-fill-hover, rgba(255, 255, 255, 0.08));
+}
+
+.progress-card-header:focus-visible {
+    outline: 2px solid var(--accent-color);
+    outline-offset: -2px;
+}
+
+.progress-card-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+}
+
+.progress-spinner {
+    animation: progress-spin 1s linear infinite;
+    color: var(--accent-color, #3b82f6);
+}
+
+@keyframes progress-spin {
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+.progress-card-icon .progress-icon-completed {
+    color: var(--success-color, #10b981);
+}
+
+.progress-card-icon .progress-icon-failed {
+    color: #ef4444;
+}
+
+.progress-card-title {
+    flex: 1;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.progress-card-badge {
+    font-size: 0.75rem;
+    padding: 2px 6px;
+    border-radius: var(--radius-sm, 4px);
+    background: var(--subtle-fill, rgba(255, 255, 255, 0.06));
+    color: var(--text-muted);
+    font-family: monospace;
+}
+
+.progress-card-badge.status-completed {
+    color: var(--success-color, #10b981);
+    background: var(--success-bg, rgba(16, 185, 129, 0.15));
+}
+
+.progress-card-badge.status-failed {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.15);
+}
+
+.progress-card-chevron {
+    width: 16px;
+    height: 16px;
+    color: var(--text-muted);
+    transition: transform var(--transition-fast, 0.2s ease);
+    flex-shrink: 0;
+}
+
+.progress-card[data-expanded="true"] .progress-card-chevron {
+    transform: rotate(180deg);
+}
+
+.progress-card-body {
+    padding: 10px 14px 12px 14px;
+    border-top: 1px solid var(--border-subtle);
+    display: block;
+}
+
+.progress-card[data-expanded="false"] .progress-card-body {
+    display: none;
+}
+
+.progress-timeline {
+    position: relative;
+    padding-left: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.progress-timeline::before {
+    content: '';
+    position: absolute;
+    top: 6px;
+    bottom: 6px;
+    left: 5px;
+    width: 2px;
+    background: var(--border-subtle);
+}
+
+.progress-step-item {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.progress-step-marker {
+    position: absolute;
+    left: -16px;
+    top: 2px;
+    width: 12px;
+    height: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-panel);
+    border-radius: 50%;
+}
+
+.progress-step-marker .progress-spinner {
+    width: 12px;
+    height: 12px;
+    color: var(--accent-color, #3b82f6);
+}
+
+.progress-step-marker .progress-icon-completed {
+    width: 12px;
+    height: 12px;
+    color: var(--success-color, #10b981);
+}
+
+.progress-step-marker .progress-icon-failed {
+    width: 12px;
+    height: 12px;
+    color: #ef4444;
+}
+
+.progress-step-title {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    line-height: 1.3;
+}
+
+.progress-step-desc {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    line-height: 1.3;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.progress-timeline-empty {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    font-style: italic;
+}
