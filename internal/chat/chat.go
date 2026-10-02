@@ -21,6 +21,8 @@ type ChatRecord struct {
 	Content          string
 	FormattedContent string
 	Attachments      []models.Attachment
+	Type             models.MessageType
+	Progress         *models.ProgressData
 }
 
 type Chat struct {
@@ -64,7 +66,7 @@ func New(config Config) *Chat {
 // - Updating FirstSeq and LastSeq
 // - Persisting into storage
 // - Sending updates to all connected clients
-func (c *Chat) AddRecord(record ChatRecord) error {
+func (c *Chat) AddRecord(record ChatRecord) (ChatRecord, error) {
 	c.mux.Lock()
 
 	nextSeq := c.LastSeq + 1
@@ -79,11 +81,13 @@ func (c *Chat) AddRecord(record ChatRecord) error {
 			UserID:      record.UserID,
 			Content:     record.Content,
 			Attachments: record.Attachments,
+			Type:        record.Type,
+			Progress:    record.Progress,
 		})
 		if err != nil {
 			c.mux.Unlock()
 			slog.Error("failed to persist message", "chatID", c.ID, "error", err)
-			return fmt.Errorf("failed to persist message: %w", err)
+			return ChatRecord{}, fmt.Errorf("failed to persist message: %w", err)
 		}
 	}
 
@@ -104,6 +108,56 @@ func (c *Chat) AddRecord(record ChatRecord) error {
 		c.LastIndex = i
 	}
 
+	if record.Progress != nil && record.Progress.ParentSeq > 0 {
+		parentSeq := Seq(record.Progress.ParentSeq)
+		for idx := range c.Records {
+			if c.Records[idx].Seq == parentSeq && c.Records[idx].Progress != nil {
+				if record.Progress.CardStatus != "" {
+					c.Records[idx].Progress.CardStatus = record.Progress.CardStatus
+					if record.Progress.CardStatus == models.ProgressStatusCompleted {
+						for sIdx := range c.Records[idx].Progress.Steps {
+							if c.Records[idx].Progress.Steps[sIdx].Status != models.ProgressStatusFailed {
+								c.Records[idx].Progress.Steps[sIdx].Status = models.ProgressStatusCompleted
+							}
+						}
+					}
+				}
+				if record.Progress.Step != nil {
+					stepFound := false
+					st := *record.Progress.Step
+					for sIdx := range c.Records[idx].Progress.Steps {
+						if c.Records[idx].Progress.Steps[sIdx].ID == st.ID {
+							if st.Title == "" {
+								st.Title = c.Records[idx].Progress.Steps[sIdx].Title
+							}
+							if st.Description == "" {
+								st.Description = c.Records[idx].Progress.Steps[sIdx].Description
+							}
+							if st.Status == "" {
+								st.Status = c.Records[idx].Progress.Steps[sIdx].Status
+							}
+							c.Records[idx].Progress.Steps[sIdx] = st
+							stepFound = true
+							break
+						}
+					}
+					if !stepFound && len(c.Records[idx].Progress.Steps) < 100 {
+						for sIdx := range c.Records[idx].Progress.Steps {
+							if c.Records[idx].Progress.Steps[sIdx].Status == models.ProgressStatusRunning {
+								c.Records[idx].Progress.Steps[sIdx].Status = models.ProgressStatusCompleted
+							}
+						}
+						if c.Records[idx].Progress.CardStatus == models.ProgressStatusCompleted && st.Status != models.ProgressStatusFailed {
+							st.Status = models.ProgressStatusCompleted
+						}
+						c.Records[idx].Progress.Steps = append(c.Records[idx].Progress.Steps, st)
+					}
+				}
+				break
+			}
+		}
+	}
+
 	// Collect receivers while holding the lock
 	receivers := make([]string, 0, len(c.Members))
 	for receiverID := range c.Members {
@@ -117,7 +171,7 @@ func (c *Chat) AddRecord(record ChatRecord) error {
 			c.RecordCallback(receiverID, c.ID, record)
 		}
 	}
-	return nil
+	return record, nil
 }
 
 func (c *Chat) GetLastSeq() int64 {
@@ -162,6 +216,8 @@ func (c *Chat) GetRecords(from, to Seq) ([]ChatRecord, error) {
 				UserID:      m.UserID,
 				Content:     m.Content,
 				Attachments: m.Attachments,
+				Type:        m.Type,
+				Progress:    m.Progress,
 			})
 		}
 	}
@@ -175,29 +231,27 @@ func (c *Chat) GetRecords(from, to Seq) ([]ChatRecord, error) {
 			mFrom = memFrom
 		}
 
-		if mFrom <= to && mFrom >= c.FirstSeq {
-			// Memory fetch logic...
+		if mFrom <= to && mFrom >= c.FirstSeq && mFrom <= c.LastSeq {
 			count := int(to - mFrom + 1)
-			
-			// Cap count to available records if `to` is higher than `LastSeq`
 			if to > c.LastSeq {
 				count = int(c.LastSeq - mFrom + 1)
 			}
 
-			// Calculate start index in ring buffer
-			head := 0
-			if len(c.Records) == c.MaxRecords {
-				head = (c.LastIndex + 1) % c.MaxRecords
-			}
-			offset := int(mFrom - c.FirstSeq)
-			startIdx := (head + offset) % len(c.Records)
+			if count > 0 && len(c.Records) > 0 {
+				head := 0
+				if len(c.Records) == c.MaxRecords {
+					head = (c.LastIndex + 1) % c.MaxRecords
+				}
+				offset := int(mFrom - c.FirstSeq)
+				startIdx := (head + offset) % len(c.Records)
 
-			if startIdx+count <= len(c.Records) {
-				result = append(result, c.Records[startIdx:startIdx+count]...)
-			} else {
-				n1 := len(c.Records) - startIdx
-				result = append(result, c.Records[startIdx:]...)
-				result = append(result, c.Records[:count-n1]...)
+				if startIdx+count <= len(c.Records) {
+					result = append(result, c.Records[startIdx:startIdx+count]...)
+				} else {
+					n1 := len(c.Records) - startIdx
+					result = append(result, c.Records[startIdx:]...)
+					result = append(result, c.Records[:count-n1]...)
+				}
 			}
 		}
 	}

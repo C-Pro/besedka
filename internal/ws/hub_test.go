@@ -45,11 +45,46 @@ func NewMockStorage() *MockStorage {
 }
 
 func (m *MockStorage) UpsertMessage(msg models.Message) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.messages[msg.ChatID] = append(m.messages[msg.ChatID], msg)
+	if c, ok := m.chats[msg.ChatID]; ok {
+		if int(msg.Seq) > c.LastSeq {
+			c.LastSeq = int(msg.Seq)
+			m.chats[msg.ChatID] = c
+		}
+	}
+	if msg.Type == models.MessageTypeProgress && msg.Progress != nil && msg.Progress.ParentSeq > 0 {
+		for i := range m.messages[msg.ChatID] {
+			if m.messages[msg.ChatID][i].Seq == msg.Progress.ParentSeq && m.messages[msg.ChatID][i].Progress != nil {
+				parentProg := m.messages[msg.ChatID][i].Progress
+				if msg.Progress.CardStatus != "" {
+					parentProg.CardStatus = msg.Progress.CardStatus
+				}
+				if msg.Progress.Step != nil {
+					st := *msg.Progress.Step
+					found := false
+					for sIdx := range parentProg.Steps {
+						if parentProg.Steps[sIdx].ID == st.ID {
+							parentProg.Steps[sIdx] = st
+							found = true
+							break
+						}
+					}
+					if !found && len(parentProg.Steps) < 100 {
+						parentProg.Steps = append(parentProg.Steps, st)
+					}
+				}
+				break
+			}
+		}
+	}
 	return nil
 }
 
 func (m *MockStorage) ListMessages(chatID string, from, to int64) ([]models.Message, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	var results []models.Message
 	if msgs, ok := m.messages[chatID]; ok {
 		for _, r := range msgs {
@@ -62,6 +97,8 @@ func (m *MockStorage) ListMessages(chatID string, from, to int64) ([]models.Mess
 }
 
 func (m *MockStorage) ListChats() ([]models.Chat, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	var results []models.Chat
 	for _, c := range m.chats {
 		results = append(results, c)
@@ -70,6 +107,8 @@ func (m *MockStorage) ListChats() ([]models.Chat, error) {
 }
 
 func (m *MockStorage) UpsertChat(chat models.Chat) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.chats[chat.ID] = chat
 	return nil
 }
@@ -1476,6 +1515,388 @@ func TestHub_UserInfoValidation(t *testing.T) {
 	statusMap = h.GetUsersStatusAndInfo()
 	if statusMap[user.ID].TimeZone != "Asia/Tokyo" || statusMap[user.ID].PreferredLanguage != "ja-JP" {
 		t.Fatalf("expected trimmed values, got %+v", statusMap[user.ID])
+	}
+}
+
+func TestHub_SendMessage_ProgressLifecycle(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	userAlice := models.User{ID: "alice", UserName: "alice", Type: models.UserTypeHuman}
+	userBob := models.User{ID: "bob", UserName: "bob", Type: models.UserTypeHuman}
+	bot1 := models.User{
+		ID:             "bot1",
+		UserName:       "bot1",
+		Type:           models.UserTypeBot,
+		BotPermissions: models.BotPermissions{Write: true},
+	}
+
+	st := NewMockStorage()
+	pushSvc := &MockPushService{}
+	provider := &MockUserProvider{users: []models.User{userAlice, userBob, bot1}}
+
+	h := NewHub(ctx, provider, st, pushSvc)
+
+	aliceCh := h.Join(userAlice.ID)
+	defer h.Leave(userAlice.ID, aliceCh)
+	drainMessages(aliceCh, 10)
+
+	// 1. Bot1 sends root progress message
+	rootMsg, err := h.SendMessage(bot1.ID, models.ClientMessage{
+		ChatID:      "townhall",
+		MessageType: models.MessageTypeProgress,
+		Progress: &models.ProgressData{
+			Title: "Compiling news report",
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error sending root progress: %v", err)
+	}
+	if rootMsg.Seq != 1 {
+		t.Fatalf("expected root seq 1, got %d", rootMsg.Seq)
+	}
+	if rootMsg.Progress == nil || rootMsg.Progress.CardStatus != models.ProgressStatusRunning {
+		t.Fatalf("expected cardStatus running, got %+v", rootMsg.Progress)
+	}
+
+	// Alice should receive WS message
+	sMsg := expectMessages(t, aliceCh, "townhall")
+	if len(sMsg.Messages) != 1 || sMsg.Messages[0].Type != models.MessageTypeProgress {
+		t.Fatalf("expected progress message for alice, got %+v", sMsg)
+	}
+
+	// Wait briefly for push worker
+	time.Sleep(50 * time.Millisecond)
+	payload := pushSvc.GetLastPayload(userBob.ID)
+	if payload == nil {
+		t.Fatal("expected push notification for offline user bob")
+	}
+	var pushData map[string]any
+	if err := json.Unmarshal(payload, &pushData); err != nil {
+		t.Fatalf("failed to unmarshal push payload: %v", err)
+	}
+	if pushData["body"] != "Compiling news report" {
+		t.Fatalf("expected push body 'Compiling news report', got %v", pushData["body"])
+	}
+	if pushSvc.GetLastPayload(bot1.ID) != nil {
+		t.Fatal("sender should not receive push notification")
+	}
+
+	// Clear last payload
+	pushSvc.mu.Lock()
+	delete(pushSvc.payloads, userBob.ID)
+	pushSvc.mu.Unlock()
+
+	// 2. Bot1 sends child step (parentSeq: 1)
+	step1 := models.ProgressStep{
+		ID:          "step1",
+		Title:       "Gathering preferences",
+		Description: "Checking user filters",
+		Status:      models.ProgressStatusRunning,
+	}
+	childMsg, err := h.SendMessage(bot1.ID, models.ClientMessage{
+		ChatID:      "townhall",
+		MessageType: models.MessageTypeProgress,
+		Progress: &models.ProgressData{
+			ParentSeq: 1,
+			Step:      &step1,
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error sending child step: %v", err)
+	}
+	if childMsg.Seq != 2 {
+		t.Fatalf("expected child seq 2, got %d", childMsg.Seq)
+	}
+
+	// Alice receives child message
+	sMsg = expectMessages(t, aliceCh, "townhall")
+	if len(sMsg.Messages) != 1 || sMsg.Messages[0].Progress == nil || sMsg.Messages[0].Progress.Step == nil {
+		t.Fatalf("expected child progress step for alice, got %+v", sMsg)
+	}
+
+	// Bob must NOT receive push notification for child step
+	time.Sleep(50 * time.Millisecond)
+	if pushSvc.GetLastPayload(userBob.ID) != nil {
+		t.Fatal("expected child progress step to be suppressed from push notification")
+	}
+
+	// 3. Bot1 sends terminal update (parentSeq: 1, cardStatus: completed, same step id completed)
+	step1Done := models.ProgressStep{
+		ID:     "step1",
+		Title:  "Gathering preferences",
+		Status: models.ProgressStatusCompleted,
+	}
+	termMsg, err := h.SendMessage(bot1.ID, models.ClientMessage{
+		ChatID:      "townhall",
+		MessageType: models.MessageTypeProgress,
+		Progress: &models.ProgressData{
+			ParentSeq:  1,
+			CardStatus: models.ProgressStatusCompleted,
+			Step:       &step1Done,
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error sending terminal update: %v", err)
+	}
+	if termMsg.Seq != 3 {
+		t.Fatalf("expected seq 3, got %d", termMsg.Seq)
+	}
+
+	// Verify in-memory parent snapshot was updated in-place (1 step, completed status)
+	records, err := h.GetChatRecords(userAlice.ID, "townhall", 1, 1)
+	if err != nil || len(records) == 0 {
+		t.Fatalf("failed to get root record: %v", err)
+	}
+	if records[0].Progress == nil || records[0].Progress.CardStatus != models.ProgressStatusCompleted {
+		t.Fatalf("expected root cardStatus completed, got %+v", records[0].Progress)
+	}
+	if len(records[0].Progress.Steps) != 1 || records[0].Progress.Steps[0].Status != models.ProgressStatusCompleted {
+		t.Fatalf("expected 1 completed step in root progress, got %+v", records[0].Progress.Steps)
+	}
+
+	// 4. Test Hub restoration from storage
+	h2 := NewHub(ctx, provider, st, pushSvc)
+	restoredRecords, err := h2.GetChatRecords(userAlice.ID, "townhall", 1, 1)
+	if err != nil || len(restoredRecords) == 0 {
+		t.Fatalf("failed to get restored root record: %v", err)
+	}
+	if restoredRecords[0].Type != models.MessageTypeProgress || restoredRecords[0].Progress == nil {
+		t.Fatalf("expected restored record to have progress type, got %+v", restoredRecords[0])
+	}
+	if restoredRecords[0].Progress.CardStatus != models.ProgressStatusCompleted {
+		t.Fatalf("expected restored cardStatus completed, got %v", restoredRecords[0].Progress.CardStatus)
+	}
+	if len(restoredRecords[0].Progress.Steps) != 1 {
+		t.Fatalf("expected restored 1 step, got %d", len(restoredRecords[0].Progress.Steps))
+	}
+}
+
+func TestHub_SendMessage_ProgressValidation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	userAlice := models.User{ID: "alice", UserName: "alice", Type: models.UserTypeHuman}
+	bot1 := models.User{
+		ID:             "bot1",
+		UserName:       "bot1",
+		Type:           models.UserTypeBot,
+		BotPermissions: models.BotPermissions{Write: true},
+	}
+	bot2 := models.User{
+		ID:             "bot2",
+		UserName:       "bot2",
+		Type:           models.UserTypeBot,
+		BotPermissions: models.BotPermissions{Write: true},
+	}
+
+	st := NewMockStorage()
+	provider := &MockUserProvider{users: []models.User{userAlice, bot1, bot2}}
+	h := NewHub(ctx, provider, st, nil)
+
+	// 1. Human cannot send progress
+	_, err := h.SendMessage(userAlice.ID, models.ClientMessage{
+		ChatID:      "townhall",
+		MessageType: models.MessageTypeProgress,
+		Progress:    &models.ProgressData{Title: "Should fail"},
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "only bots") {
+		t.Fatalf("expected 'only bots' error, got %v", err)
+	}
+
+	// 2. Progress without data
+	_, err = h.SendMessage(bot1.ID, models.ClientMessage{
+		ChatID:      "townhall",
+		MessageType: models.MessageTypeProgress,
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "missing progress data") {
+		t.Fatalf("expected 'missing progress data' error, got %v", err)
+	}
+
+	// 3. Unknown message type
+	_, err = h.SendMessage(bot1.ID, models.ClientMessage{
+		ChatID:      "townhall",
+		MessageType: "alien",
+		Content:     "hello",
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "unknown message type") {
+		t.Fatalf("expected 'unknown message type' error, got %v", err)
+	}
+
+	// 4. Text with progress data
+	_, err = h.SendMessage(bot1.ID, models.ClientMessage{
+		ChatID:      "townhall",
+		MessageType: models.MessageTypeText,
+		Content:     "hello",
+		Progress:    &models.ProgressData{Title: "illegal"},
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "progress data not allowed") {
+		t.Fatalf("expected 'progress data not allowed' error, got %v", err)
+	}
+
+	// 5. Root progress must have title
+	_, err = h.SendMessage(bot1.ID, models.ClientMessage{
+		ChatID:      "townhall",
+		MessageType: models.MessageTypeProgress,
+		Progress:    &models.ProgressData{Title: "   "},
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "must have a title") {
+		t.Fatalf("expected 'must have a title' error, got %v", err)
+	}
+
+	// Create valid root progress message
+	rootMsg, err := h.SendMessage(bot1.ID, models.ClientMessage{
+		ChatID:      "townhall",
+		MessageType: models.MessageTypeProgress,
+		Progress:    &models.ProgressData{Title: "Root Task"},
+	}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// 6. Child pointing to non-existent parent
+	_, err = h.SendMessage(bot1.ID, models.ClientMessage{
+		ChatID:      "townhall",
+		MessageType: models.MessageTypeProgress,
+		Progress: &models.ProgressData{
+			ParentSeq: 999,
+			Step:      &models.ProgressStep{ID: "s1", Title: "t1", Status: models.ProgressStatusRunning},
+		},
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "parent progress message not found") {
+		t.Fatalf("expected 'not found' error, got %v", err)
+	}
+
+	// 7. Normal text message
+	textMsg, err := h.SendMessage(bot1.ID, models.ClientMessage{
+		ChatID:  "townhall",
+		Content: "A normal text message",
+	}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// 8. Child pointing to text parent
+	_, err = h.SendMessage(bot1.ID, models.ClientMessage{
+		ChatID:      "townhall",
+		MessageType: models.MessageTypeProgress,
+		Progress: &models.ProgressData{
+			ParentSeq: textMsg.Seq,
+			Step:      &models.ProgressStep{ID: "s1", Title: "t1", Status: models.ProgressStatusRunning},
+		},
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "not a root progress message") {
+		t.Fatalf("expected 'not a root progress message' error, got %v", err)
+	}
+
+	// Create a valid child step
+	childMsg, err := h.SendMessage(bot1.ID, models.ClientMessage{
+		ChatID:      "townhall",
+		MessageType: models.MessageTypeProgress,
+		Progress: &models.ProgressData{
+			ParentSeq: rootMsg.Seq,
+			Step:      &models.ProgressStep{ID: "s1", Title: "t1", Status: models.ProgressStatusRunning},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// 9. Child pointing to another child
+	_, err = h.SendMessage(bot1.ID, models.ClientMessage{
+		ChatID:      "townhall",
+		MessageType: models.MessageTypeProgress,
+		Progress: &models.ProgressData{
+			ParentSeq: childMsg.Seq,
+			Step:      &models.ProgressStep{ID: "s2", Title: "t2", Status: models.ProgressStatusRunning},
+		},
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "not a root progress message") {
+		t.Fatalf("expected 'not a root progress message' error, got %v", err)
+	}
+
+	// 10. Bot2 trying to update parent authored by bot1
+	_, err = h.SendMessage(bot2.ID, models.ClientMessage{
+		ChatID:      "townhall",
+		MessageType: models.MessageTypeProgress,
+		Progress: &models.ProgressData{
+			ParentSeq: rootMsg.Seq,
+			Step:      &models.ProgressStep{ID: "s2", Title: "t2", Status: models.ProgressStatusRunning},
+		},
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "cannot update progress message authored by another user") {
+		t.Fatalf("expected 'cannot update' error, got %v", err)
+	}
+
+	// 11. Empty child update
+	_, err = h.SendMessage(bot1.ID, models.ClientMessage{
+		ChatID:      "townhall",
+		MessageType: models.MessageTypeProgress,
+		Progress: &models.ProgressData{
+			ParentSeq: rootMsg.Seq,
+		},
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "child progress update cannot be empty") {
+		t.Fatalf("expected 'cannot be empty' error, got %v", err)
+	}
+
+	// 12. Invalid step status
+	_, err = h.SendMessage(bot1.ID, models.ClientMessage{
+		ChatID:      "townhall",
+		MessageType: models.MessageTypeProgress,
+		Progress: &models.ProgressData{
+			ParentSeq: rootMsg.Seq,
+			Step:      &models.ProgressStep{ID: "s1", Title: "t1", Status: "bogus"},
+		},
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "invalid step status") {
+		t.Fatalf("expected 'invalid step status' error, got %v", err)
+	}
+
+	// 13. Invalid card status
+	_, err = h.SendMessage(bot1.ID, models.ClientMessage{
+		ChatID:      "townhall",
+		MessageType: models.MessageTypeProgress,
+		Progress: &models.ProgressData{
+			ParentSeq:  rootMsg.Seq,
+			CardStatus: "bogus",
+		},
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "invalid cardStatus") {
+		t.Fatalf("expected 'invalid cardStatus' error, got %v", err)
+	}
+}
+
+func TestHub_Dispatch_ProgressBypassPrevention(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	userAlice := models.User{ID: "alice", UserName: "alice", Type: models.UserTypeHuman}
+	st := NewMockStorage()
+	provider := &MockUserProvider{users: []models.User{userAlice}}
+	h := NewHub(ctx, provider, st, nil)
+
+	aliceCh := h.Join(userAlice.ID)
+	defer h.Leave(userAlice.ID, aliceCh)
+	drainMessages(aliceCh, 10)
+
+	// Alice sends progress message over WebSocket Dispatch
+	h.Dispatch(userAlice.ID, models.ClientMessage{
+		Type:        models.ClientMessageTypeSend,
+		ChatID:      "townhall",
+		MessageType: models.MessageTypeProgress,
+		Progress: &models.ProgressData{
+			Title: "Unauthorized Progress",
+		},
+	}, aliceCh)
+
+	// Verify no message was added
+	records, err := h.GetChatRecords(userAlice.ID, "townhall", 1, 10)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("expected 0 records, got %d", len(records))
 	}
 }
 

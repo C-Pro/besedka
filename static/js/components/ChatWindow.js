@@ -148,7 +148,302 @@ export function createChatWindow(container) {
         prevScrollTop: 0
     };
 
+    const createProgressSpinner = (size = 16) => {
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('class', 'progress-spinner');
+        svg.setAttribute('width', size.toString());
+        svg.setAttribute('height', size.toString());
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '2.5');
+        svg.setAttribute('stroke-linecap', 'round');
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', 'M12 2a10 10 0 0 1 10 10');
+        svg.appendChild(path);
+        return svg;
+    };
+
+    const createProgressCheckmark = (size = 16) => {
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('class', 'progress-icon-completed');
+        svg.setAttribute('width', size.toString());
+        svg.setAttribute('height', size.toString());
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '2.5');
+        svg.setAttribute('stroke-linecap', 'round');
+        svg.setAttribute('stroke-linejoin', 'round');
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', 'M20 6L9 17l-5-5');
+        svg.appendChild(path);
+        return svg;
+    };
+
+    const createProgressFailedIcon = (size = 16) => {
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('class', 'progress-icon-failed');
+        svg.setAttribute('width', size.toString());
+        svg.setAttribute('height', size.toString());
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '2.5');
+        svg.setAttribute('stroke-linecap', 'round');
+        svg.setAttribute('stroke-linejoin', 'round');
+        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('cx', '12');
+        circle.setAttribute('cy', '12');
+        circle.setAttribute('r', '10');
+        const line1 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line1.setAttribute('x1', '12');
+        line1.setAttribute('y1', '8');
+        line1.setAttribute('x2', '12');
+        line1.setAttribute('y2', '12');
+        const line2 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line2.setAttribute('x1', '12');
+        line2.setAttribute('y1', '16');
+        line2.setAttribute('x2', '12.01');
+        line2.setAttribute('y2', '16');
+        svg.appendChild(circle);
+        svg.appendChild(line1);
+        svg.appendChild(line2);
+        return svg;
+    };
+
+    const renderCardStatusIcon = (iconContainer, status, size = 18) => {
+        iconContainer.replaceChildren();
+        if (status === 'completed') {
+            iconContainer.appendChild(createProgressCheckmark(size));
+        } else if (status === 'failed') {
+            iconContainer.appendChild(createProgressFailedIcon(size));
+        } else {
+            iconContainer.appendChild(createProgressSpinner(size));
+        }
+    };
+
+    const renderTimelineSteps = (timelineEl, steps, cardStatus = 'running') => {
+        timelineEl.replaceChildren();
+        if (!steps || steps.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'progress-timeline-empty';
+            empty.textContent = 'In progress...';
+            timelineEl.appendChild(empty);
+            return;
+        }
+
+        const isTaskDone = cardStatus === 'completed';
+
+        for (const st of steps) {
+            const item = document.createElement('div');
+            item.className = 'progress-step-item';
+            item.dataset.stepId = st.id;
+
+            const marker = document.createElement('div');
+            marker.className = 'progress-step-marker';
+            const isCompleted = st.status === 'completed' || (isTaskDone && st.status !== 'failed');
+            const isFailed = st.status === 'failed';
+
+            if (isCompleted) {
+                marker.appendChild(createProgressCheckmark(12));
+            } else if (isFailed) {
+                marker.appendChild(createProgressFailedIcon(12));
+            } else {
+                marker.appendChild(createProgressSpinner(12));
+            }
+            item.appendChild(marker);
+
+            const title = document.createElement('div');
+            title.className = 'progress-step-title';
+            title.textContent = st.title || '';
+            item.appendChild(title);
+
+            if (st.description) {
+                const desc = document.createElement('div');
+                desc.className = 'progress-step-desc';
+                desc.textContent = st.description;
+                item.appendChild(desc);
+            }
+
+            timelineEl.appendChild(item);
+        }
+    };
+
+    const updateProgressCardElement = (messageLineEl, msg) => {
+        const card = messageLineEl.querySelector('.progress-card');
+        if (!card) return;
+
+        const progress = msg.progress || {};
+        const cardStatus = progress.cardStatus || 'running';
+        const steps = progress.steps || [];
+
+        const iconContainer = card.querySelector('.progress-card-icon');
+        if (iconContainer) {
+            renderCardStatusIcon(iconContainer, cardStatus, 18);
+        }
+
+        const titleEl = card.querySelector('.progress-card-title');
+        if (titleEl && progress.title) {
+            titleEl.textContent = progress.title;
+        }
+
+        const badgeEl = card.querySelector('.progress-card-badge');
+        if (badgeEl) {
+            badgeEl.className = `progress-card-badge status-${cardStatus}`;
+            if (cardStatus === 'completed') {
+                badgeEl.textContent = `${steps.length} steps`;
+            } else if (cardStatus === 'failed') {
+                badgeEl.textContent = 'failed';
+            } else {
+                badgeEl.textContent = `${steps.length} in progress`;
+            }
+        }
+
+        const timeline = card.querySelector('.progress-timeline');
+        if (timeline) {
+            renderTimelineSteps(timeline, steps, cardStatus);
+        }
+
+        const header = card.querySelector('.progress-card-header');
+        if (header && progress.title) {
+            header.setAttribute('aria-label', `Toggle task progress: ${progress.title}`);
+        }
+    };
+
+    const createProgressCardElement = (msg, state) => {
+        const isMe = msg.sender === 'me';
+        let senderDisplayName = 'me';
+        let senderUser = null;
+        if (!isMe) {
+            senderUser = state.users.find(u => u.id === msg.userId);
+            senderDisplayName = senderUser ? senderUser.displayName : msg.userId;
+        }
+
+        const div = document.createElement('div');
+        div.className = `message-line is-progress ${isMe ? 'is-me' : ''}`;
+        div.setAttribute('data-seq', msg.seq);
+
+        const timeSpan = document.createElement('span');
+        timeSpan.className = 'message-time';
+        timeSpan.textContent = `[${msg.timestamp}]`;
+        div.appendChild(timeSpan);
+
+        const senderSpan = document.createElement('span');
+        const colorIdx = msg.userId ? (msg.userId.charCodeAt(0) % 8) : 0;
+        senderSpan.className = `message-sender ${isMe ? 'is-me' : ''} user-color-${colorIdx}`;
+        senderSpan.textContent = `<${senderDisplayName}>`;
+        if (senderUser && (senderUser.type === 'bot' || senderUser.type === 'webhook')) {
+            const b = document.createElement('span');
+            b.className = `user-type-badge ${senderUser.type}-badge`;
+            b.textContent = senderUser.type === 'bot' ? ' 🤖' : ' ⚡';
+            b.title = senderUser.type === 'bot' ? 'Bot' : 'Webhook';
+            senderSpan.appendChild(b);
+        }
+        senderSpan.style.cursor = 'pointer';
+        senderSpan.addEventListener('click', () => {
+            const uid = isMe ? state.currentUser?.id : msg.userId;
+            if (uid) createUserProfileModal(store, uid);
+        });
+        div.appendChild(senderSpan);
+
+        const progress = msg.progress || {};
+        const cardStatus = progress.cardStatus || 'running';
+        const steps = progress.steps || [];
+
+        const isRunning = cardStatus === 'running';
+        let isExpanded = isRunning;
+
+        const card = document.createElement('div');
+        card.className = 'progress-card';
+        card.dataset.expanded = isExpanded ? 'true' : 'false';
+
+        const header = document.createElement('div');
+        header.className = 'progress-card-header';
+        header.setAttribute('role', 'button');
+        header.setAttribute('tabindex', '0');
+        header.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+        header.setAttribute('aria-label', `Toggle task progress: ${progress.title || 'Task'}`);
+
+        const iconContainer = document.createElement('div');
+        iconContainer.className = 'progress-card-icon';
+        renderCardStatusIcon(iconContainer, cardStatus, 18);
+        header.appendChild(iconContainer);
+
+        const title = document.createElement('span');
+        title.className = 'progress-card-title';
+        title.textContent = progress.title || 'Task in progress';
+        header.appendChild(title);
+
+        const badge = document.createElement('span');
+        badge.className = `progress-card-badge status-${cardStatus}`;
+        if (cardStatus === 'completed') {
+            badge.textContent = `${steps.length} steps`;
+        } else if (cardStatus === 'failed') {
+            badge.textContent = 'failed';
+        } else {
+            badge.textContent = `${steps.length} in progress`;
+        }
+        header.appendChild(badge);
+
+        const chevron = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        chevron.setAttribute('class', 'progress-card-chevron');
+        chevron.setAttribute('width', '16');
+        chevron.setAttribute('height', '16');
+        chevron.setAttribute('viewBox', '0 0 24 24');
+        chevron.setAttribute('fill', 'none');
+        chevron.setAttribute('stroke', 'currentColor');
+        chevron.setAttribute('stroke-width', '2');
+        chevron.setAttribute('stroke-linecap', 'round');
+        chevron.setAttribute('stroke-linejoin', 'round');
+        const chevronPath = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+        chevronPath.setAttribute('points', '6 9 12 15 18 9');
+        chevron.appendChild(chevronPath);
+        header.appendChild(chevron);
+
+        const body = document.createElement('div');
+        body.className = 'progress-card-body';
+
+        const timeline = document.createElement('div');
+        timeline.className = 'progress-timeline';
+        renderTimelineSteps(timeline, steps, cardStatus);
+        body.appendChild(timeline);
+
+        const toggleExpansion = () => {
+            isExpanded = !isExpanded;
+            card.dataset.manualToggled = 'true';
+            card.dataset.expanded = isExpanded ? 'true' : 'false';
+            header.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+        };
+
+        header.addEventListener('click', toggleExpansion);
+        header.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                toggleExpansion();
+            }
+        });
+
+        card.appendChild(header);
+        card.appendChild(body);
+        div.appendChild(card);
+
+        if (msg.text) {
+            const contentSpan = document.createElement('span');
+            contentSpan.className = 'message-content';
+            contentSpan.innerHTML = msg.text;
+            decorateMentions(contentSpan, state.users, store.getCurrentUserName());
+            div.appendChild(contentSpan);
+        }
+
+        return div;
+    };
+
     const createMessageElement = (msg, state) => {
+        if (msg.type === 'progress') {
+            return createProgressCardElement(msg, state);
+        }
+
         const isMe = msg.sender === 'me';
         let senderDisplayName = 'me';
         let senderUser = null;
@@ -425,6 +720,16 @@ export function createChatWindow(container) {
                     elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
                 }
             } else {
+                // In-place update of rendered progress cards
+                for (const msg of messages) {
+                    if (msg.type === 'progress') {
+                        const existingCard = elements.messagesContainer.querySelector(`.message-line[data-seq="${msg.seq}"]`);
+                        if (existingCard) {
+                            updateProgressCardElement(existingCard, msg);
+                        }
+                    }
+                }
+
                 // History prepend
                 const historyMessages = messages.filter(m => m.seq < firstRenderedSeq);
                 if (historyMessages.length > 0) {
@@ -508,7 +813,7 @@ export function createChatWindow(container) {
             scrollThrottleTimer = null;
             if (c.scrollTop <= 100 && !store.state.isLoadingHistory?.[lastChatId]) {
                 const msgs = store.state.messages[lastChatId] || [];
-                const minSeq = msgs.length > 0 ? msgs[0].seq : 0;
+                const minSeq = store.state.oldestLoadedSeqs?.[lastChatId] ?? (msgs.length > 0 ? msgs[0].seq : 0);
                 if (minSeq > 1) {
                     store.fetchMessages(lastChatId, minSeq - 100, minSeq - 1);
                 }
@@ -674,7 +979,8 @@ export function createChatWindow(container) {
         msgCount: (store.state.messages[store.state.activeChatId] || []).length,
         loading: store.state.isLoadingHistory?.[store.state.activeChatId],
         scrollSignal: store.state.forceScrollSignal,
-        usersHash: getUsersHash(store.state)
+        usersHash: getUsersHash(store.state),
+        revision: store.state.messageRevisions?.[store.state.activeChatId] || 0
     };
 
     store.subscribe((state) => {
@@ -682,12 +988,14 @@ export function createChatWindow(container) {
         const currentLoading = state.isLoadingHistory?.[state.activeChatId];
         const currentUsersHash = getUsersHash(state);
         const usersChanged = currentUsersHash !== lastProcessedState.usersHash;
+        const currentRevision = state.messageRevisions?.[state.activeChatId] || 0;
 
         const hasRelevantChange =
             state.activeChatId !== lastProcessedState.chatId ||
             currentMsgs.length !== lastProcessedState.msgCount ||
             currentLoading !== lastProcessedState.loading ||
             state.forceScrollSignal !== lastProcessedState.scrollSignal ||
+            currentRevision !== lastProcessedState.revision ||
             usersChanged;
 
         if (hasRelevantChange) {
@@ -703,7 +1011,8 @@ export function createChatWindow(container) {
                 msgCount: currentMsgs.length,
                 loading: currentLoading,
                 scrollSignal: state.forceScrollSignal,
-                usersHash: currentUsersHash
+                usersHash: currentUsersHash,
+                revision: currentRevision
             };
 
             updateUI(state);

@@ -262,3 +262,266 @@ func TestUsersHandler_UserInfoAndAccessControl(t *testing.T) {
 	assert.Empty(t, storedAlice.PreferredLanguage)
 }
 
+func TestSendMessageHandler_ProgressMessage(t *testing.T) {
+	apiInst, as, st, hub := setupAPIKeyTest(t)
+	defer func() { _ = st.Close() }()
+
+	_, err := as.AddUser("alice", "Alice Human")
+	require.NoError(t, err)
+	aliceUser, err := as.GetUserByUsername("alice")
+	require.NoError(t, err)
+	require.NoError(t, as.ActivateUser(aliceUser.ID))
+	aliceKey, err := as.ResetAPIKey(aliceUser.ID)
+	require.NoError(t, err)
+
+	_, bot1Key, err := as.AddBot("bot1", "Bot 1", models.BotPermissions{Write: true, ReadAll: true})
+	require.NoError(t, err)
+
+	_, bot2Key, err := as.AddBot("bot2", "Bot 2", models.BotPermissions{Write: true, ReadAll: true})
+	require.NoError(t, err)
+
+	sendHandler := apiInst.RequireAuth(RequireSameOrigin(RequireUserTypes(apiInst.SendMessageHandler, models.UserTypeHuman, models.UserTypeBot)))
+	getMessagesHandler := apiInst.RequireAuth(RequireUserTypes(apiInst.ChatMessagesHandler, models.UserTypeHuman, models.UserTypeBot))
+
+	listenerCh := hub.Join("listener-id")
+	defer hub.Leave("listener-id", listenerCh)
+
+	// 1. Alice (human) attempts to send progress message -> 403 Forbidden
+	progPayload, _ := json.Marshal(map[string]any{
+		"messageType": "progress",
+		"progress": map[string]any{
+			"title": "Should fail",
+		},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/chats/townhall/messages", bytes.NewReader(progPayload))
+	req.SetPathValue("id", "townhall")
+	req.Header.Set("Authorization", "Bearer "+aliceKey)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	sendHandler(w, req)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+
+	// 2. Conflicting type and messageType -> 400 Bad Request
+	conflictPayload, _ := json.Marshal(map[string]any{
+		"type":        "text",
+		"messageType": "progress",
+		"progress": map[string]any{
+			"title": "Conflict",
+		},
+	})
+	req = httptest.NewRequest(http.MethodPost, "/api/chats/townhall/messages", bytes.NewReader(conflictPayload))
+	req.SetPathValue("id", "townhall")
+	req.Header.Set("Authorization", "Bearer "+bot1Key)
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	sendHandler(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	// 3. Unknown message type -> 400 Bad Request
+	unknownPayload, _ := json.Marshal(map[string]any{
+		"messageType": "alien",
+		"content":     "test",
+	})
+	req = httptest.NewRequest(http.MethodPost, "/api/chats/townhall/messages", bytes.NewReader(unknownPayload))
+	req.SetPathValue("id", "townhall")
+	req.Header.Set("Authorization", "Bearer "+bot1Key)
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	sendHandler(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	// 4. Text message with progress data -> 400 Bad Request
+	textWithProgPayload, _ := json.Marshal(map[string]any{
+		"messageType": "text",
+		"content":     "hi",
+		"progress": map[string]any{
+			"title": "not allowed",
+		},
+	})
+	req = httptest.NewRequest(http.MethodPost, "/api/chats/townhall/messages", bytes.NewReader(textWithProgPayload))
+	req.SetPathValue("id", "townhall")
+	req.Header.Set("Authorization", "Bearer "+bot1Key)
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	sendHandler(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	// 5. Bot1 creates root progress card -> 200 OK with seq and timestamp
+	rootPayload, _ := json.Marshal(map[string]any{
+		"messageType": "progress",
+		"progress": map[string]any{
+			"title": "Indexing codebase",
+		},
+	})
+	req = httptest.NewRequest(http.MethodPost, "/api/chats/townhall/messages", bytes.NewReader(rootPayload))
+	req.SetPathValue("id", "townhall")
+	req.Header.Set("Authorization", "Bearer "+bot1Key)
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	sendHandler(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var rootResp struct {
+		Seq       int64 `json:"seq"`
+		Timestamp int64 `json:"timestamp"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &rootResp))
+	assert.Equal(t, int64(1), rootResp.Seq)
+	assert.Positive(t, rootResp.Timestamp)
+
+	// Verify broadcast on listener
+	select {
+	case sMsg := <-listenerCh:
+		require.Equal(t, models.ServerMessageTypeMessages, sMsg.Type)
+		require.Len(t, sMsg.Messages, 1)
+		assert.Equal(t, models.MessageTypeProgress, sMsg.Messages[0].Type)
+		assert.Equal(t, int64(1), sMsg.Messages[0].Seq)
+		assert.Equal(t, "Indexing codebase", sMsg.Messages[0].Progress.Title)
+		assert.Equal(t, models.ProgressStatusRunning, sMsg.Messages[0].Progress.CardStatus)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for root message broadcast")
+	}
+
+	// 6. Bot1 adds child step -> 200 OK with seq 2
+	step1Payload, _ := json.Marshal(map[string]any{
+		"messageType": "progress",
+		"progress": map[string]any{
+			"parentSeq": 1,
+			"step": map[string]any{
+				"id":          "step1",
+				"title":       "Scanning files",
+				"description": "Looking for Go packages",
+				"status":      "running",
+			},
+		},
+	})
+	req = httptest.NewRequest(http.MethodPost, "/api/chats/townhall/messages", bytes.NewReader(step1Payload))
+	req.SetPathValue("id", "townhall")
+	req.Header.Set("Authorization", "Bearer "+bot1Key)
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	sendHandler(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var step1Resp struct {
+		Seq       int64 `json:"seq"`
+		Timestamp int64 `json:"timestamp"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &step1Resp))
+	assert.Equal(t, int64(2), step1Resp.Seq)
+
+	// 7. Bot2 attempts to update parentSeq 1 (authored by Bot1) -> 403 Forbidden
+	stepBot2Payload, _ := json.Marshal(map[string]any{
+		"messageType": "progress",
+		"progress": map[string]any{
+			"parentSeq": 1,
+			"step": map[string]any{
+				"id":     "step2",
+				"title":  "Hijack attempt",
+				"status": "running",
+			},
+		},
+	})
+	req = httptest.NewRequest(http.MethodPost, "/api/chats/townhall/messages", bytes.NewReader(stepBot2Payload))
+	req.SetPathValue("id", "townhall")
+	req.Header.Set("Authorization", "Bearer "+bot2Key)
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	sendHandler(w, req)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+
+	// 8. Bot1 updates with non-existent parentSeq 999 -> 404 Not Found
+	missingParentPayload, _ := json.Marshal(map[string]any{
+		"messageType": "progress",
+		"progress": map[string]any{
+			"parentSeq": 999,
+			"step": map[string]any{
+				"id":     "step1",
+				"title":  "Missing",
+				"status": "running",
+			},
+		},
+	})
+	req = httptest.NewRequest(http.MethodPost, "/api/chats/townhall/messages", bytes.NewReader(missingParentPayload))
+	req.SetPathValue("id", "townhall")
+	req.Header.Set("Authorization", "Bearer "+bot1Key)
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	sendHandler(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+
+	// 9. Bot1 completes the card
+	donePayload, _ := json.Marshal(map[string]any{
+		"messageType": "progress",
+		"progress": map[string]any{
+			"parentSeq":  1,
+			"cardStatus": "completed",
+			"step": map[string]any{
+				"id":     "step1",
+				"title":  "Scanning files",
+				"status": "completed",
+			},
+		},
+	})
+	req = httptest.NewRequest(http.MethodPost, "/api/chats/townhall/messages", bytes.NewReader(donePayload))
+	req.SetPathValue("id", "townhall")
+	req.Header.Set("Authorization", "Bearer "+bot1Key)
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	sendHandler(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var doneResp struct {
+		Seq       int64 `json:"seq"`
+		Timestamp int64 `json:"timestamp"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &doneResp))
+	assert.Equal(t, int64(3), doneResp.Seq)
+
+	// 10. Human posts a regular text message interleaved
+	userTextPayload, _ := json.Marshal(map[string]any{
+		"content": "Nice progress card!",
+	})
+	req = httptest.NewRequest(http.MethodPost, "/api/chats/townhall/messages", bytes.NewReader(userTextPayload))
+	req.SetPathValue("id", "townhall")
+	req.Header.Set("Authorization", "Bearer "+aliceKey)
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	sendHandler(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var userResp struct {
+		Seq       int64 `json:"seq"`
+		Timestamp int64 `json:"timestamp"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &userResp))
+	assert.Equal(t, int64(4), userResp.Seq)
+
+	// 11. Fetch messages via GET /api/chats/townhall/messages?toSeq=10
+	reqFetch := httptest.NewRequest(http.MethodGet, "/api/chats/townhall/messages?toSeq=10", nil)
+	reqFetch.SetPathValue("id", "townhall")
+	reqFetch.Header.Set("Authorization", "Bearer "+aliceKey)
+	wFetch := httptest.NewRecorder()
+	getMessagesHandler(wFetch, reqFetch)
+	require.Equal(t, http.StatusOK, wFetch.Code)
+
+	var fetchedMessages []models.Message
+	require.NoError(t, json.Unmarshal(wFetch.Body.Bytes(), &fetchedMessages))
+	require.Len(t, fetchedMessages, 4)
+
+	// Verify root message has hydrated snapshot with cardStatus=completed and 1 completed step
+	rootFetched := fetchedMessages[0]
+	assert.Equal(t, int64(1), rootFetched.Seq)
+	assert.Equal(t, models.MessageTypeProgress, rootFetched.Type)
+	require.NotNil(t, rootFetched.Progress)
+	assert.Equal(t, "Indexing codebase", rootFetched.Progress.Title)
+	assert.Equal(t, models.ProgressStatusCompleted, rootFetched.Progress.CardStatus)
+	require.Len(t, rootFetched.Progress.Steps, 1)
+	assert.Equal(t, "step1", rootFetched.Progress.Steps[0].ID)
+	assert.Equal(t, models.ProgressStatusCompleted, rootFetched.Progress.Steps[0].Status)
+
+	// Message 4 is normal text
+	assert.Equal(t, int64(4), fetchedMessages[3].Seq)
+	assert.Equal(t, "<p>Nice progress card!</p>\n", fetchedMessages[3].Content)
+}
+

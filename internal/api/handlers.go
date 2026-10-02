@@ -458,7 +458,10 @@ func (a *API) SendMessageHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Content string `json:"content"`
+		Content     string               `json:"content"`
+		Type        models.MessageType   `json:"type"`
+		MessageType models.MessageType   `json:"messageType"`
+		Progress    *models.ProgressData `json:"progress"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -466,18 +469,74 @@ func (a *API) SendMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if strings.TrimSpace(req.Content) == "" {
+	if req.Type != "" && req.MessageType != "" && req.Type != req.MessageType {
+		http.Error(w, "conflicting type and messageType", http.StatusBadRequest)
+		return
+	}
+	msgType := req.MessageType
+	if msgType == "" {
+		msgType = req.Type
+	}
+	if msgType == "" {
+		msgType = models.MessageTypeText
+	}
+	if msgType != models.MessageTypeText && msgType != models.MessageTypeProgress {
+		http.Error(w, "unknown message type", http.StatusBadRequest)
+		return
+	}
+	if msgType == models.MessageTypeText && req.Progress != nil {
+		http.Error(w, "progress data not allowed for text messages", http.StatusBadRequest)
+		return
+	}
+
+	if msgType == models.MessageTypeProgress {
+		if user.Type != models.UserTypeBot {
+			http.Error(w, "Only bots can send progress messages", http.StatusForbidden)
+			return
+		}
+		if req.Progress == nil {
+			http.Error(w, "Missing progress data", http.StatusBadRequest)
+			return
+		}
+	} else if strings.TrimSpace(req.Content) == "" {
 		http.Error(w, "Message content cannot be empty", http.StatusBadRequest)
 		return
 	}
 
-	a.hub.Dispatch(user.ID, models.ClientMessage{
-		Type:    models.ClientMessageTypeSend,
-		ChatID:  chatID,
-		Content: req.Content,
+	created, err := a.hub.SendMessage(user.ID, models.ClientMessage{
+		Type:        models.ClientMessageTypeSend,
+		ChatID:      chatID,
+		Content:     req.Content,
+		MessageType: msgType,
+		Progress:    req.Progress,
 	}, nil)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "cannot update") || strings.Contains(errMsg, "only bots") || strings.Contains(errMsg, "not authorized") || strings.Contains(errMsg, "write permission") || strings.Contains(errMsg, "access denied") {
+			http.Error(w, errMsg, http.StatusForbidden)
+			return
+		}
+		if errors.Is(err, models.ErrNotFound) || strings.Contains(errMsg, "not found") {
+			http.Error(w, errMsg, http.StatusNotFound)
+			return
+		}
+		if strings.Contains(errMsg, "invalid") || strings.Contains(errMsg, "cannot be empty") || strings.Contains(errMsg, "must have") || strings.Contains(errMsg, "missing") || strings.Contains(errMsg, "not allowed") || strings.Contains(errMsg, "unknown") || strings.Contains(errMsg, "not a root") || strings.Contains(errMsg, "conflicting") || strings.Contains(errMsg, "limit") {
+			http.Error(w, errMsg, http.StatusBadRequest)
+			return
+		}
+		slog.Error("failed to send message", "chatID", chatID, "userID", user.ID, "error", err)
+		http.Error(w, "Server error", http.StatusInternalServerError)
+		return
+	}
 
-	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(struct {
+		Seq       int64 `json:"seq"`
+		Timestamp int64 `json:"timestamp"`
+	}{
+		Seq:       created.Seq,
+		Timestamp: created.Timestamp,
+	})
 }
 
 func (a *API) MeHandler(w http.ResponseWriter, r *http.Request) {

@@ -472,6 +472,35 @@ func (s *BboltStorage) UpsertMessage(message models.Message) error {
 				}
 			}
 		}
+		if message.Type != "" {
+			dbMessage.Type = string(message.Type)
+		}
+		if message.Progress != nil {
+			dbMessage.Progress = &DBProgressData{
+				ParentSeq:  message.Progress.ParentSeq,
+				CardStatus: string(message.Progress.CardStatus),
+				Title:      message.Progress.Title,
+			}
+			if message.Progress.Step != nil {
+				dbMessage.Progress.Step = &DBProgressStep{
+					ID:          message.Progress.Step.ID,
+					Title:       message.Progress.Step.Title,
+					Description: message.Progress.Step.Description,
+					Status:      string(message.Progress.Step.Status),
+				}
+			}
+			if len(message.Progress.Steps) > 0 {
+				dbMessage.Progress.Steps = make([]DBProgressStep, len(message.Progress.Steps))
+				for i, st := range message.Progress.Steps {
+					dbMessage.Progress.Steps[i] = DBProgressStep{
+						ID:          st.ID,
+						Title:       st.Title,
+						Description: st.Description,
+						Status:      string(st.Status),
+					}
+				}
+			}
+		}
 
 		data, err := dbMessage.MarshalBinary()
 		if err != nil {
@@ -485,6 +514,72 @@ func (s *BboltStorage) UpsertMessage(message models.Message) error {
 
 		if err := dirtyPut(tx, chatBucket, [][]byte{bucketMessages, []byte(message.ChatID)}, dbMessage.Key(), data); err != nil {
 			return fmt.Errorf("failed to put message: %w", err)
+		}
+
+		// Update parent root snapshot projection if this is a child step
+		if message.Progress != nil && message.Progress.ParentSeq > 0 {
+			parentKey := make([]byte, 8)
+			binary.BigEndian.PutUint64(parentKey, uint64(message.Progress.ParentSeq))
+			parentData := chatBucket.Get(parentKey)
+			if parentData != nil {
+				parentDecrypted, err := s.crypter.Decrypt(parentData)
+				if err == nil {
+					var parentDBMsg DBMessage
+					if err := parentDBMsg.UnmarshalBinary(parentDecrypted); err == nil && parentDBMsg.Progress != nil {
+						if message.Progress.CardStatus != "" {
+							parentDBMsg.Progress.CardStatus = string(message.Progress.CardStatus)
+							if message.Progress.CardStatus == models.ProgressStatusCompleted {
+								for i := range parentDBMsg.Progress.Steps {
+									if parentDBMsg.Progress.Steps[i].Status != string(models.ProgressStatusFailed) {
+										parentDBMsg.Progress.Steps[i].Status = string(models.ProgressStatusCompleted)
+									}
+								}
+							}
+						}
+						if message.Progress.Step != nil {
+							stepFound := false
+							newStep := DBProgressStep{
+								ID:          message.Progress.Step.ID,
+								Title:       message.Progress.Step.Title,
+								Description: message.Progress.Step.Description,
+								Status:      string(message.Progress.Step.Status),
+							}
+							for i, existing := range parentDBMsg.Progress.Steps {
+								if existing.ID == newStep.ID {
+									if newStep.Title == "" {
+										newStep.Title = existing.Title
+									}
+									if newStep.Description == "" {
+										newStep.Description = existing.Description
+									}
+									if newStep.Status == "" {
+										newStep.Status = existing.Status
+									}
+									parentDBMsg.Progress.Steps[i] = newStep
+									stepFound = true
+									break
+								}
+							}
+							if !stepFound && len(parentDBMsg.Progress.Steps) < 100 {
+								for i := range parentDBMsg.Progress.Steps {
+									if parentDBMsg.Progress.Steps[i].Status == string(models.ProgressStatusRunning) {
+										parentDBMsg.Progress.Steps[i].Status = string(models.ProgressStatusCompleted)
+									}
+								}
+								if parentDBMsg.Progress.CardStatus == string(models.ProgressStatusCompleted) && newStep.Status != string(models.ProgressStatusFailed) {
+									newStep.Status = string(models.ProgressStatusCompleted)
+								}
+								parentDBMsg.Progress.Steps = append(parentDBMsg.Progress.Steps, newStep)
+							}
+						}
+						if parentBytes, err := parentDBMsg.MarshalBinary(); err == nil {
+							if parentEncrypted, err := s.crypter.Encrypt(parentBytes); err == nil {
+								_ = dirtyPut(tx, chatBucket, [][]byte{bucketMessages, []byte(message.ChatID)}, parentDBMsg.Key(), parentEncrypted)
+							}
+						}
+					}
+				}
+			}
 		}
 
 		// 2. Update chat LastSeq
@@ -562,6 +657,36 @@ func (s *BboltStorage) ListMessages(chatID string, from, to int64) ([]models.Mes
 						FileID:   a.FileID,
 					}
 				}
+			}
+			if dbMsg.Type != "" {
+				msg.Type = models.MessageType(dbMsg.Type)
+			}
+			if dbMsg.Progress != nil {
+				p := &models.ProgressData{
+					ParentSeq:  dbMsg.Progress.ParentSeq,
+					CardStatus: models.ProgressStatus(dbMsg.Progress.CardStatus),
+					Title:      dbMsg.Progress.Title,
+				}
+				if dbMsg.Progress.Step != nil {
+					p.Step = &models.ProgressStep{
+						ID:          dbMsg.Progress.Step.ID,
+						Title:       dbMsg.Progress.Step.Title,
+						Description: dbMsg.Progress.Step.Description,
+						Status:      models.ProgressStatus(dbMsg.Progress.Step.Status),
+					}
+				}
+				if len(dbMsg.Progress.Steps) > 0 {
+					p.Steps = make([]models.ProgressStep, len(dbMsg.Progress.Steps))
+					for i, s := range dbMsg.Progress.Steps {
+						p.Steps[i] = models.ProgressStep{
+							ID:          s.ID,
+							Title:       s.Title,
+							Description: s.Description,
+							Status:      models.ProgressStatus(s.Status),
+						}
+					}
+				}
+				msg.Progress = p
 			}
 			messages = append(messages, msg)
 		}

@@ -27,7 +27,7 @@ func TestChat_AddRecord_NoWrap(t *testing.T) {
 	c.RecordCallback = func(id string, chatID string, r ChatRecord) {}
 
 	for i := 0; i < 5; i++ {
-		if err := c.AddRecord(ChatRecord{UserID: "user", Content: fmt.Sprintf("msg %d", i)}); err != nil {
+		if _, err := c.AddRecord(ChatRecord{UserID: "user", Content: fmt.Sprintf("msg %d", i)}); err != nil {
 			t.Errorf("AddRecord failed: %v", err)
 		}
 	}
@@ -58,13 +58,13 @@ func TestChat_AddRecord_Wrap(t *testing.T) {
 
 	// Add 3 records (full)
 	for i := 0; i < 3; i++ {
-		if err := c.AddRecord(ChatRecord{UserID: "user", Content: fmt.Sprintf("msg %d", i)}); err != nil {
+		if _, err := c.AddRecord(ChatRecord{UserID: "user", Content: fmt.Sprintf("msg %d", i)}); err != nil {
 			t.Errorf("AddRecord failed: %v", err)
 		}
 	}
 
 	// Add 1 more (wrap)
-	if err := c.AddRecord(ChatRecord{UserID: "user", Content: "msg 3"}); err != nil {
+	if _, err := c.AddRecord(ChatRecord{UserID: "user", Content: "msg 3"}); err != nil {
 		t.Errorf("AddRecord failed: %v", err)
 	}
 
@@ -114,7 +114,7 @@ func TestChat_Callback(t *testing.T) {
 	}
 
 	msg := ChatRecord{UserID: "sender", Content: "hello"}
-	if err := c.AddRecord(msg); err != nil {
+	if _, err := c.AddRecord(msg); err != nil {
 		t.Errorf("AddRecord failed: %v", err)
 	}
 
@@ -183,7 +183,7 @@ func TestChat_Persistence(t *testing.T) {
 	// Add 10 records. MaxRecords is 5.
 	// So 5 should be in memory, all 10 in storage.
 	for i := 1; i <= 10; i++ {
-		if err := c.AddRecord(ChatRecord{
+		if _, err := c.AddRecord(ChatRecord{
 			UserID:  "user",
 			Content: fmt.Sprintf("msg %d", i),
 		}); err != nil {
@@ -268,7 +268,7 @@ func TestChat_AddRecord_DBFailureNoSeqGap(t *testing.T) {
 	})
 
 	// Add 1st record successfully
-	err := c.AddRecord(ChatRecord{UserID: "u1", Content: "msg 1"})
+	_, err := c.AddRecord(ChatRecord{UserID: "u1", Content: "msg 1"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -278,7 +278,7 @@ func TestChat_AddRecord_DBFailureNoSeqGap(t *testing.T) {
 
 	// 2nd record fails in storage
 	store.fail = true
-	err = c.AddRecord(ChatRecord{UserID: "u1", Content: "msg 2 (failed)"})
+	_, err = c.AddRecord(ChatRecord{UserID: "u1", Content: "msg 2 (failed)"})
 	if err == nil {
 		t.Fatalf("expected error from failed storage")
 	}
@@ -288,7 +288,7 @@ func TestChat_AddRecord_DBFailureNoSeqGap(t *testing.T) {
 
 	// 3rd record succeeds in storage
 	store.fail = false
-	err = c.AddRecord(ChatRecord{UserID: "u1", Content: "msg 2 (retry)"})
+	_, err = c.AddRecord(ChatRecord{UserID: "u1", Content: "msg 2 (retry)"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -302,4 +302,88 @@ func TestChat_AddRecord_DBFailureNoSeqGap(t *testing.T) {
 		t.Fatalf("expected 2nd stored msg seq 2, got %d", store.msgs[1].Seq)
 	}
 }
+
+func TestChat_ProgressStepTransitions(t *testing.T) {
+	store := NewMockStorage()
+	c := New(Config{
+		ID:         "test_progress",
+		MaxRecords: 10,
+		Storage:    store,
+	})
+
+	// Root message with step 1 running
+	rec1, err := c.AddRecord(ChatRecord{
+		UserID:  "bot1",
+		Content: "Task",
+		Type:    models.MessageTypeProgress,
+		Progress: &models.ProgressData{
+			CardStatus: models.ProgressStatusRunning,
+			Title:      "Task",
+			Steps: []models.ProgressStep{
+				{ID: "s1", Title: "Step 1", Status: models.ProgressStatusRunning},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddRecord 1 failed: %v", err)
+	}
+
+	// Add step 2 running -> step 1 should become completed
+	_, err = c.AddRecord(ChatRecord{
+		UserID: "bot1",
+		Type:   models.MessageTypeProgress,
+		Progress: &models.ProgressData{
+			ParentSeq: int64(rec1.Seq),
+			Step: &models.ProgressStep{
+				ID:     "s2",
+				Title:  "Step 2",
+				Status: models.ProgressStatusRunning,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddRecord 2 failed: %v", err)
+	}
+
+	recs, err := c.GetRecords(1, 2)
+	if err != nil {
+		t.Fatalf("GetRecords failed: %v", err)
+	}
+	root := recs[0]
+	if len(root.Progress.Steps) != 2 {
+		t.Fatalf("expected 2 steps, got %d", len(root.Progress.Steps))
+	}
+	if root.Progress.Steps[0].Status != models.ProgressStatusCompleted {
+		t.Errorf("expected step 1 to be completed, got %s", root.Progress.Steps[0].Status)
+	}
+	if root.Progress.Steps[1].Status != models.ProgressStatusRunning {
+		t.Errorf("expected step 2 to be running, got %s", root.Progress.Steps[1].Status)
+	}
+
+	// Complete card
+	_, err = c.AddRecord(ChatRecord{
+		UserID: "bot1",
+		Type:   models.MessageTypeProgress,
+		Progress: &models.ProgressData{
+			ParentSeq:  int64(rec1.Seq),
+			CardStatus: models.ProgressStatusCompleted,
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddRecord 3 failed: %v", err)
+	}
+
+	recs, _ = c.GetRecords(1, 3)
+	root = recs[0]
+	if root.Progress.CardStatus != models.ProgressStatusCompleted {
+		t.Errorf("expected card to be completed, got %s", root.Progress.CardStatus)
+	}
+	if root.Progress.Steps[0].Status != models.ProgressStatusCompleted {
+		t.Errorf("expected step 1 to be completed, got %s", root.Progress.Steps[0].Status)
+	}
+	if root.Progress.Steps[1].Status != models.ProgressStatusCompleted {
+		t.Errorf("expected step 2 to be completed, got %s", root.Progress.Steps[1].Status)
+	}
+}
+
 

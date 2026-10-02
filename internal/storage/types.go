@@ -170,13 +170,30 @@ func (c *DBChat) UnmarshalBinary(data []byte) error {
 	return msgpack.Unmarshal(data, (*alias)(c))
 }
 
+type DBProgressStep struct {
+	ID          string `msgpack:"id"`
+	Title       string `msgpack:"title"`
+	Description string `msgpack:"description"`
+	Status      string `msgpack:"status"`
+}
+
+type DBProgressData struct {
+	ParentSeq  int64            `msgpack:"parentSeq"`
+	CardStatus string           `msgpack:"cardStatus"`
+	Title      string           `msgpack:"title"`
+	Step       *DBProgressStep  `msgpack:"step,omitempty"`
+	Steps      []DBProgressStep `msgpack:"steps,omitempty"`
+}
+
 type DBMessage struct {
-	Seq         int64          `msgpack:"seq"`
-	Timestamp   int64          `msgpack:"timestamp"`
-	ChatID      string         `msgpack:"chatId"`
-	UserID      string         `msgpack:"userId"`
-	Content     string         `msgpack:"content"`
-	Attachments []DBAttachment `msgpack:"attachments"`
+	Seq         int64           `msgpack:"seq"`
+	Timestamp   int64           `msgpack:"timestamp"`
+	ChatID      string          `msgpack:"chatId"`
+	UserID      string          `msgpack:"userId"`
+	Content     string          `msgpack:"content"`
+	Attachments []DBAttachment  `msgpack:"attachments"`
+	Type        string          `msgpack:"type,omitempty"`
+	Progress    *DBProgressData `msgpack:"progress,omitempty"`
 }
 
 type DBAttachment struct {

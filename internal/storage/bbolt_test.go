@@ -10,6 +10,7 @@ import (
 	"besedka/internal/filestore"
 	"besedka/internal/models"
 
+	"github.com/vmihailenco/msgpack/v5"
 	"go.etcd.io/bbolt"
 )
 
@@ -579,3 +580,268 @@ func TestStorage(t *testing.T) {
 		}
 	})
 }
+
+func TestLegacyDBMessageMsgpackCompatibility(t *testing.T) {
+	// Simulate legacy DBMessage without type and progress
+	type LegacyDBMessage struct {
+		Seq         int64          `msgpack:"seq"`
+		Timestamp   int64          `msgpack:"timestamp"`
+		ChatID      string         `msgpack:"chatId"`
+		UserID      string         `msgpack:"userId"`
+		Content     string         `msgpack:"content"`
+		Attachments []DBAttachment `msgpack:"attachments"`
+	}
+
+	legacy := LegacyDBMessage{
+		Seq:       1,
+		Timestamp: 1700000000,
+		ChatID:    "townhall",
+		UserID:    "alice",
+		Content:   "Legacy message",
+	}
+
+	data, err := msgpack.Marshal(&legacy)
+	if err != nil {
+		t.Fatalf("failed to marshal legacy message: %v", err)
+	}
+
+	var newMsg DBMessage
+	if err := newMsg.UnmarshalBinary(data); err != nil {
+		t.Fatalf("failed to unmarshal into new DBMessage: %v", err)
+	}
+
+	if newMsg.Seq != 1 || newMsg.Content != "Legacy message" {
+		t.Errorf("unexpected decoded fields: %+v", newMsg)
+	}
+	if newMsg.Type != "" {
+		t.Errorf("expected empty Type for legacy record, got %q", newMsg.Type)
+	}
+	if newMsg.Progress != nil {
+		t.Errorf("expected nil Progress for legacy record, got %+v", newMsg.Progress)
+	}
+}
+
+func TestProgressMessageStorage(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "storage_progress_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	dbPath := filepath.Join(tmpDir, "test.db")
+	fs, _ := filestore.NewLocalFileStore(filepath.Join(tmpDir, "fs"))
+	store, err := NewBboltStorage(dbPath, testSecret, fs)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer func() { _ = store.Close() }()
+
+	chatID := "townhall"
+	if err := store.UpsertChat(models.Chat{ID: chatID, Name: "Townhall", LastSeq: 0}); err != nil {
+		t.Fatalf("UpsertChat failed: %v", err)
+	}
+
+	// 1. Insert root progress message
+	rootMsg := models.Message{
+		Seq:       10,
+		Timestamp: 1700000010,
+		ChatID:    chatID,
+		UserID:    "bot1",
+		Content:   "Compiling report...",
+		Type:      models.MessageTypeProgress,
+		Progress: &models.ProgressData{
+			CardStatus: models.ProgressStatusRunning,
+			Title:      "Compiling news report...",
+		},
+	}
+	if err := store.UpsertMessage(rootMsg); err != nil {
+		t.Fatalf("failed to insert root message: %v", err)
+	}
+
+	// 2. Insert child step 1 (running)
+	child1 := models.Message{
+		Seq:       11,
+		Timestamp: 1700000011,
+		ChatID:    chatID,
+		UserID:    "bot1",
+		Type:      models.MessageTypeProgress,
+		Progress: &models.ProgressData{
+			ParentSeq: 10,
+			Step: &models.ProgressStep{
+				ID:          "step-1",
+				Title:       "Gathering preferences",
+				Description: "Reading profile interests",
+				Status:      models.ProgressStatusRunning,
+			},
+		},
+	}
+	if err := store.UpsertMessage(child1); err != nil {
+		t.Fatalf("failed to insert child1: %v", err)
+	}
+
+	// 3. Insert child step 1 update (completed)
+	child1Update := models.Message{
+		Seq:       12,
+		Timestamp: 1700000012,
+		ChatID:    chatID,
+		UserID:    "bot1",
+		Type:      models.MessageTypeProgress,
+		Progress: &models.ProgressData{
+			ParentSeq: 10,
+			Step: &models.ProgressStep{
+				ID:          "step-1",
+				Title:       "Gathering preferences",
+				Description: "Reading profile interests",
+				Status:      models.ProgressStatusCompleted,
+			},
+		},
+	}
+	if err := store.UpsertMessage(child1Update); err != nil {
+		t.Fatalf("failed to insert child1Update: %v", err)
+	}
+
+	// 4. Insert child step 2 & complete entire card
+	child2 := models.Message{
+		Seq:       13,
+		Timestamp: 1700000013,
+		ChatID:    chatID,
+		UserID:    "bot1",
+		Type:      models.MessageTypeProgress,
+		Progress: &models.ProgressData{
+			ParentSeq:  10,
+			CardStatus: models.ProgressStatusCompleted,
+			Step: &models.ProgressStep{
+				ID:     "step-2",
+				Title:  "Fetching news sources",
+				Status: models.ProgressStatusCompleted,
+			},
+		},
+	}
+	if err := store.UpsertMessage(child2); err != nil {
+		t.Fatalf("failed to insert child2: %v", err)
+	}
+
+	// 5. Query ListMessages
+	msgs, err := store.ListMessages(chatID, 1, 20)
+	if err != nil {
+		t.Fatalf("ListMessages failed: %v", err)
+	}
+
+	if len(msgs) != 4 {
+		t.Fatalf("expected 4 messages, got %d", len(msgs))
+	}
+
+	// Verify root message (msgs[0]) was atomically updated with the full projection snapshot!
+	gotRoot := msgs[0]
+	if gotRoot.Seq != 10 {
+		t.Fatalf("expected first msg seq 10, got %d", gotRoot.Seq)
+	}
+	if gotRoot.Type != models.MessageTypeProgress {
+		t.Errorf("expected root type %q, got %q", models.MessageTypeProgress, gotRoot.Type)
+	}
+	if gotRoot.Progress == nil {
+		t.Fatalf("expected root progress to not be nil")
+	}
+	if gotRoot.Progress.CardStatus != models.ProgressStatusCompleted {
+		t.Errorf("expected root card status completed, got %q", gotRoot.Progress.CardStatus)
+	}
+	if len(gotRoot.Progress.Steps) != 2 {
+		t.Fatalf("expected root to have 2 steps, got %d", len(gotRoot.Progress.Steps))
+	}
+	if gotRoot.Progress.Steps[0].ID != "step-1" || gotRoot.Progress.Steps[0].Status != models.ProgressStatusCompleted {
+		t.Errorf("unexpected step 1: %+v", gotRoot.Progress.Steps[0])
+	}
+	if gotRoot.Progress.Steps[1].ID != "step-2" || gotRoot.Progress.Steps[1].Status != models.ProgressStatusCompleted {
+		t.Errorf("unexpected step 2: %+v", gotRoot.Progress.Steps[1])
+	}
+}
+
+func TestProgressMessageStepTransitions(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "storage_step_transitions_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	dbPath := filepath.Join(tmpDir, "test.db")
+	fs, _ := filestore.NewLocalFileStore(filepath.Join(tmpDir, "fs"))
+	store, err := NewBboltStorage(dbPath, testSecret, fs)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer func() { _ = store.Close() }()
+
+	chatID := "townhall"
+	_ = store.UpsertChat(models.Chat{ID: chatID, Name: "Townhall", LastSeq: 0})
+
+	// Root message with step 1 running
+	_ = store.UpsertMessage(models.Message{
+		Seq:       1,
+		Timestamp: 100,
+		ChatID:    chatID,
+		UserID:    "bot1",
+		Type:      models.MessageTypeProgress,
+		Progress: &models.ProgressData{
+			CardStatus: models.ProgressStatusRunning,
+			Title:      "Task",
+			Steps: []models.ProgressStep{
+				{ID: "s1", Title: "Step 1", Status: models.ProgressStatusRunning},
+			},
+		},
+	})
+
+	// Append step 2 running -> step 1 should automatically become completed
+	_ = store.UpsertMessage(models.Message{
+		Seq:       2,
+		Timestamp: 101,
+		ChatID:    chatID,
+		UserID:    "bot1",
+		Type:      models.MessageTypeProgress,
+		Progress: &models.ProgressData{
+			ParentSeq: 1,
+			Step: &models.ProgressStep{
+				ID:     "s2",
+				Title:  "Step 2",
+				Status: models.ProgressStatusRunning,
+			},
+		},
+	})
+
+	msgs, _ := store.ListMessages(chatID, 1, 10)
+	root := msgs[0]
+	if len(root.Progress.Steps) != 2 {
+		t.Fatalf("expected 2 steps, got %d", len(root.Progress.Steps))
+	}
+	if root.Progress.Steps[0].Status != models.ProgressStatusCompleted {
+		t.Errorf("expected step 1 to be completed after step 2 was appended, got %s", root.Progress.Steps[0].Status)
+	}
+	if root.Progress.Steps[1].Status != models.ProgressStatusRunning {
+		t.Errorf("expected step 2 to be running, got %s", root.Progress.Steps[1].Status)
+	}
+
+	// Mark entire card completed -> step 2 should become completed
+	_ = store.UpsertMessage(models.Message{
+		Seq:       3,
+		Timestamp: 102,
+		ChatID:    chatID,
+		UserID:    "bot1",
+		Type:      models.MessageTypeProgress,
+		Progress: &models.ProgressData{
+			ParentSeq:  1,
+			CardStatus: models.ProgressStatusCompleted,
+		},
+	})
+
+	msgs, _ = store.ListMessages(chatID, 1, 10)
+	root = msgs[0]
+	if root.Progress.CardStatus != models.ProgressStatusCompleted {
+		t.Errorf("expected card to be completed, got %s", root.Progress.CardStatus)
+	}
+	if root.Progress.Steps[0].Status != models.ProgressStatusCompleted {
+		t.Errorf("expected step 1 to be completed, got %s", root.Progress.Steps[0].Status)
+	}
+	if root.Progress.Steps[1].Status != models.ProgressStatusCompleted {
+		t.Errorf("expected step 2 to be completed when card completed, got %s", root.Progress.Steps[1].Status)
+	}
+}
+

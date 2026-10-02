@@ -62,6 +62,19 @@ jobs:
   test:
     name: Run Go Tests
     runs-on: ubuntu-latest
+    services:
+      s3mock:
+        image: adobe/s3mock:latest
+        ports:
+          - 9090:9090
+        env:
+          initialBuckets: testbucket
+          COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS: testbucket
+        options: >-
+          --health-cmd "wget --spider -q http://localhost:9090/ || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Set up Go
@@ -70,6 +83,14 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       - name: Test
         run: go test -v -covermode=atomic -coverprofile=coverage.out -race ./...
+      - name: Integration Test
+        run: go test -v -tags=integration -race ./internal/objectstore ./internal/backup
+        env:
+          S3_ENDPOINT: http://127.0.0.1:9090
+          S3_BUCKET: testbucket
+          S3_ACCESS_KEY: test
+          S3_SECRET_KEY: test
+          S3_PATH_STYLE: "true"
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4
 

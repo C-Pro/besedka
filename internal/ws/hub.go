@@ -3,6 +3,7 @@ package ws
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -204,6 +205,8 @@ func (h *Hub) restoreChat(modelChat models.Chat) {
 					Content:          m.Content,
 					FormattedContent: content.FormatMessage(m.Content),
 					Attachments:      m.Attachments,
+					Type:             m.Type,
+					Progress:         m.Progress,
 				}
 				c.Records = append(c.Records, rec)
 				if c.FirstSeq == 0 {
@@ -502,6 +505,166 @@ func (h *Hub) sendToChannels(channels []chan models.ServerMessage, msg models.Se
 	}
 }
 
+func (h *Hub) SendMessage(userID string, msg models.ClientMessage, senderCh chan models.ServerMessage) (models.Message, error) {
+	h.mu.RLock()
+	c, ok := h.chats[msg.ChatID]
+	h.mu.RUnlock()
+
+	if !ok {
+		return models.Message{}, models.ErrNotFound
+	}
+
+	if c.ID != "townhall" && !isUserInDM(userID, c.ID) {
+		return models.Message{}, errors.New("access denied: not in chat")
+	}
+
+	var senderUser models.User
+	if h.userProvider != nil {
+		u, err := h.userProvider.GetUser(userID)
+		if err != nil {
+			return models.Message{}, errors.New("unauthorized")
+		}
+		senderUser = u
+		if u.Type == models.UserTypeWebhook && c.ID != u.TargetChatID {
+			return models.Message{}, errors.New("webhooks must post via /api/webhook")
+		}
+		if u.Type == models.UserTypeBot && c.ID == "townhall" && !u.BotPermissions.Write {
+			return models.Message{}, errors.New("bot has no write permission in Townhall")
+		}
+	}
+
+	msgType := msg.MessageType
+	if msgType == "" {
+		msgType = models.MessageTypeText
+	}
+
+	if msgType != models.MessageTypeText && msgType != models.MessageTypeProgress {
+		return models.Message{}, errors.New("unknown message type")
+	}
+	if msgType == models.MessageTypeText && msg.Progress != nil {
+		return models.Message{}, errors.New("progress data not allowed for text messages")
+	}
+
+	if msgType == models.MessageTypeProgress {
+		if senderUser.Type != models.UserTypeBot {
+			return models.Message{}, errors.New("only bots can send progress messages")
+		}
+		if msg.Progress == nil {
+			return models.Message{}, errors.New("missing progress data")
+		}
+		if msg.Progress.ParentSeq < 0 {
+			return models.Message{}, errors.New("invalid parentSeq")
+		}
+		if msg.Progress.CardStatus != "" &&
+			msg.Progress.CardStatus != models.ProgressStatusRunning &&
+			msg.Progress.CardStatus != models.ProgressStatusCompleted &&
+			msg.Progress.CardStatus != models.ProgressStatusFailed {
+			return models.Message{}, errors.New("invalid cardStatus")
+		}
+		if msg.Progress.Step != nil {
+			st := msg.Progress.Step
+			if strings.TrimSpace(st.ID) == "" {
+				return models.Message{}, errors.New("step ID cannot be empty")
+			}
+			if strings.TrimSpace(st.Title) == "" {
+				return models.Message{}, errors.New("step title cannot be empty")
+			}
+			if st.Status != models.ProgressStatusRunning &&
+				st.Status != models.ProgressStatusCompleted &&
+				st.Status != models.ProgressStatusFailed {
+				return models.Message{}, errors.New("invalid step status")
+			}
+		}
+		if msg.Progress.ParentSeq > 0 {
+			if msg.Progress.Step == nil && msg.Progress.CardStatus == "" {
+				return models.Message{}, errors.New("child progress update cannot be empty")
+			}
+			parentRecords, err := c.GetRecords(chat.Seq(msg.Progress.ParentSeq), chat.Seq(msg.Progress.ParentSeq))
+			if err != nil || len(parentRecords) == 0 {
+				return models.Message{}, errors.New("parent progress message not found")
+			}
+			parent := parentRecords[0]
+			if parent.Type != models.MessageTypeProgress || parent.Progress == nil || parent.Progress.ParentSeq != 0 {
+				return models.Message{}, errors.New("parent message is not a root progress message")
+			}
+			if parent.UserID != userID {
+				return models.Message{}, errors.New("cannot update progress message authored by another user")
+			}
+		} else {
+			if strings.TrimSpace(msg.Progress.Title) == "" {
+				return models.Message{}, errors.New("root progress message must have a title")
+			}
+			if msg.Progress.CardStatus == "" {
+				msg.Progress.CardStatus = models.ProgressStatusRunning
+			}
+		}
+	} else {
+		if strings.TrimSpace(msg.Content) == "" && len(msg.Attachments) == 0 {
+			return models.Message{}, errors.New("message content cannot be empty")
+		}
+	}
+
+	if len(msg.Content) > 65536 {
+		return models.Message{}, errors.New("message content exceeds limit")
+	}
+	for i := range msg.Attachments {
+		if len(msg.Attachments[i].Name) > 255 {
+			msg.Attachments[i].Name = msg.Attachments[i].Name[:255]
+		}
+	}
+	if msg.Progress != nil {
+		if len(msg.Progress.Title) > 255 {
+			msg.Progress.Title = msg.Progress.Title[:255]
+		}
+		if msg.Progress.Step != nil {
+			if len(msg.Progress.Step.ID) > 64 {
+				msg.Progress.Step.ID = msg.Progress.Step.ID[:64]
+			}
+			if len(msg.Progress.Step.Title) > 255 {
+				msg.Progress.Step.Title = msg.Progress.Step.Title[:255]
+			}
+			if len(msg.Progress.Step.Description) > 4096 {
+				msg.Progress.Step.Description = msg.Progress.Step.Description[:4096]
+			}
+		}
+	}
+
+	formatted := ""
+	if msg.Content != "" {
+		formatted = content.FormatMessage(msg.Content)
+	}
+
+	rec := chat.ChatRecord{
+		UserID:           userID,
+		Content:          msg.Content,
+		FormattedContent: formatted,
+		Attachments:      msg.Attachments,
+		Timestamp:        time.Now().Unix(),
+		Type:             msgType,
+		Progress:         msg.Progress,
+	}
+
+	createdRec, err := c.AddRecord(rec)
+	if err != nil {
+		slog.Error("failed to add record", "chatID", c.ID, "userID", userID, "error", err)
+		return models.Message{}, err
+	}
+
+	h.UpdateLastSeen(userID, c.ID, int64(createdRec.Seq), senderCh)
+
+	return models.Message{
+		Seq:         int64(createdRec.Seq),
+		Timestamp:   createdRec.Timestamp,
+		ChatID:      c.ID,
+		UserID:      userID,
+		Content:     createdRec.FormattedContent,
+		RawContent:  content.Sanitize(createdRec.FormattedContent),
+		Attachments: createdRec.Attachments,
+		Type:        createdRec.Type,
+		Progress:    createdRec.Progress,
+	}, nil
+}
+
 func (h *Hub) Dispatch(userID string, msg models.ClientMessage, senderCh chan models.ServerMessage) {
 	// Location and UserInfo messages do not belong to any chatID, so handle them separately.
 	if msg.Type == models.ClientMessageTypeLocation {
@@ -539,27 +702,8 @@ func (h *Hub) Dispatch(userID string, msg models.ClientMessage, senderCh chan mo
 
 	switch msg.Type {
 	case models.ClientMessageTypeSend:
-		if strings.TrimSpace(msg.Content) == "" && len(msg.Attachments) == 0 {
-			return
-		}
-		if len(msg.Content) > 65536 {
-			return
-		}
-		for i := range msg.Attachments {
-			if len(msg.Attachments[i].Name) > 255 {
-				msg.Attachments[i].Name = msg.Attachments[i].Name[:255]
-			}
-		}
-		if err := c.AddRecord(chat.ChatRecord{
-			UserID:           userID,
-			Content:          msg.Content,
-			FormattedContent: content.FormatMessage(msg.Content),
-			Attachments:      msg.Attachments,
-			Timestamp:        time.Now().Unix(),
-		}); err != nil {
-			slog.Error("failed to add record", "chatID", c.ID, "userID", userID, "error", err)
-		} else {
-			h.UpdateLastSeen(userID, c.ID, c.GetLastSeq(), senderCh)
+		if _, err := h.SendMessage(userID, msg, senderCh); err != nil {
+			slog.Warn("message rejected in Dispatch", "chatID", msg.ChatID, "userID", userID, "error", err)
 		}
 	case models.ClientMessageTypeJoin:
 		records, err := c.GetLastRecords(100)
@@ -926,6 +1070,10 @@ func (h *Hub) handleRecordCallback(receiverID string, chatID string, record chat
 	} else {
 		h.mu.RUnlock()
 		if receiverID != record.UserID {
+			// Suppress push notification for child progress updates
+			if record.Type == models.MessageTypeProgress && record.Progress != nil && record.Progress.ParentSeq > 0 {
+				return
+			}
 			// Send push notification if user is offline AND is not the sender
 			sender, _ := h.userProvider.GetUser(record.UserID)
 			senderName := sender.DisplayName
@@ -935,7 +1083,9 @@ func (h *Hub) handleRecordCallback(receiverID string, chatID string, record chat
 
 			body := strings.TrimSpace(record.Content)
 			if body == "" {
-				if len(record.Attachments) > 0 {
+				if record.Type == models.MessageTypeProgress && record.Progress != nil && record.Progress.Title != "" {
+					body = record.Progress.Title
+				} else if len(record.Attachments) > 0 {
 					body = "Sent an attachment"
 				} else {
 					body = "Sent a message"
@@ -974,6 +1124,8 @@ func mapRecordsToMessages(records []chat.ChatRecord) []models.Message {
 			RawContent:  content.Sanitize(formatted),
 			Timestamp:   r.Timestamp,
 			Attachments: r.Attachments,
+			Type:        r.Type,
+			Progress:    r.Progress,
 		}
 	}
 	return messages
