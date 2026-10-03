@@ -232,6 +232,36 @@ func (s *TestServer) CreateUserAPI(t *testing.T, username string) string {
 	return result.SetupLink
 }
 
+func (s *TestServer) CreateBotAPI(t *testing.T, username, displayName string) string {
+	reqBody, _ := json.Marshal(map[string]any{
+		"username":    username,
+		"displayName": displayName,
+		"type":        "bot",
+		"botPermissions": map[string]any{
+			"write": true,
+		},
+	})
+	req, err := http.NewRequest("POST", fmt.Sprintf("http://%s/api/users", s.AdminAddr), bytes.NewReader(reqBody))
+	require.NoError(t, err)
+	req.SetBasicAuth("admin", "1337chat")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var result struct {
+		Success bool   `json:"success"`
+		APIKey  string `json:"apiKey"`
+	}
+	err = json.NewDecoder(resp.Body).Decode(&result)
+	require.NoError(t, err)
+	require.True(t, result.Success)
+	require.NotEmpty(t, result.APIKey)
+	return result.APIKey
+}
+
 func getTOTP(t *testing.T, secret string) string {
 	code, err := auth.GenerateTOTP(secret, time.Now())
 	require.NoError(t, err)

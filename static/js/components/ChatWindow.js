@@ -414,6 +414,9 @@ export function createChatWindow(container) {
             card.dataset.manualToggled = 'true';
             card.dataset.expanded = isExpanded ? 'true' : 'false';
             header.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+            if (isExpanded && scrollState.wasAtBottom) {
+                elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
+            }
         };
 
         header.addEventListener('click', toggleExpansion);
@@ -721,13 +724,18 @@ export function createChatWindow(container) {
                 }
             } else {
                 // In-place update of rendered progress cards
+                let progressCardUpdated = false;
                 for (const msg of messages) {
                     if (msg.type === 'progress') {
                         const existingCard = elements.messagesContainer.querySelector(`.message-line[data-seq="${msg.seq}"]`);
                         if (existingCard) {
                             updateProgressCardElement(existingCard, msg);
+                            progressCardUpdated = true;
                         }
                     }
+                }
+                if (progressCardUpdated && scrollState.wasAtBottom) {
+                    elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
                 }
 
                 // History prepend
