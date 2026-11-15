@@ -183,6 +183,50 @@
     white-space: pre;
 }
 
+.message-content pre code .hl-comment {
+    color: var(--hl-comment);
+    font-style: italic;
+}
+
+.message-content pre code .hl-string {
+    color: var(--hl-string);
+}
+
+.message-content pre code .hl-number {
+    color: var(--hl-number);
+}
+
+.message-content pre code .hl-keyword {
+    color: var(--hl-keyword);
+    font-weight: 600;
+}
+
+.message-content pre code .hl-operator {
+    color: var(--hl-operator);
+}
+
+.message-content pre code .hl-bracket {
+    border-radius: 2px;
+    transition: background-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.message-content pre code .hl-bracket-0 {
+    color: var(--hl-bracket-0);
+}
+
+.message-content pre code .hl-bracket-1 {
+    color: var(--hl-bracket-1);
+}
+
+.message-content pre code .hl-bracket-2 {
+    color: var(--hl-bracket-2);
+}
+
+.message-content pre code .hl-bracket.hl-bracket-active {
+    background-color: var(--hl-bracket-active-bg);
+    box-shadow: 0 0 0 1px var(--hl-bracket-active-outline);
+}
+
 .copy-code-btn {
     position: absolute;
     top: var(--space-sm);

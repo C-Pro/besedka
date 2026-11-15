@@ -4,6 +4,7 @@ const CACHE_FILES = [
     '/js/appearance.js',
     '/js/state.js',
     '/js/mentions.js',
+    '/js/highlighter.js',
     '/js/id3.js',
     '/js/components/ChatList.js',
     '/js/components/ChatWindow.js',

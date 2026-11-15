@@ -1,6 +1,7 @@
 import { store } from '../state.js';
 import { imageOverlay } from './ImageOverlay.js';
 import { decorateMentions } from '../mentions.js';
+import { highlightCodeElement } from '../highlighter.js';
 import { attachMentionAutocomplete } from './MentionAutocomplete.js';
 import { createUserProfileModal } from './UserProfileModal.js';
 
@@ -311,6 +312,46 @@ export function createChatWindow(container) {
         }
     };
 
+    const enhanceCodeBlocks = (rootEl) => {
+        rootEl.querySelectorAll('.message-content pre').forEach(pre => {
+            const codeEl = pre.querySelector('code');
+            if (codeEl) {
+                highlightCodeElement(codeEl);
+            }
+
+            const wrapper = document.createElement('div');
+            wrapper.className = 'code-block';
+            pre.before(wrapper);
+            wrapper.appendChild(pre);
+
+            const btn = document.createElement('button');
+            btn.className = 'copy-code-btn';
+            btn.title = 'Copy code';
+            btn.setAttribute('aria-label', 'Copy code');
+            btn.innerHTML = `
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+            `;
+            btn.onclick = async (e) => {
+                e.stopPropagation();
+                const code = pre.querySelector('code');
+                const text = code ? code.innerText : pre.innerText;
+                try {
+                    await navigator.clipboard.writeText(text);
+                    btn.classList.add('copied');
+                    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+                    setTimeout(() => {
+                        btn.classList.remove('copied');
+                        btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+                    }, 2000);
+                } catch (err) { console.error('Failed to copy: ', err); }
+            };
+            wrapper.appendChild(btn);
+        });
+    };
+
     const createProgressCardElement = (msg, state) => {
         const isMe = msg.sender === 'me';
         let senderDisplayName = 'me';
@@ -437,6 +478,7 @@ export function createChatWindow(container) {
             contentSpan.innerHTML = msg.text;
             decorateMentions(contentSpan, state.users, store.getCurrentUserName());
             div.appendChild(contentSpan);
+            enhanceCodeBlocks(div);
         }
 
         return div;
@@ -585,39 +627,7 @@ export function createChatWindow(container) {
             });
         });
 
-        // Add copy buttons to code blocks
-        div.querySelectorAll('.message-content pre').forEach(pre => {
-            const wrapper = document.createElement('div');
-            wrapper.className = 'code-block';
-            pre.before(wrapper);
-            wrapper.appendChild(pre);
-
-            const btn = document.createElement('button');
-            btn.className = 'copy-code-btn';
-            btn.title = 'Copy code';
-            btn.setAttribute('aria-label', 'Copy code');
-            btn.innerHTML = `
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                </svg>
-            `;
-            btn.onclick = async (e) => {
-                e.stopPropagation();
-                const code = pre.querySelector('code');
-                const text = code ? code.innerText : pre.innerText;
-                try {
-                    await navigator.clipboard.writeText(text);
-                    btn.classList.add('copied');
-                    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
-                    setTimeout(() => {
-                        btn.classList.remove('copied');
-                        btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
-                    }, 2000);
-                } catch (err) { console.error('Failed to copy: ', err); }
-            };
-            wrapper.appendChild(btn);
-        });
+        enhanceCodeBlocks(div);
 
         // Handle image loads for scrolling
         div.querySelectorAll('img').forEach(img => {

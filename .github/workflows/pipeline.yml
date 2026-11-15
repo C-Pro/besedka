@@ -59,6 +59,13 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - run: make lint-js
 
+  js-test:
+    name: Run JS Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - run: make test-js
+
   test:
     name: Run Go Tests
     runs-on: ubuntu-latest
@@ -110,7 +117,7 @@ jobs:
 
   build-and-deploy-test:
     name: Build & Deploy to Test Instance (Spot VM)
-    needs: [semgrep, osv-scanner, golangci-lint, biome-lint, test, e2e]
+    needs: [semgrep, osv-scanner, golangci-lint, biome-lint, js-test, test, e2e]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
@@ -164,7 +171,7 @@ jobs:
 
   build-and-deploy-prod:
     name: Build & Deploy to Prod Instance (Spot VM with PVC)
-    needs: [semgrep, osv-scanner, golangci-lint, biome-lint, test, e2e]
+    needs: [semgrep, osv-scanner, golangci-lint, biome-lint, js-test, test, e2e]
     if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:

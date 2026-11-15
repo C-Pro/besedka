@@ -7,3 +7,43 @@ reason = "golang.org/x/crypto/openpgp unmaintained; app does not use openpgp, on
 [[IgnoredVulns]]
 id = "GO-2026-6222"
 reason = "golang.org/x/image vulnerability; app only uses standard image decoding/resizing on trusted input sizes"
+
+[[IgnoredVulns]]
+id = "GHSA-4w3g-jfj2-cw2q"
+reason = "github.com/go-jose/go-jose/v3 is a test-only transitive dependency of playwright-go in e2e tests; not linked into the production binary"
+
+[[IgnoredVulns]]
+id = "GHSA-mgcc-cww5-fp2q"
+reason = "github.com/go-jose/go-jose/v3 is a test-only transitive dependency of playwright-go in e2e tests; not linked into the production binary"
+
+[[IgnoredVulns]]
+id = "GHSA-vvm8-gf78-28g4"
+reason = "github.com/go-jose/go-jose/v3 is a test-only transitive dependency of playwright-go in e2e tests; not linked into the production binary"
+
+[[IgnoredVulns]]
+id = "GO-2026-6603"
+reason = "golang.org/x/net transitive dependency; app only uses x/net/html via bluemonday sanitizer and autocert"
+
+[[IgnoredVulns]]
+id = "GO-2026-6610"
+reason = "golang.org/x/net transitive dependency; app only uses x/net/html via bluemonday sanitizer and autocert"
+
+[[IgnoredVulns]]
+id = "GO-2026-6611"
+reason = "golang.org/x/net transitive dependency; app only uses x/net/html via bluemonday sanitizer and autocert"
+
+[[IgnoredVulns]]
+id = "GO-2026-6612"
+reason = "golang.org/x/net transitive dependency; app only uses x/net/html via bluemonday sanitizer and autocert"
+
+[[IgnoredVulns]]
+id = "GO-2026-6617"
+reason = "golang.org/x/net transitive dependency; app only uses x/net/html via bluemonday sanitizer and autocert"
+
+[[IgnoredVulns]]
+id = "GO-2026-6860"
+reason = "golang.org/x/net transitive dependency; app only uses x/net/html via bluemonday sanitizer and autocert"
+
+[[IgnoredVulns]]
+id = "GO-2026-6866"
+reason = "golang.org/x/net transitive dependency; app only uses x/net/html via bluemonday sanitizer and autocert"

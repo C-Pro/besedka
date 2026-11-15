@@ -6,6 +6,7 @@
             "static/js/login-bg.js",
             "static/js/register.js",
             "static/js/state.js",
+            "static/js/highlighter.js",
             "static/js/components/*.js"
         ]
     },
