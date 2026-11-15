@@ -23,6 +23,42 @@ type ChatRecord struct {
 	Attachments      []models.Attachment
 	Type             models.MessageType
 	Progress         *models.ProgressData
+	UI               *models.UIData
+	UIResponse       *models.UIResponseData
+}
+
+func cloneUIData(ui *models.UIData) *models.UIData {
+	if ui == nil {
+		return nil
+	}
+	cp := &models.UIData{
+		Answered:    ui.Answered,
+		ResponderID: ui.ResponderID,
+	}
+	if len(ui.Elements) > 0 {
+		cp.Elements = make([]models.UIElement, len(ui.Elements))
+		copy(cp.Elements, ui.Elements)
+	}
+	if len(ui.SelectedIDs) > 0 {
+		cp.SelectedIDs = append([]string(nil), ui.SelectedIDs...)
+	}
+	return cp
+}
+
+func cloneUIResponseData(resp *models.UIResponseData) *models.UIResponseData {
+	if resp == nil {
+		return nil
+	}
+	return &models.UIResponseData{
+		ParentSeq:   resp.ParentSeq,
+		SelectedIDs: append([]string(nil), resp.SelectedIDs...),
+	}
+}
+
+func cloneRecord(rec ChatRecord) ChatRecord {
+	rec.UI = cloneUIData(rec.UI)
+	rec.UIResponse = cloneUIResponseData(rec.UIResponse)
+	return rec
 }
 
 type Chat struct {
@@ -69,6 +105,32 @@ func New(config Config) *Chat {
 func (c *Chat) AddRecord(record ChatRecord) (ChatRecord, error) {
 	c.mux.Lock()
 
+	if record.Type == models.MessageTypeUIResponse && record.UIResponse != nil && record.UIResponse.ParentSeq > 0 {
+		parentSeq := Seq(record.UIResponse.ParentSeq)
+		alreadyAnswered := false
+		foundInMemory := false
+		for idx := range c.Records {
+			if c.Records[idx].Seq == parentSeq {
+				foundInMemory = true
+				if c.Records[idx].UI != nil && c.Records[idx].UI.Answered {
+					alreadyAnswered = true
+				}
+				break
+			}
+		}
+		if !foundInMemory && c.storage != nil {
+			if msgs, err := c.storage.ListMessages(c.ID, int64(parentSeq), int64(parentSeq)); err == nil && len(msgs) > 0 {
+				if msgs[0].UI != nil && msgs[0].UI.Answered {
+					alreadyAnswered = true
+				}
+			}
+		}
+		if alreadyAnswered {
+			c.mux.Unlock()
+			return ChatRecord{}, fmt.Errorf("interactive UI message already answered")
+		}
+	}
+
 	nextSeq := c.LastSeq + 1
 	record.Seq = nextSeq
 
@@ -83,6 +145,8 @@ func (c *Chat) AddRecord(record ChatRecord) (ChatRecord, error) {
 			Attachments: record.Attachments,
 			Type:        record.Type,
 			Progress:    record.Progress,
+			UI:          record.UI,
+			UIResponse:  record.UIResponse,
 		})
 		if err != nil {
 			c.mux.Unlock()
@@ -93,19 +157,35 @@ func (c *Chat) AddRecord(record ChatRecord) (ChatRecord, error) {
 
 	c.LastSeq = nextSeq
 
+	storedRecord := cloneRecord(record)
+
 	// Add record to ring buffer
 	switch {
 	case len(c.Records) < c.MaxRecords:
 		if c.FirstSeq == 0 {
 			c.FirstSeq = c.LastSeq
 		}
-		c.Records = append(c.Records, record)
+		c.Records = append(c.Records, storedRecord)
 		c.LastIndex++
 	default:
 		c.FirstSeq++
 		i := (c.LastIndex + 1) % c.MaxRecords
-		c.Records[i] = record
+		c.Records[i] = storedRecord
 		c.LastIndex = i
+	}
+
+	if record.Type == models.MessageTypeUIResponse && record.UIResponse != nil && record.UIResponse.ParentSeq > 0 {
+		parentSeq := Seq(record.UIResponse.ParentSeq)
+		for idx := range c.Records {
+			if c.Records[idx].Seq == parentSeq && c.Records[idx].UI != nil {
+				updatedUI := cloneUIData(c.Records[idx].UI)
+				updatedUI.Answered = true
+				updatedUI.SelectedIDs = append([]string(nil), record.UIResponse.SelectedIDs...)
+				updatedUI.ResponderID = record.UserID
+				c.Records[idx].UI = updatedUI
+				break
+			}
+		}
 	}
 
 	if record.Progress != nil && record.Progress.ParentSeq > 0 {
@@ -218,6 +298,8 @@ func (c *Chat) GetRecords(from, to Seq) ([]ChatRecord, error) {
 				Attachments: m.Attachments,
 				Type:        m.Type,
 				Progress:    m.Progress,
+				UI:          m.UI,
+				UIResponse:  m.UIResponse,
 			})
 		}
 	}
@@ -245,12 +327,9 @@ func (c *Chat) GetRecords(from, to Seq) ([]ChatRecord, error) {
 				offset := int(mFrom - c.FirstSeq)
 				startIdx := (head + offset) % len(c.Records)
 
-				if startIdx+count <= len(c.Records) {
-					result = append(result, c.Records[startIdx:startIdx+count]...)
-				} else {
-					n1 := len(c.Records) - startIdx
-					result = append(result, c.Records[startIdx:]...)
-					result = append(result, c.Records[:count-n1]...)
+				for i := 0; i < count; i++ {
+					idx := (startIdx + i) % len(c.Records)
+					result = append(result, cloneRecord(c.Records[idx]))
 				}
 			}
 		}
@@ -285,12 +364,9 @@ func (c *Chat) GetLastRecords(count int) ([]ChatRecord, error) {
 	offset := int(from - c.FirstSeq)
 	startIdx := (head + offset) % len(c.Records)
 
-	if startIdx+count <= len(c.Records) {
-		copy(result, c.Records[startIdx:startIdx+count])
-	} else {
-		n1 := len(c.Records) - startIdx
-		copy(result, c.Records[startIdx:])
-		copy(result[n1:], c.Records[:count-n1])
+	for i := 0; i < count; i++ {
+		idx := (startIdx + i) % len(c.Records)
+		result[i] = cloneRecord(c.Records[idx])
 	}
 
 	return result, nil

@@ -79,6 +79,17 @@ func (m *MockStorage) UpsertMessage(msg models.Message) error {
 			}
 		}
 	}
+	if msg.Type == models.MessageTypeUIResponse && msg.UIResponse != nil && msg.UIResponse.ParentSeq > 0 {
+		for i := range m.messages[msg.ChatID] {
+			if m.messages[msg.ChatID][i].Seq == msg.UIResponse.ParentSeq && m.messages[msg.ChatID][i].UI != nil {
+				parentUI := m.messages[msg.ChatID][i].UI
+				parentUI.Answered = true
+				parentUI.SelectedIDs = append([]string{}, msg.UIResponse.SelectedIDs...)
+				parentUI.ResponderID = msg.UserID
+				break
+			}
+		}
+	}
 	return nil
 }
 
@@ -1899,6 +1910,345 @@ func TestHub_Dispatch_ProgressBypassPrevention(t *testing.T) {
 		t.Fatalf("expected 0 records, got %d", len(records))
 	}
 }
+
+func TestHub_InteractiveUI_ValidationAndFlow(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	alice := models.User{ID: "alice", UserName: "alice", DisplayName: "Alice", Type: models.UserTypeHuman}
+	bob := models.User{ID: "bob", UserName: "bob", DisplayName: "Bob", Type: models.UserTypeHuman}
+	botDeploy := models.User{
+		ID:             "bot-deploy",
+		UserName:       "deploybot",
+		DisplayName:    "Deploy Bot",
+		Type:           models.UserTypeBot,
+		BotPermissions: models.BotPermissions{Write: true, ReadMentions: true},
+	}
+	botOther := models.User{
+		ID:             "bot-other",
+		UserName:       "otherbot",
+		DisplayName:    "Other Bot",
+		Type:           models.UserTypeBot,
+		BotPermissions: models.BotPermissions{Write: true, ReadMentions: true},
+	}
+
+	st := NewMockStorage()
+	provider := &MockUserProvider{users: []models.User{alice, bob, botDeploy, botOther}}
+	h := NewHub(ctx, provider, st, nil)
+
+	aliceCh := h.Join(alice.ID)
+	defer h.Leave(alice.ID, aliceCh)
+	botDeployCh := h.Join(botDeploy.ID)
+	defer h.Leave(botDeploy.ID, botDeployCh)
+	botOtherCh := h.Join(botOther.ID)
+	defer h.Leave(botOther.ID, botOtherCh)
+
+	drainMessages(aliceCh, 10)
+	drainMessages(botDeployCh, 10)
+	drainMessages(botOtherCh, 10)
+
+	// 1. Human cannot send text message with UI
+	_, err := h.SendMessage(alice.ID, models.ClientMessage{
+		ChatID:  "townhall",
+		Content: "Fake prompt",
+		UI: &models.UIData{
+			Elements: []models.UIElement{{ID: "ok", Type: models.UIElementTypeButton, Label: "OK"}},
+		},
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "only bots") {
+		t.Fatalf("expected 'only bots' error, got %v", err)
+	}
+
+	// 2. UI validation errors
+	uiInvalidCases := []struct {
+		name string
+		ui   *models.UIData
+		want string
+	}{
+		{"empty elements", &models.UIData{Elements: []models.UIElement{}}, "invalid ui elements count"},
+		{"duplicate id", &models.UIData{Elements: []models.UIElement{
+			{ID: "a", Type: models.UIElementTypeButton, Label: "A"},
+			{ID: "a", Type: models.UIElementTypeButton, Label: "B"},
+		}}, "duplicate"},
+		{"invalid type", &models.UIData{Elements: []models.UIElement{
+			{ID: "a", Type: "slider", Label: "A"},
+		}}, "invalid ui element type"},
+		{"invalid style", &models.UIData{Elements: []models.UIElement{
+			{ID: "a", Type: models.UIElementTypeButton, Label: "A", Style: "neon"},
+		}}, "invalid ui element style"},
+		{"button default", &models.UIData{Elements: []models.UIElement{
+			{ID: "a", Type: models.UIElementTypeButton, Label: "A", Default: true},
+		}}, "button element cannot have default state"},
+		{"multiple default radios", &models.UIData{Elements: []models.UIElement{
+			{ID: "r1", Type: models.UIElementTypeRadio, Label: "R1", Default: true},
+			{ID: "r2", Type: models.UIElementTypeRadio, Label: "R2", Default: true},
+		}}, "at most one radio"},
+	}
+	for _, tc := range uiInvalidCases {
+		_, err := h.SendMessage(botDeploy.ID, models.ClientMessage{
+			ChatID:  "townhall",
+			Content: "Prompt",
+			UI:      tc.ui,
+		}, nil)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("case %s: expected error containing %q, got %v", tc.name, tc.want, err)
+		}
+	}
+
+	// 3. Bot sends mixed UI prompt (server resets pre-filled answered metadata)
+	promptMsg, err := h.SendMessage(botDeploy.ID, models.ClientMessage{
+		ChatID:  "townhall",
+		Content: "",
+		UI: &models.UIData{
+			Answered:    true,
+			SelectedIDs: []string{"spoofed"},
+			ResponderID: "spoofed",
+			Elements: []models.UIElement{
+				{ID: "notify", Type: models.UIElementTypeCheckbox, Label: "Notify team", Default: true},
+				{ID: "region_us", Type: models.UIElementTypeRadio, Label: "US-East", Default: true},
+				{ID: "region_eu", Type: models.UIElementTypeRadio, Label: "EU-West"},
+				{ID: "approve", Type: models.UIElementTypeButton, Label: "Approve", Style: models.UIElementStylePrimary},
+			},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("failed to send UI prompt: %v", err)
+	}
+	if promptMsg.UI == nil || promptMsg.UI.Answered || len(promptMsg.UI.SelectedIDs) != 0 || promptMsg.UI.ResponderID != "" {
+		t.Fatalf("expected server to clear pre-set answered metadata, got %+v", promptMsg.UI)
+	}
+
+	drainMessages(aliceCh, 10)
+	drainMessages(botDeployCh, 10)
+	drainMessages(botOtherCh, 10)
+
+	// 4. Bot cannot send ui_response
+	_, err = h.SendMessage(botOther.ID, models.ClientMessage{
+		ChatID:      "townhall",
+		MessageType: models.MessageTypeUIResponse,
+		UIResponse:  &models.UIResponseData{ParentSeq: promptMsg.Seq, SelectedIDs: []string{"approve"}},
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "only human users") {
+		t.Fatalf("expected 'only human users' error, got %v", err)
+	}
+
+	// 5. Invalid ui_response payloads
+	respInvalidCases := []struct {
+		name string
+		msg  models.ClientMessage
+		want string
+	}{
+		{"missing parent", models.ClientMessage{
+			ChatID:      "townhall",
+			MessageType: models.MessageTypeUIResponse,
+			UIResponse:  &models.UIResponseData{ParentSeq: 999, SelectedIDs: []string{"approve"}},
+		}, "parent message not found"},
+		{"empty selection on button prompt", models.ClientMessage{
+			ChatID:      "townhall",
+			MessageType: models.MessageTypeUIResponse,
+			UIResponse:  &models.UIResponseData{ParentSeq: promptMsg.Seq, SelectedIDs: []string{}},
+		}, "selectedIds cannot be empty"},
+		{"unknown id", models.ClientMessage{
+			ChatID:      "townhall",
+			MessageType: models.MessageTypeUIResponse,
+			UIResponse:  &models.UIResponseData{ParentSeq: promptMsg.Seq, SelectedIDs: []string{"bogus"}},
+		}, "invalid selected element ID"},
+		{"duplicate id", models.ClientMessage{
+			ChatID:      "townhall",
+			MessageType: models.MessageTypeUIResponse,
+			UIResponse:  &models.UIResponseData{ParentSeq: promptMsg.Seq, SelectedIDs: []string{"notify", "notify"}},
+		}, "duplicate"},
+		{"two radios", models.ClientMessage{
+			ChatID:      "townhall",
+			MessageType: models.MessageTypeUIResponse,
+			UIResponse:  &models.UIResponseData{ParentSeq: promptMsg.Seq, SelectedIDs: []string{"region_us", "region_eu"}},
+		}, "multiple radio"},
+	}
+	for _, tc := range respInvalidCases {
+		_, err := h.SendMessage(alice.ID, tc.msg, nil)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("case %s: expected error containing %q, got %v", tc.name, tc.want, err)
+		}
+	}
+
+	// 6. Alice responds with empty content -> auto fallback includes @deploybot and labels
+	respMsg, err := h.SendMessage(alice.ID, models.ClientMessage{
+		ChatID:      "townhall",
+		MessageType: models.MessageTypeUIResponse,
+		UIResponse: &models.UIResponseData{
+			ParentSeq:   promptMsg.Seq,
+			SelectedIDs: []string{"notify", "region_us", "approve"},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("failed to submit ui_response: %v", err)
+	}
+	if respMsg.Type != models.MessageTypeUIResponse {
+		t.Fatalf("expected type ui_response, got %s", respMsg.Type)
+	}
+	if !strings.Contains(respMsg.RawContent, "@deploybot Selected: Notify team, US-East, Approve") {
+		t.Fatalf("unexpected raw fallback content: %q", respMsg.RawContent)
+	}
+
+	// Verify botDeploy (readMentions) receives ui_response via WS, while botOther does not
+	var gotBotDeploy bool
+	select {
+	case sm := <-botDeployCh:
+		if sm.Type == models.ServerMessageTypeMessages && len(sm.Messages) == 1 && sm.Messages[0].Seq == respMsg.Seq {
+			gotBotDeploy = true
+		}
+	case <-time.After(testTimeout):
+	}
+	if !gotBotDeploy {
+		t.Fatalf("expected deploybot with readMentions to receive ui_response")
+	}
+
+	select {
+	case sm := <-botOtherCh:
+		if sm.Type == models.ServerMessageTypeMessages {
+			t.Fatalf("expected otherbot NOT to receive ui_response mentioning deploybot, got %+v", sm)
+		}
+	case <-time.After(testTimeout):
+	}
+
+	// 7. Bob tries to answer the already-answered prompt -> rejected atomically
+	_, err = h.SendMessage(bob.ID, models.ClientMessage{
+		ChatID:      "townhall",
+		MessageType: models.MessageTypeUIResponse,
+		UIResponse: &models.UIResponseData{
+			ParentSeq:   promptMsg.Seq,
+			SelectedIDs: []string{"approve"},
+		},
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "already answered") {
+		t.Fatalf("expected 'already answered' error, got %v", err)
+	}
+
+	// Verify parent prompt now reflects answered state
+	records, err := h.GetChatRecords(alice.ID, "townhall", promptMsg.Seq, promptMsg.Seq)
+	if err != nil || len(records) != 1 {
+		t.Fatalf("failed to fetch updated prompt record: err=%v len=%d", err, len(records))
+	}
+	if !records[0].UI.Answered || records[0].UI.ResponderID != alice.ID || len(records[0].UI.SelectedIDs) != 3 {
+		t.Fatalf("expected locked parent UI state, got %+v", records[0].UI)
+	}
+
+	// 8. Checkbox-only prompt allows empty selection ("Selected: None") + concurrent first-wins check
+	cbPrompt, err := h.SendMessage(botDeploy.ID, models.ClientMessage{
+		ChatID:  "townhall",
+		Content: "Select optional features",
+		UI: &models.UIData{
+			Elements: []models.UIElement{
+				{ID: "f1", Type: models.UIElementTypeCheckbox, Label: "Feature 1"},
+				{ID: "f2", Type: models.UIElementTypeCheckbox, Label: "Feature 2"},
+			},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("failed to send checkbox prompt: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 2)
+	for _, uid := range []string{alice.ID, bob.ID} {
+		wg.Add(1)
+		go func(responder string) {
+			defer wg.Done()
+			_, sendErr := h.SendMessage(responder, models.ClientMessage{
+				ChatID:      "townhall",
+				MessageType: models.MessageTypeUIResponse,
+				Content:     "Nothing chosen",
+				UIResponse: &models.UIResponseData{
+					ParentSeq:   cbPrompt.Seq,
+					SelectedIDs: []string{},
+				},
+			}, nil)
+			errs <- sendErr
+		}(uid)
+	}
+	wg.Wait()
+	close(errs)
+
+	var successes, conflicts int
+	for e := range errs {
+		if e == nil {
+			successes++
+		} else if strings.Contains(e.Error(), "already answered") {
+			conflicts++
+		} else {
+			t.Fatalf("unexpected concurrent error: %v", e)
+		}
+	}
+	if successes != 1 || conflicts != 1 {
+		t.Fatalf("expected 1 success and 1 conflict, got %d successes, %d conflicts", successes, conflicts)
+	}
+
+	// Verify custom content without @mention gets @deploybot prepended
+	allRecs, err := h.GetChatRecords(alice.ID, "townhall", cbPrompt.Seq+1, cbPrompt.Seq+10)
+	if err != nil || len(allRecs) != 1 {
+		t.Fatalf("expected exactly 1 response record for checkbox prompt, got len=%d err=%v", len(allRecs), err)
+	}
+	if strings.TrimSpace(allRecs[0].RawContent) != "@deploybot Nothing chosen" {
+		t.Fatalf("expected RawContent '@deploybot Nothing chosen', got %q", allRecs[0].RawContent)
+	}
+}
+
+func TestHub_Dispatch_InteractiveUIBypassPrevention(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	alice := models.User{ID: "alice", UserName: "alice", Type: models.UserTypeHuman}
+	bot := models.User{ID: "bot1", UserName: "bot1", Type: models.UserTypeBot, BotPermissions: models.BotPermissions{Write: true}}
+	st := NewMockStorage()
+	provider := &MockUserProvider{users: []models.User{alice, bot}}
+	h := NewHub(ctx, provider, st, nil)
+
+	aliceCh := h.Join(alice.ID)
+	defer h.Leave(alice.ID, aliceCh)
+	drainMessages(aliceCh, 10)
+
+	// Human tries to send UI via WS Dispatch
+	h.Dispatch(alice.ID, models.ClientMessage{
+		Type:    models.ClientMessageTypeSend,
+		ChatID:  "townhall",
+		Content: "Sneaky UI",
+		UI: &models.UIData{
+			Elements: []models.UIElement{{ID: "b1", Type: models.UIElementTypeButton, Label: "Click"}},
+		},
+	}, aliceCh)
+
+	// Bot creates a real UI prompt, then bot tries to submit ui_response via WS Dispatch
+	prompt, err := h.SendMessage(bot.ID, models.ClientMessage{
+		ChatID:  "townhall",
+		Content: "Real prompt",
+		UI: &models.UIData{
+			Elements: []models.UIElement{{ID: "b1", Type: models.UIElementTypeButton, Label: "Click"}},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	botCh := h.Join(bot.ID)
+	defer h.Leave(bot.ID, botCh)
+	drainMessages(botCh, 10)
+
+	h.Dispatch(bot.ID, models.ClientMessage{
+		Type:        models.ClientMessageTypeSend,
+		ChatID:      "townhall",
+		MessageType: models.MessageTypeUIResponse,
+		UIResponse:  &models.UIResponseData{ParentSeq: prompt.Seq, SelectedIDs: []string{"b1"}},
+	}, botCh)
+
+	records, err := h.GetChatRecords(alice.ID, "townhall", 1, 10)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(records) != 1 || records[0].Seq != prompt.Seq {
+		t.Fatalf("expected only 1 valid prompt record, got %d", len(records))
+	}
+}
+
 
 
 

@@ -185,15 +185,38 @@ type DBProgressData struct {
 	Steps      []DBProgressStep `msgpack:"steps,omitempty"`
 }
 
+type DBUIElement struct {
+	ID          string `msgpack:"id"`
+	Type        string `msgpack:"type"`
+	Label       string `msgpack:"label"`
+	Description string `msgpack:"description,omitempty"`
+	Style       string `msgpack:"style,omitempty"`
+	Default     bool   `msgpack:"default,omitempty"`
+}
+
+type DBUIData struct {
+	Elements    []DBUIElement `msgpack:"elements"`
+	Answered    bool          `msgpack:"answered,omitempty"`
+	SelectedIDs []string      `msgpack:"selectedIds,omitempty"`
+	ResponderID string        `msgpack:"responderId,omitempty"`
+}
+
+type DBUIResponseData struct {
+	ParentSeq   int64    `msgpack:"parentSeq"`
+	SelectedIDs []string `msgpack:"selectedIds"`
+}
+
 type DBMessage struct {
-	Seq         int64           `msgpack:"seq"`
-	Timestamp   int64           `msgpack:"timestamp"`
-	ChatID      string          `msgpack:"chatId"`
-	UserID      string          `msgpack:"userId"`
-	Content     string          `msgpack:"content"`
-	Attachments []DBAttachment  `msgpack:"attachments"`
-	Type        string          `msgpack:"type,omitempty"`
-	Progress    *DBProgressData `msgpack:"progress,omitempty"`
+	Seq         int64             `msgpack:"seq"`
+	Timestamp   int64             `msgpack:"timestamp"`
+	ChatID      string            `msgpack:"chatId"`
+	UserID      string            `msgpack:"userId"`
+	Content     string            `msgpack:"content"`
+	Attachments []DBAttachment    `msgpack:"attachments"`
+	Type        string            `msgpack:"type,omitempty"`
+	Progress    *DBProgressData   `msgpack:"progress,omitempty"`
+	UI          *DBUIData         `msgpack:"ui,omitempty"`
+	UIResponse  *DBUIResponseData `msgpack:"uiResponse,omitempty"`
 }
 
 type DBAttachment struct {

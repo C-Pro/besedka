@@ -146,10 +146,14 @@ func NewMockStorage() *MockStorage {
 
 func (m *MockStorage) UpsertMessage(msg models.Message) error {
 	m.messages[msg.ChatID] = append(m.messages[msg.ChatID], ChatRecord{
-		Seq:       Seq(msg.Seq),
-		Timestamp: msg.Timestamp,
-		UserID:    msg.UserID,
-		Content:   msg.Content,
+		Seq:        Seq(msg.Seq),
+		Timestamp:  msg.Timestamp,
+		UserID:     msg.UserID,
+		Content:    msg.Content,
+		Type:       msg.Type,
+		Progress:   msg.Progress,
+		UI:         cloneUIData(msg.UI),
+		UIResponse: cloneUIResponseData(msg.UIResponse),
 	})
 	return nil
 }
@@ -160,11 +164,15 @@ func (m *MockStorage) ListMessages(chatID string, from, to int64) ([]models.Mess
 		for _, r := range msgs {
 			if int64(r.Seq) >= from && int64(r.Seq) <= to {
 				results = append(results, models.Message{
-					Seq:       int64(r.Seq),
-					Timestamp: r.Timestamp,
-					ChatID:    chatID,
-					UserID:    r.UserID,
-					Content:   r.Content,
+					Seq:        int64(r.Seq),
+					Timestamp:  r.Timestamp,
+					ChatID:     chatID,
+					UserID:     r.UserID,
+					Content:    r.Content,
+					Type:       r.Type,
+					Progress:   r.Progress,
+					UI:         cloneUIData(r.UI),
+					UIResponse: cloneUIResponseData(r.UIResponse),
 				})
 			}
 		}
@@ -383,6 +391,68 @@ func TestChat_ProgressStepTransitions(t *testing.T) {
 	}
 	if root.Progress.Steps[1].Status != models.ProgressStatusCompleted {
 		t.Errorf("expected step 2 to be completed, got %s", root.Progress.Steps[1].Status)
+	}
+}
+
+func TestChat_UIResponseLocksParentRecord(t *testing.T) {
+	store := NewMockStorage()
+	c := New(Config{
+		ID:         "test_ui",
+		MaxRecords: 10,
+		Storage:    store,
+	})
+
+	parent, err := c.AddRecord(ChatRecord{
+		UserID:  "bot1",
+		Content: "Approve command?",
+		Type:    models.MessageTypeText,
+		UI: &models.UIData{
+			Elements: []models.UIElement{
+				{ID: "yes", Type: models.UIElementTypeButton, Label: "Approve", Style: models.UIElementStylePrimary},
+				{ID: "no", Type: models.UIElementTypeButton, Label: "Deny", Style: models.UIElementStyleDanger},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddRecord parent failed: %v", err)
+	}
+
+	_, err = c.AddRecord(ChatRecord{
+		UserID:  "alice",
+		Content: "@bot1 Selected: Approve",
+		Type:    models.MessageTypeUIResponse,
+		UIResponse: &models.UIResponseData{
+			ParentSeq:   int64(parent.Seq),
+			SelectedIDs: []string{"yes"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddRecord ui_response failed: %v", err)
+	}
+
+	recs, err := c.GetRecords(1, 2)
+	if err != nil {
+		t.Fatalf("GetRecords failed: %v", err)
+	}
+	if len(recs) != 2 {
+		t.Fatalf("expected 2 records, got %d", len(recs))
+	}
+	if recs[0].UI == nil || !recs[0].UI.Answered {
+		t.Fatalf("expected parent UI to be marked answered, got %+v", recs[0].UI)
+	}
+	if recs[0].UI.ResponderID != "alice" {
+		t.Errorf("expected responderId 'alice', got %q", recs[0].UI.ResponderID)
+	}
+	if len(recs[0].UI.SelectedIDs) != 1 || recs[0].UI.SelectedIDs[0] != "yes" {
+		t.Errorf("unexpected selectedIds: %+v", recs[0].UI.SelectedIDs)
+	}
+
+	lastRecs, err := c.GetLastRecords(2)
+	if err != nil {
+		t.Fatalf("GetLastRecords failed: %v", err)
+	}
+	if len(lastRecs) != 2 || lastRecs[0].UI == nil || !lastRecs[0].UI.Answered {
+		t.Fatalf("expected GetLastRecords to reflect answered parent UI, got %+v", lastRecs)
 	}
 }
 

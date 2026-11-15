@@ -49,7 +49,7 @@ func newWSReader(conn *websocket.Conn) *wsReader {
 	return r
 }
 
-func (r *wsReader) waitForMessage(timeout time.Duration, predicate func(m models.Message) bool) bool {
+func (r *wsReader) waitForMessageMatch(timeout time.Duration, predicate func(m models.Message) bool) (models.Message, bool) {
 	deadline := time.After(timeout)
 	for {
 		select {
@@ -57,16 +57,21 @@ func (r *wsReader) waitForMessage(timeout time.Duration, predicate func(m models
 			if sMsg.Type == models.ServerMessageTypeMessages {
 				for _, m := range sMsg.Messages {
 					if predicate(m) {
-						return true
+						return m, true
 					}
 				}
 			}
 		case <-deadline:
-			return false
+			return models.Message{}, false
 		case <-r.done:
-			return false
+			return models.Message{}, false
 		}
 	}
+}
+
+func (r *wsReader) waitForMessage(timeout time.Duration, predicate func(m models.Message) bool) bool {
+	_, ok := r.waitForMessageMatch(timeout, predicate)
+	return ok
 }
 
 func TestBotAndWebhookHappyPathIntegration(t *testing.T) {
@@ -263,6 +268,105 @@ func TestBotAndWebhookHappyPathIntegration(t *testing.T) {
 	})
 	if !gotBotMsg {
 		t.Errorf("Human expected to receive message sent by bot")
+	}
+
+	// --- 7b. Interactive UI flow over WebSocket & REST ---
+	uiPromptMsg := models.ClientMessage{
+		Type:    models.ClientMessageTypeSend,
+		ChatID:  "townhall",
+		Content: "Approve deployment?",
+		UI: &models.UIData{
+			Elements: []models.UIElement{
+				{ID: "approve", Type: models.UIElementTypeButton, Label: "Approve", Style: models.UIElementStylePrimary},
+				{ID: "deny", Type: models.UIElementTypeButton, Label: "Deny", Style: models.UIElementStyleDanger},
+			},
+		},
+	}
+	if err := botWSConn.WriteJSON(uiPromptMsg); err != nil {
+		t.Fatalf("Bot failed to send UI prompt message: %v", err)
+	}
+
+	receivedPrompt, gotPrompt := humanReader.waitForMessageMatch(2*time.Second, func(m models.Message) bool {
+		return m.UI != nil && strings.Contains(m.Content, "Approve deployment?")
+	})
+	if !gotPrompt {
+		t.Fatalf("Human expected to receive interactive UI prompt from bot")
+	}
+	if receivedPrompt.UI.Answered {
+		t.Fatalf("Expected interactive UI prompt to be unanswered initially")
+	}
+
+	uiRespMsg := models.ClientMessage{
+		Type:        models.ClientMessageTypeSend,
+		ChatID:      "townhall",
+		MessageType: models.MessageTypeUIResponse,
+		UIResponse: &models.UIResponseData{
+			ParentSeq:   receivedPrompt.Seq,
+			SelectedIDs: []string{"approve"},
+		},
+	}
+	if err := humanWSConn.WriteJSON(uiRespMsg); err != nil {
+		t.Fatalf("Human failed to send ui_response over WebSocket: %v", err)
+	}
+
+	receivedUIResp, gotUIResp := botReader.waitForMessageMatch(2*time.Second, func(m models.Message) bool {
+		return m.Type == models.MessageTypeUIResponse
+	})
+	if !gotUIResp {
+		t.Fatalf("Bot with ReadMentions expected to receive ui_response via WebSocket")
+	}
+	if receivedUIResp.UIResponse == nil || receivedUIResp.UIResponse.ParentSeq != receivedPrompt.Seq {
+		t.Fatalf("Unexpected UIResponse payload on WebSocket: %+v", receivedUIResp.UIResponse)
+	}
+	if len(receivedUIResp.UIResponse.SelectedIDs) != 1 || receivedUIResp.UIResponse.SelectedIDs[0] != "approve" {
+		t.Fatalf("Expected selectedIds=['approve'], got %v", receivedUIResp.UIResponse.SelectedIDs)
+	}
+	if !strings.Contains(receivedUIResp.Content, "@integ_bot") {
+		t.Fatalf("Expected ui_response content to mention @integ_bot, got %q", receivedUIResp.Content)
+	}
+
+	// Verify REST GET history for bot returns ui_response, and for human returns locked parent UI
+	reqBotHist, _ := http.NewRequest(http.MethodGet, apiServer.URL+"/api/chats/townhall/messages?toSeq=100", nil)
+	reqBotHist.Header.Set("Authorization", "Bearer "+botAPIKey)
+	respBotHist, err := client.Do(reqBotHist)
+	if err != nil {
+		t.Fatalf("Bot REST history fetch failed: %v", err)
+	}
+	var botHist []models.Message
+	_ = json.NewDecoder(respBotHist.Body).Decode(&botHist)
+	_ = respBotHist.Body.Close()
+
+	var foundBotUIResp bool
+	for _, m := range botHist {
+		if m.Seq == receivedUIResp.Seq && m.Type == models.MessageTypeUIResponse && m.UIResponse != nil {
+			foundBotUIResp = true
+		}
+	}
+	if !foundBotUIResp {
+		t.Fatalf("Bot REST history did not include ui_response seq=%d", receivedUIResp.Seq)
+	}
+
+	reqHumanHist, _ := http.NewRequest(http.MethodGet, apiServer.URL+"/api/chats/townhall/messages?toSeq=100", nil)
+	reqHumanHist.Header.Set("Authorization", "Bearer "+humanKey)
+	respHumanHist, err := client.Do(reqHumanHist)
+	if err != nil {
+		t.Fatalf("Human REST history fetch failed: %v", err)
+	}
+	var humanHist []models.Message
+	_ = json.NewDecoder(respHumanHist.Body).Decode(&humanHist)
+	_ = respHumanHist.Body.Close()
+
+	var foundLockedPrompt bool
+	for _, m := range humanHist {
+		if m.Seq == receivedPrompt.Seq && m.UI != nil {
+			foundLockedPrompt = m.UI.Answered &&
+				len(m.UI.SelectedIDs) == 1 &&
+				m.UI.SelectedIDs[0] == "approve" &&
+				m.UI.ResponderID == humanUser.ID
+		}
+	}
+	if !foundLockedPrompt {
+		t.Fatalf("Human REST history did not return locked parent UI state for seq=%d", receivedPrompt.Seq)
 	}
 
 	// --- 8. Admin API: Register Webhook ---

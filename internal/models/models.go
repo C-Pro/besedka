@@ -182,9 +182,47 @@ type LastSeenEntry struct {
 type MessageType string
 
 const (
-	MessageTypeText     MessageType = "text"
-	MessageTypeProgress MessageType = "progress"
+	MessageTypeText       MessageType = "text"
+	MessageTypeProgress   MessageType = "progress"
+	MessageTypeUIResponse MessageType = "ui_response"
 )
+
+type UIElementType string
+
+const (
+	UIElementTypeButton   UIElementType = "button"
+	UIElementTypeCheckbox UIElementType = "checkbox"
+	UIElementTypeRadio    UIElementType = "radio"
+)
+
+type UIElementStyle string
+
+const (
+	UIElementStyleDefault UIElementStyle = "default"
+	UIElementStylePrimary UIElementStyle = "primary"
+	UIElementStyleDanger  UIElementStyle = "danger"
+)
+
+type UIElement struct {
+	ID          string         `json:"id"`
+	Type        UIElementType  `json:"type"`
+	Label       string         `json:"label"`
+	Description string         `json:"description,omitempty"`
+	Style       UIElementStyle `json:"style,omitempty"`
+	Default     bool           `json:"default,omitempty"`
+}
+
+type UIData struct {
+	Elements    []UIElement `json:"elements"`
+	Answered    bool        `json:"answered,omitempty"`
+	SelectedIDs []string    `json:"selectedIds,omitempty"`
+	ResponderID string      `json:"responderId,omitempty"`
+}
+
+type UIResponseData struct {
+	ParentSeq   int64    `json:"parentSeq"`
+	SelectedIDs []string `json:"selectedIds"`
+}
 
 type ProgressStatus string
 
@@ -211,15 +249,17 @@ type ProgressData struct {
 
 // Message represents a chat message.
 type Message struct {
-	Seq         int64         `json:"seq"`
-	Timestamp   int64         `json:"timestamp"` // Unix timestamp (seconds)
-	ChatID      string        `json:"chatId"`
-	UserID      string        `json:"userId"`
-	Content     string        `json:"content"`
-	RawContent  string        `json:"rawContent,omitempty"`
-	Attachments []Attachment  `json:"attachments,omitempty"`
-	Type        MessageType   `json:"type,omitempty"`
-	Progress    *ProgressData `json:"progress,omitempty"`
+	Seq         int64           `json:"seq"`
+	Timestamp   int64           `json:"timestamp"` // Unix timestamp (seconds)
+	ChatID      string          `json:"chatId"`
+	UserID      string          `json:"userId"`
+	Content     string          `json:"content"`
+	RawContent  string          `json:"rawContent,omitempty"`
+	Attachments []Attachment    `json:"attachments,omitempty"`
+	Type        MessageType     `json:"type,omitempty"`
+	Progress    *ProgressData   `json:"progress,omitempty"`
+	UI          *UIData         `json:"ui,omitempty"`
+	UIResponse  *UIResponseData `json:"uiResponse,omitempty"`
 }
 
 // Location represents geographic coordinates.
@@ -249,6 +289,8 @@ type ClientMessage struct {
 	SharingEnabled    *bool             `json:"sharingEnabled,omitempty"`
 	MessageType       MessageType       `json:"messageType,omitempty"`
 	Progress          *ProgressData     `json:"progress,omitempty"`
+	UI                *UIData           `json:"ui,omitempty"`
+	UIResponse        *UIResponseData   `json:"uiResponse,omitempty"`
 }
 
 // ServerMessage represents a message to the client.

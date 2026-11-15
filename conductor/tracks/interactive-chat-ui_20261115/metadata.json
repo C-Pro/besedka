@@ -1,8 +1,8 @@
 {
   "track_id": "interactive-chat-ui_20261115",
   "type": "feature",
-  "status": "new",
+  "status": "completed",
   "created_at": "2026-11-15T12:59:00Z",
-  "updated_at": "2026-11-15T12:59:00Z",
+  "updated_at": "2026-11-15T16:56:30Z",
   "description": "Implement basic interactive UI elements in chat messages to improve bot interactions"
 }
