@@ -1943,3 +1943,254 @@
     color: var(--text-muted);
     font-style: italic;
 }
+
+/* Interactive UI elements in bot messages */
+.message-ui {
+    margin: 0.45rem 0 0.15rem 0;
+    padding: 0.7rem 0.75rem;
+    max-width: 520px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md, 8px);
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.message-ui-options {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.message-ui-option {
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    background: var(--subtle-fill);
+    transition: border-color var(--transition-fast), background-color var(--transition-fast);
+}
+
+.message-ui-option:hover:not(.is-selected) {
+    background: var(--subtle-fill-hover);
+}
+
+.message-ui-option.is-selected {
+    border-color: var(--accent-color);
+    background: var(--subtle-fill-hover);
+}
+
+.message-ui-option-label {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    min-block-size: 44px;
+    padding: 0.55rem 0.7rem;
+    cursor: pointer;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.message-ui[data-answered="true"] .message-ui-option-label {
+    cursor: not-allowed;
+}
+
+.message-ui-input {
+    accent-color: var(--accent-color);
+    inline-size: 1.15em;
+    aspect-ratio: 1;
+    margin: 0.15rem 0 0 0;
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+.message-ui-input:focus-visible {
+    outline: 2px solid var(--accent-color);
+    outline-offset: 2px;
+}
+
+.message-ui-input:disabled {
+    cursor: not-allowed;
+    opacity: 0.65;
+}
+
+.message-ui-option-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+}
+
+.message-ui-option-title {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    line-height: 1.3;
+    word-break: break-word;
+}
+
+.message-ui-option-desc {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    line-height: 1.35;
+    word-break: break-word;
+}
+
+.message-ui-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: flex-start;
+}
+
+.message-ui-btn-item {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    max-width: 240px;
+}
+
+.message-ui-btn-desc {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    line-height: 1.3;
+    padding-left: 0.1rem;
+}
+
+.message-ui-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-block-size: 36px;
+    padding: 0.45rem 0.9rem;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    transition: background-color var(--transition-fast), border-color var(--transition-fast), opacity var(--transition-fast);
+}
+
+.message-ui-btn:hover:not(:disabled) {
+    background: var(--subtle-fill-hover);
+    border-color: var(--text-muted);
+}
+
+.message-ui-btn:focus-visible {
+    outline: 2px solid var(--accent-color);
+    outline-offset: 2px;
+}
+
+.message-ui-btn.style-primary {
+    background: var(--accent-color);
+    border-color: var(--accent-color);
+    color: var(--text-on-accent);
+}
+
+.message-ui-btn.style-primary:hover:not(:disabled) {
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
+}
+
+.message-ui-btn.style-danger {
+    background: var(--danger-color);
+    border-color: var(--danger-color);
+    color: var(--text-on-accent);
+}
+
+.message-ui-btn.style-danger:hover:not(:disabled) {
+    opacity: 0.9;
+}
+
+.message-ui-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.message-ui-btn.is-selected:disabled {
+    opacity: 0.95;
+    outline: 2px solid var(--accent-color);
+    outline-offset: 2px;
+}
+
+.message-ui-btn.style-danger.is-selected:disabled {
+    outline-color: var(--danger-color);
+}
+
+.message-ui-status {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    line-height: 1.3;
+}
+
+@supports not (accent-color: #3b82f6) {
+    .message-ui-input {
+        position: absolute !important;
+        clip-path: inset(50%) !important;
+        overflow: hidden !important;
+        width: 1px !important;
+        height: 1px !important;
+        margin: -1px !important;
+        padding: 0 !important;
+        border: 0 !important;
+        white-space: nowrap !important;
+    }
+
+    .message-ui-option-body {
+        position: relative;
+        padding-left: 1.6rem;
+    }
+
+    .message-ui-option-body::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0.1rem;
+        width: 1.05rem;
+        height: 1.05rem;
+        border: 2px solid var(--border-subtle);
+        background: var(--bg-input);
+        border-radius: 4px;
+        box-sizing: border-box;
+    }
+
+    .message-ui-input[type="radio"] + .message-ui-option-body::before {
+        border-radius: 50%;
+    }
+
+    .message-ui-input:focus-visible + .message-ui-option-body::before {
+        outline: 2px solid var(--accent-color);
+        outline-offset: 2px;
+    }
+
+    .message-ui-input:checked + .message-ui-option-body::before {
+        background: var(--accent-color);
+        border-color: var(--accent-color);
+    }
+
+    .message-ui-input[type="checkbox"]:checked + .message-ui-option-body::after {
+        content: "✓";
+        position: absolute;
+        left: 0.18rem;
+        top: -0.02rem;
+        color: var(--text-on-accent);
+        font-weight: 700;
+        font-size: 0.85rem;
+    }
+
+    .message-ui-input[type="radio"]:checked + .message-ui-option-body::after {
+        content: "";
+        position: absolute;
+        left: 0.3rem;
+        top: 0.4rem;
+        width: 0.45rem;
+        height: 0.45rem;
+        border-radius: 50%;
+        background: var(--text-on-accent);
+    }
+}
+

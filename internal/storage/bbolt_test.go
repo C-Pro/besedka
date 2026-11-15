@@ -845,3 +845,103 @@ func TestProgressMessageStepTransitions(t *testing.T) {
 	}
 }
 
+func TestUIMessageStorageAndLocking(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "storage_ui_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	dbPath := filepath.Join(tmpDir, "test.db")
+	fs, _ := filestore.NewLocalFileStore(filepath.Join(tmpDir, "fs"))
+	store, err := NewBboltStorage(dbPath, testSecret, fs)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer func() { _ = store.Close() }()
+
+	chatID := "townhall"
+	_ = store.UpsertChat(models.Chat{ID: chatID, Name: "Townhall", LastSeq: 0})
+
+	uiMsg := models.Message{
+		Seq:       1,
+		Timestamp: 1700000001,
+		ChatID:    chatID,
+		UserID:    "bot1",
+		Content:   "Choose deployment target:",
+		Type:      models.MessageTypeText,
+		UI: &models.UIData{
+			Elements: []models.UIElement{
+				{
+					ID:          "staging",
+					Type:        models.UIElementTypeRadio,
+					Label:       "Staging",
+					Description: "Deploy to staging",
+					Default:     true,
+				},
+				{
+					ID:    "approve",
+					Type:  models.UIElementTypeButton,
+					Label: "Deploy",
+					Style: models.UIElementStylePrimary,
+				},
+			},
+		},
+	}
+	if err := store.UpsertMessage(uiMsg); err != nil {
+		t.Fatalf("failed to insert UI message: %v", err)
+	}
+
+	respMsg := models.Message{
+		Seq:       2,
+		Timestamp: 1700000002,
+		ChatID:    chatID,
+		UserID:    "alice",
+		Content:   "@bot1 Selected: Staging, Deploy",
+		Type:      models.MessageTypeUIResponse,
+		UIResponse: &models.UIResponseData{
+			ParentSeq:   1,
+			SelectedIDs: []string{"staging", "approve"},
+		},
+	}
+	if err := store.UpsertMessage(respMsg); err != nil {
+		t.Fatalf("failed to insert ui_response message: %v", err)
+	}
+
+	msgs, err := store.ListMessages(chatID, 1, 10)
+	if err != nil {
+		t.Fatalf("ListMessages failed: %v", err)
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(msgs))
+	}
+
+	gotParent := msgs[0]
+	if gotParent.UI == nil {
+		t.Fatalf("expected parent message UI to be non-nil")
+	}
+	if !gotParent.UI.Answered {
+		t.Errorf("expected parent UI.Answered to be true")
+	}
+	if gotParent.UI.ResponderID != "alice" {
+		t.Errorf("expected parent UI.ResponderID 'alice', got %q", gotParent.UI.ResponderID)
+	}
+	if len(gotParent.UI.SelectedIDs) != 2 || gotParent.UI.SelectedIDs[0] != "staging" || gotParent.UI.SelectedIDs[1] != "approve" {
+		t.Errorf("unexpected parent UI.SelectedIDs: %+v", gotParent.UI.SelectedIDs)
+	}
+	if len(gotParent.UI.Elements) != 2 || gotParent.UI.Elements[1].Style != models.UIElementStylePrimary {
+		t.Errorf("unexpected parent UI.Elements: %+v", gotParent.UI.Elements)
+	}
+
+	gotResp := msgs[1]
+	if gotResp.Type != models.MessageTypeUIResponse {
+		t.Errorf("expected second message type %q, got %q", models.MessageTypeUIResponse, gotResp.Type)
+	}
+	if gotResp.UIResponse == nil || gotResp.UIResponse.ParentSeq != 1 {
+		t.Fatalf("expected UIResponse ParentSeq 1, got %+v", gotResp.UIResponse)
+	}
+	if len(gotResp.UIResponse.SelectedIDs) != 2 || gotResp.UIResponse.SelectedIDs[1] != "approve" {
+		t.Errorf("unexpected UIResponse SelectedIDs: %+v", gotResp.UIResponse.SelectedIDs)
+	}
+}
+

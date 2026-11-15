@@ -225,7 +225,7 @@ All endpoints below require a valid session token.
     "userId": "string",
     "content": "string",
     "rawContent": "string",
-    "type": "text | progress", // optional, defaults to "text"
+    "type": "text | progress | ui_response", // optional, defaults to "text"
     "progress": {             // present when type is "progress"
       "parentSeq": number,
       "cardStatus": "running | completed | failed",
@@ -239,6 +239,25 @@ All endpoints below require a valid session token.
         }
       ]
     },
+    "ui": {                   // optional on "text" messages sent by bots
+      "elements": [
+        {
+          "id": "string",
+          "type": "button | checkbox | radio",
+          "label": "string",
+          "description": "string",
+          "style": "default | primary | danger",
+          "default": boolean
+        }
+      ],
+      "answered": boolean,
+      "selectedIds": ["string"],
+      "responderId": "string"
+    },
+    "uiResponse": {           // present when type is "ui_response"
+      "parentSeq": number,
+      "selectedIds": ["string"]
+    },
     "attachments": [
        // List of attachments
     ]
@@ -249,13 +268,39 @@ All endpoints below require a valid session token.
 ### Send Chat Message
 **Endpoint:** `POST /api/chats/{id}/messages`
 
-**Description:** Sends a message to a chat. Supports standard text messages and bot progress cards (`type="progress"`). Progress messages are restricted to `bot` users with write permissions.
+**Description:** Sends a message to a chat. Supports standard text messages (optionally with `ui` elements for `bot` users), bot progress cards (`type="progress"`), and interactive UI responses (`type="ui_response"` for human users). Progress and interactive UI prompt messages are restricted to `bot` users with write permissions.
 
 **Request (Text Message):**
 ```json
 {
   "content": "string",
   "attachments": []
+}
+```
+
+**Request (Interactive UI Message - Bots Only):**
+```json
+{
+  "type": "text",
+  "content": "Deploy **v1.2.3** to production?",
+  "ui": {
+    "elements": [
+      { "id": "approve", "type": "button", "label": "Approve", "style": "primary" },
+      { "id": "deny", "type": "button", "label": "Deny", "style": "danger" }
+    ]
+  }
+}
+```
+
+**Request (UI Response Message - Humans Only):**
+```json
+{
+  "type": "ui_response",
+  "content": "@deploybot Selected: Approve",
+  "uiResponse": {
+    "parentSeq": 123,
+    "selectedIds": ["approve"]
+  }
 }
 ```
 
@@ -374,9 +419,17 @@ Sends a message to a chat.
 {
   "type": "send",
   "chatId": "string",
-  "content": "string"
+  "content": "string",
+  "messageType": "text | progress | ui_response",
+  "ui": {},
+  "uiResponse": {
+    "parentSeq": 123,
+    "selectedIds": ["string"]
+  }
 }
 ```
+- `ui` is optional on `"text"` messages sent by bots (`type: "bot"`).
+- `uiResponse` is used when `messageType` is `"ui_response"` (human users only); if `content` is omitted, the server generates a text fallback (automatically `@mentioning` the target bot in group chats).
 
 #### Fetch Messages
 Fetches older messages from a chat by sequence range.

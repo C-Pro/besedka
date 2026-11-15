@@ -22,3 +22,8 @@
 
 - [x] **Track: Bot Progress Card Message Type**
 *Link: [./tracks/bot-progress-card/](./tracks/bot-progress-card/)*
+
+---
+
+- [x] **Track: Interactive Chat UI Elements**
+*Link: [./tracks/interactive-chat-ui_20261115/](./tracks/interactive-chat-ui_20261115/)*

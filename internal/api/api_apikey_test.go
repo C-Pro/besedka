@@ -525,3 +525,186 @@ func TestSendMessageHandler_ProgressMessage(t *testing.T) {
 	assert.Equal(t, "<p>Nice progress card!</p>\n", fetchedMessages[3].Content)
 }
 
+func TestSendMessageHandler_InteractiveUI(t *testing.T) {
+	apiInst, as, st, hub := setupAPIKeyTest(t)
+	defer func() { _ = st.Close() }()
+
+	_, err := as.AddUser("alice", "Alice Human")
+	require.NoError(t, err)
+	aliceUser, err := as.GetUserByUsername("alice")
+	require.NoError(t, err)
+	require.NoError(t, as.ActivateUser(aliceUser.ID))
+	aliceKey, err := as.ResetAPIKey(aliceUser.ID)
+	require.NoError(t, err)
+
+	_, err = as.AddUser("bob", "Bob Human")
+	require.NoError(t, err)
+	bobUser, err := as.GetUserByUsername("bob")
+	require.NoError(t, err)
+	require.NoError(t, as.ActivateUser(bobUser.ID))
+	bobKey, err := as.ResetAPIKey(bobUser.ID)
+	require.NoError(t, err)
+
+	botDeploy, botDeployKey, err := as.AddBot("deploybot", "Deploy Bot", models.BotPermissions{Write: true, ReadMentions: true})
+	require.NoError(t, err)
+	_ = botDeploy
+
+	_, botSilentKey, err := as.AddBot("silentbot", "Silent Bot", models.BotPermissions{Write: true, ReadMentions: true})
+	require.NoError(t, err)
+
+	sendHandler := apiInst.RequireAuth(RequireSameOrigin(RequireUserTypes(apiInst.SendMessageHandler, models.UserTypeHuman, models.UserTypeBot)))
+	getMessagesHandler := apiInst.RequireAuth(RequireUserTypes(apiInst.ChatMessagesHandler, models.UserTypeHuman, models.UserTypeBot))
+
+	listenerCh := hub.Join("listener-id")
+	defer hub.Leave("listener-id", listenerCh)
+
+	// 1. Human cannot send interactive UI -> 403 Forbidden
+	humanUIPayload, _ := json.Marshal(map[string]any{
+		"content": "Approve?",
+		"ui": map[string]any{
+			"elements": []map[string]any{
+				{"id": "yes", "type": "button", "label": "Yes"},
+			},
+		},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/chats/townhall/messages", bytes.NewReader(humanUIPayload))
+	req.SetPathValue("id", "townhall")
+	req.Header.Set("Authorization", "Bearer "+aliceKey)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	sendHandler(w, req)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+
+	// 2. UI on progress message -> 400 Bad Request
+	invalidComboPayload, _ := json.Marshal(map[string]any{
+		"messageType": "progress",
+		"progress":    map[string]any{"title": "Job"},
+		"ui": map[string]any{
+			"elements": []map[string]any{
+				{"id": "yes", "type": "button", "label": "Yes"},
+			},
+		},
+	})
+	req = httptest.NewRequest(http.MethodPost, "/api/chats/townhall/messages", bytes.NewReader(invalidComboPayload))
+	req.SetPathValue("id", "townhall")
+	req.Header.Set("Authorization", "Bearer "+botDeployKey)
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	sendHandler(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	// 3. Bot sends interactive UI prompt -> 200 OK
+	promptPayload, _ := json.Marshal(map[string]any{
+		"type":    "text",
+		"content": "Deploy **v2.0**?",
+		"ui": map[string]any{
+			"elements": []map[string]any{
+				{"id": "approve", "type": "button", "label": "Approve", "style": "primary"},
+				{"id": "deny", "type": "button", "label": "Deny", "style": "danger"},
+			},
+		},
+	})
+	req = httptest.NewRequest(http.MethodPost, "/api/chats/townhall/messages", bytes.NewReader(promptPayload))
+	req.SetPathValue("id", "townhall")
+	req.Header.Set("Authorization", "Bearer "+botDeployKey)
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	sendHandler(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var promptResp struct {
+		Seq int64 `json:"seq"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &promptResp))
+	assert.Equal(t, int64(1), promptResp.Seq)
+
+	// 4. Bot cannot send ui_response -> 403 Forbidden
+	botRespPayload, _ := json.Marshal(map[string]any{
+		"messageType": "ui_response",
+		"uiResponse": map[string]any{
+			"parentSeq":   promptResp.Seq,
+			"selectedIds": []string{"approve"},
+		},
+	})
+	req = httptest.NewRequest(http.MethodPost, "/api/chats/townhall/messages", bytes.NewReader(botRespPayload))
+	req.SetPathValue("id", "townhall")
+	req.Header.Set("Authorization", "Bearer "+botSilentKey)
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	sendHandler(w, req)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+
+	// 5. Alice sends ui_response -> 200 OK
+	aliceRespPayload, _ := json.Marshal(map[string]any{
+		"type": "ui_response",
+		"uiResponse": map[string]any{
+			"parentSeq":   promptResp.Seq,
+			"selectedIds": []string{"approve"},
+		},
+	})
+	req = httptest.NewRequest(http.MethodPost, "/api/chats/townhall/messages", bytes.NewReader(aliceRespPayload))
+	req.SetPathValue("id", "townhall")
+	req.Header.Set("Authorization", "Bearer "+aliceKey)
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	sendHandler(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	// 6. Bob attempts second ui_response -> 409 Conflict
+	req = httptest.NewRequest(http.MethodPost, "/api/chats/townhall/messages", bytes.NewReader(aliceRespPayload))
+	req.SetPathValue("id", "townhall")
+	req.Header.Set("Authorization", "Bearer "+bobKey)
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	sendHandler(w, req)
+	assert.Equal(t, http.StatusConflict, w.Code)
+
+	// 7. Human polls GET /api/chats/townhall/messages -> parent UI locked + response present
+	reqFetch := httptest.NewRequest(http.MethodGet, "/api/chats/townhall/messages?toSeq=10", nil)
+	reqFetch.SetPathValue("id", "townhall")
+	reqFetch.Header.Set("Authorization", "Bearer "+aliceKey)
+	wFetch := httptest.NewRecorder()
+	getMessagesHandler(wFetch, reqFetch)
+	require.Equal(t, http.StatusOK, wFetch.Code)
+
+	var msgs []models.Message
+	require.NoError(t, json.Unmarshal(wFetch.Body.Bytes(), &msgs))
+	require.Len(t, msgs, 2)
+	require.NotNil(t, msgs[0].UI)
+	assert.True(t, msgs[0].UI.Answered)
+	assert.Equal(t, []string{"approve"}, msgs[0].UI.SelectedIDs)
+	assert.Equal(t, aliceUser.ID, msgs[0].UI.ResponderID)
+	assert.Equal(t, models.MessageTypeUIResponse, msgs[1].Type)
+	require.NotNil(t, msgs[1].UIResponse)
+	assert.Equal(t, int64(1), msgs[1].UIResponse.ParentSeq)
+	assert.Contains(t, msgs[1].RawContent, "@deploybot Selected: Approve")
+
+	// 8. deploybot (readMentions) polls REST history and receives the ui_response
+	reqBotFetch := httptest.NewRequest(http.MethodGet, "/api/chats/townhall/messages?toSeq=10", nil)
+	reqBotFetch.SetPathValue("id", "townhall")
+	reqBotFetch.Header.Set("Authorization", "Bearer "+botDeployKey)
+	wBotFetch := httptest.NewRecorder()
+	getMessagesHandler(wBotFetch, reqBotFetch)
+	require.Equal(t, http.StatusOK, wBotFetch.Code)
+
+	var botMsgs []models.Message
+	require.NoError(t, json.Unmarshal(wBotFetch.Body.Bytes(), &botMsgs))
+	require.Len(t, botMsgs, 1)
+	assert.Equal(t, models.MessageTypeUIResponse, botMsgs[0].Type)
+	require.NotNil(t, botMsgs[0].UIResponse)
+	assert.Equal(t, []string{"approve"}, botMsgs[0].UIResponse.SelectedIDs)
+
+	// 9. silentbot (readMentions) does NOT see deploybot's ui_response
+	reqSilentFetch := httptest.NewRequest(http.MethodGet, "/api/chats/townhall/messages?toSeq=10", nil)
+	reqSilentFetch.SetPathValue("id", "townhall")
+	reqSilentFetch.Header.Set("Authorization", "Bearer "+botSilentKey)
+	wSilentFetch := httptest.NewRecorder()
+	getMessagesHandler(wSilentFetch, reqSilentFetch)
+	require.Equal(t, http.StatusOK, wSilentFetch.Code)
+
+	var silentMsgs []models.Message
+	require.NoError(t, json.Unmarshal(wSilentFetch.Body.Bytes(), &silentMsgs))
+	assert.Empty(t, silentMsgs)
+}
+
+

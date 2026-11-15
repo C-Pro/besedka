@@ -41,6 +41,23 @@ function normalizeMessage(chatId, m, currentUserId) {
             steps: rawSteps
         };
     }
+    const ui = m.ui ? {
+        elements: Array.isArray(m.ui.elements) ? m.ui.elements.map(el => ({
+            id: el.id || '',
+            type: el.type || 'button',
+            label: el.label || '',
+            description: el.description || '',
+            style: el.style || 'default',
+            default: Boolean(el.default)
+        })) : [],
+        answered: Boolean(m.ui.answered),
+        selectedIds: Array.isArray(m.ui.selectedIds) ? [...m.ui.selectedIds] : [],
+        responderId: m.ui.responderId || ''
+    } : null;
+    const uiResponse = m.uiResponse ? {
+        parentSeq: m.uiResponse.parentSeq || 0,
+        selectedIds: Array.isArray(m.uiResponse.selectedIds) ? [...m.uiResponse.selectedIds] : []
+    } : null;
     return {
         id: `${chatId}-${m.seq}`,
         seq: m.seq,
@@ -52,7 +69,9 @@ function normalizeMessage(chatId, m, currentUserId) {
         userId: m.userId,
         attachments: m.attachments || [],
         type: m.type || 'text',
-        progress
+        progress,
+        ui,
+        uiResponse
     };
 }
 
@@ -913,7 +932,7 @@ class Store {
             } else {
                 const existingIdx = updatedMessages.findIndex(m => m.seq === norm.seq);
                 if (existingIdx >= 0) {
-                    if (norm.type === 'progress' && norm.progress) {
+                    if ((norm.type === 'progress' && norm.progress) || norm.ui) {
                         updatedMessages[existingIdx] = norm;
                         revisionIncrement++;
                     } else {
@@ -921,6 +940,22 @@ class Store {
                     }
                 } else {
                     updatedMessages.push(norm);
+                }
+
+                if (norm.type === 'ui_response' && norm.uiResponse && norm.uiResponse.parentSeq > 0) {
+                    const parentIdx = updatedMessages.findIndex(m => m.seq === norm.uiResponse.parentSeq);
+                    if (parentIdx >= 0 && updatedMessages[parentIdx].ui) {
+                        updatedMessages[parentIdx] = {
+                            ...updatedMessages[parentIdx],
+                            ui: {
+                                ...updatedMessages[parentIdx].ui,
+                                answered: true,
+                                selectedIds: [...(norm.uiResponse.selectedIds || [])],
+                                responderId: norm.userId || ''
+                            }
+                        };
+                        revisionIncrement++;
+                    }
                 }
             }
         }
@@ -1163,6 +1198,19 @@ class Store {
             chatId,
             content: text,
             attachments
+        });
+    }
+
+    sendUIResponse(chatId, parentSeq, selectedIds, content = '') {
+        return this.sendWebSocketMessage({
+            type: 'send',
+            chatId,
+            messageType: 'ui_response',
+            content,
+            uiResponse: {
+                parentSeq,
+                selectedIds: Array.isArray(selectedIds) ? [...selectedIds] : []
+            }
         });
     }
 

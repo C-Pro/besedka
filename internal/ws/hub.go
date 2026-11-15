@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -207,6 +208,8 @@ func (h *Hub) restoreChat(modelChat models.Chat) {
 					Attachments:      m.Attachments,
 					Type:             m.Type,
 					Progress:         m.Progress,
+					UI:               m.UI,
+					UIResponse:       m.UIResponse,
 				}
 				c.Records = append(c.Records, rec)
 				if c.FirstSeq == 0 {
@@ -538,68 +541,47 @@ func (h *Hub) SendMessage(userID string, msg models.ClientMessage, senderCh chan
 		msgType = models.MessageTypeText
 	}
 
-	if msgType != models.MessageTypeText && msgType != models.MessageTypeProgress {
+	if msgType != models.MessageTypeText && msgType != models.MessageTypeProgress && msgType != models.MessageTypeUIResponse {
 		return models.Message{}, errors.New("unknown message type")
 	}
-	if msgType == models.MessageTypeText && msg.Progress != nil {
-		return models.Message{}, errors.New("progress data not allowed for text messages")
+	if msgType != models.MessageTypeProgress && msg.Progress != nil {
+		if msgType == models.MessageTypeText {
+			return models.Message{}, errors.New("progress data not allowed for text messages")
+		}
+		return models.Message{}, errors.New("progress data not allowed for this message type")
+	}
+	if msgType != models.MessageTypeText && msg.UI != nil {
+		return models.Message{}, errors.New("ui data only allowed for text messages")
+	}
+	if msgType != models.MessageTypeUIResponse && msg.UIResponse != nil {
+		return models.Message{}, errors.New("uiResponse data only allowed for ui_response messages")
 	}
 
-	if msgType == models.MessageTypeProgress {
+	switch msgType {
+	case models.MessageTypeProgress:
 		if senderUser.Type != models.UserTypeBot {
 			return models.Message{}, errors.New("only bots can send progress messages")
 		}
-		if msg.Progress == nil {
-			return models.Message{}, errors.New("missing progress data")
+		if err := validateProgressMessage(c, userID, msg.Progress); err != nil {
+			return models.Message{}, err
 		}
-		if msg.Progress.ParentSeq < 0 {
-			return models.Message{}, errors.New("invalid parentSeq")
+	case models.MessageTypeUIResponse:
+		if senderUser.Type == models.UserTypeBot || senderUser.Type == models.UserTypeWebhook {
+			return models.Message{}, errors.New("only human users can send ui_response messages")
 		}
-		if msg.Progress.CardStatus != "" &&
-			msg.Progress.CardStatus != models.ProgressStatusRunning &&
-			msg.Progress.CardStatus != models.ProgressStatusCompleted &&
-			msg.Progress.CardStatus != models.ProgressStatusFailed {
-			return models.Message{}, errors.New("invalid cardStatus")
+		if err := h.validateAndNormalizeUIResponse(c, &msg); err != nil {
+			return models.Message{}, err
 		}
-		if msg.Progress.Step != nil {
-			st := msg.Progress.Step
-			if strings.TrimSpace(st.ID) == "" {
-				return models.Message{}, errors.New("step ID cannot be empty")
+	default:
+		if msg.UI != nil {
+			if senderUser.Type != models.UserTypeBot {
+				return models.Message{}, errors.New("only bots can send interactive UI messages")
 			}
-			if strings.TrimSpace(st.Title) == "" {
-				return models.Message{}, errors.New("step title cannot be empty")
-			}
-			if st.Status != models.ProgressStatusRunning &&
-				st.Status != models.ProgressStatusCompleted &&
-				st.Status != models.ProgressStatusFailed {
-				return models.Message{}, errors.New("invalid step status")
+			if err := validateUIData(msg.UI); err != nil {
+				return models.Message{}, err
 			}
 		}
-		if msg.Progress.ParentSeq > 0 {
-			if msg.Progress.Step == nil && msg.Progress.CardStatus == "" {
-				return models.Message{}, errors.New("child progress update cannot be empty")
-			}
-			parentRecords, err := c.GetRecords(chat.Seq(msg.Progress.ParentSeq), chat.Seq(msg.Progress.ParentSeq))
-			if err != nil || len(parentRecords) == 0 {
-				return models.Message{}, errors.New("parent progress message not found")
-			}
-			parent := parentRecords[0]
-			if parent.Type != models.MessageTypeProgress || parent.Progress == nil || parent.Progress.ParentSeq != 0 {
-				return models.Message{}, errors.New("parent message is not a root progress message")
-			}
-			if parent.UserID != userID {
-				return models.Message{}, errors.New("cannot update progress message authored by another user")
-			}
-		} else {
-			if strings.TrimSpace(msg.Progress.Title) == "" {
-				return models.Message{}, errors.New("root progress message must have a title")
-			}
-			if msg.Progress.CardStatus == "" {
-				msg.Progress.CardStatus = models.ProgressStatusRunning
-			}
-		}
-	} else {
-		if strings.TrimSpace(msg.Content) == "" && len(msg.Attachments) == 0 {
+		if strings.TrimSpace(msg.Content) == "" && len(msg.Attachments) == 0 && msg.UI == nil {
 			return models.Message{}, errors.New("message content cannot be empty")
 		}
 	}
@@ -642,6 +624,8 @@ func (h *Hub) SendMessage(userID string, msg models.ClientMessage, senderCh chan
 		Timestamp:        time.Now().Unix(),
 		Type:             msgType,
 		Progress:         msg.Progress,
+		UI:               msg.UI,
+		UIResponse:       msg.UIResponse,
 	}
 
 	createdRec, err := c.AddRecord(rec)
@@ -662,7 +646,213 @@ func (h *Hub) SendMessage(userID string, msg models.ClientMessage, senderCh chan
 		Attachments: createdRec.Attachments,
 		Type:        createdRec.Type,
 		Progress:    createdRec.Progress,
+		UI:          createdRec.UI,
+		UIResponse:  createdRec.UIResponse,
 	}, nil
+}
+
+func validateProgressMessage(c *chat.Chat, userID string, progress *models.ProgressData) error {
+	if progress == nil {
+		return errors.New("missing progress data")
+	}
+	if progress.ParentSeq < 0 {
+		return errors.New("invalid parentSeq")
+	}
+	if progress.CardStatus != "" &&
+		progress.CardStatus != models.ProgressStatusRunning &&
+		progress.CardStatus != models.ProgressStatusCompleted &&
+		progress.CardStatus != models.ProgressStatusFailed {
+		return errors.New("invalid cardStatus")
+	}
+	if progress.Step != nil {
+		st := progress.Step
+		if strings.TrimSpace(st.ID) == "" {
+			return errors.New("step ID cannot be empty")
+		}
+		if strings.TrimSpace(st.Title) == "" {
+			return errors.New("step title cannot be empty")
+		}
+		if st.Status != models.ProgressStatusRunning &&
+			st.Status != models.ProgressStatusCompleted &&
+			st.Status != models.ProgressStatusFailed {
+			return errors.New("invalid step status")
+		}
+	}
+	if progress.ParentSeq > 0 {
+		if progress.Step == nil && progress.CardStatus == "" {
+			return errors.New("child progress update cannot be empty")
+		}
+		parentRecords, err := c.GetRecords(chat.Seq(progress.ParentSeq), chat.Seq(progress.ParentSeq))
+		if err != nil || len(parentRecords) == 0 {
+			return errors.New("parent progress message not found")
+		}
+		parent := parentRecords[0]
+		if parent.Type != models.MessageTypeProgress || parent.Progress == nil || parent.Progress.ParentSeq != 0 {
+			return errors.New("parent message is not a root progress message")
+		}
+		if parent.UserID != userID {
+			return errors.New("cannot update progress message authored by another user")
+		}
+		return nil
+	}
+	if strings.TrimSpace(progress.Title) == "" {
+		return errors.New("root progress message must have a title")
+	}
+	if progress.CardStatus == "" {
+		progress.CardStatus = models.ProgressStatusRunning
+	}
+	return nil
+}
+
+func validateUIData(ui *models.UIData) error {
+	if len(ui.Elements) == 0 || len(ui.Elements) > 50 {
+		return errors.New("invalid ui elements count")
+	}
+	seenIDs := make(map[string]struct{}, len(ui.Elements))
+	defaultRadios := 0
+	for i := range ui.Elements {
+		el := &ui.Elements[i]
+		el.ID = strings.TrimSpace(el.ID)
+		if el.ID == "" {
+			return errors.New("ui element ID cannot be empty")
+		}
+		if len(el.ID) > 64 {
+			return errors.New("ui element ID exceeds limit")
+		}
+		if _, exists := seenIDs[el.ID]; exists {
+			return errors.New("duplicate ui element ID")
+		}
+		seenIDs[el.ID] = struct{}{}
+
+		if strings.TrimSpace(el.Label) == "" {
+			return errors.New("ui element label cannot be empty")
+		}
+		if len(el.Label) > 255 {
+			el.Label = el.Label[:255]
+		}
+		if len(el.Description) > 1024 {
+			el.Description = el.Description[:1024]
+		}
+
+		switch el.Type {
+		case models.UIElementTypeButton, models.UIElementTypeCheckbox, models.UIElementTypeRadio:
+		default:
+			return errors.New("invalid ui element type")
+		}
+
+		switch el.Style {
+		case "", models.UIElementStyleDefault, models.UIElementStylePrimary, models.UIElementStyleDanger:
+		default:
+			return errors.New("invalid ui element style")
+		}
+
+		if el.Type == models.UIElementTypeButton && el.Default {
+			return errors.New("button element cannot have default state")
+		}
+		if el.Type == models.UIElementTypeRadio && el.Default {
+			defaultRadios++
+		}
+	}
+	if defaultRadios > 1 {
+		return errors.New("at most one radio element can have default state")
+	}
+	ui.Answered = false
+	ui.SelectedIDs = nil
+	ui.ResponderID = ""
+	return nil
+}
+
+func (h *Hub) validateAndNormalizeUIResponse(c *chat.Chat, msg *models.ClientMessage) error {
+	if msg.UIResponse == nil {
+		return errors.New("missing uiResponse data")
+	}
+	if msg.UIResponse.ParentSeq <= 0 {
+		return errors.New("invalid parentSeq")
+	}
+
+	parentRecords, err := c.GetRecords(chat.Seq(msg.UIResponse.ParentSeq), chat.Seq(msg.UIResponse.ParentSeq))
+	if err != nil || len(parentRecords) == 0 {
+		return errors.New("parent message not found")
+	}
+	parent := parentRecords[0]
+	if parent.UI == nil || len(parent.UI.Elements) == 0 {
+		return errors.New("parent message does not have interactive UI")
+	}
+	if parent.UI.Answered {
+		return errors.New("interactive UI message already answered")
+	}
+
+	elemByID := make(map[string]models.UIElement, len(parent.UI.Elements))
+	hasCheckbox := false
+	hasButton := false
+	for _, el := range parent.UI.Elements {
+		elemByID[el.ID] = el
+		switch el.Type {
+		case models.UIElementTypeCheckbox:
+			hasCheckbox = true
+		case models.UIElementTypeButton:
+			hasButton = true
+		}
+	}
+
+	if msg.UIResponse.SelectedIDs == nil {
+		msg.UIResponse.SelectedIDs = []string{}
+	}
+	if len(msg.UIResponse.SelectedIDs) == 0 && (!hasCheckbox || hasButton) {
+		return errors.New("selectedIds cannot be empty")
+	}
+
+	seenSelected := make(map[string]struct{}, len(msg.UIResponse.SelectedIDs))
+	selectedLabels := make([]string, 0, len(msg.UIResponse.SelectedIDs))
+	buttonCount := 0
+	radioCount := 0
+	for _, id := range msg.UIResponse.SelectedIDs {
+		if _, dup := seenSelected[id]; dup {
+			return errors.New("duplicate selected element ID")
+		}
+		seenSelected[id] = struct{}{}
+
+		el, ok := elemByID[id]
+		if !ok {
+			return errors.New("invalid selected element ID")
+		}
+		switch el.Type {
+		case models.UIElementTypeButton:
+			buttonCount++
+			if buttonCount > 1 {
+				return errors.New("cannot select multiple buttons")
+			}
+		case models.UIElementTypeRadio:
+			radioCount++
+			if radioCount > 1 {
+				return errors.New("cannot select multiple radio options")
+			}
+		}
+		selectedLabels = append(selectedLabels, el.Label)
+	}
+
+	labelSummary := strings.Join(selectedLabels, ", ")
+	if labelSummary == "" {
+		labelSummary = "None"
+	}
+
+	var parentUser models.User
+	if h.userProvider != nil {
+		parentUser, _ = h.userProvider.GetUser(parent.UserID)
+	}
+	isBotParent := parentUser.Type == models.UserTypeBot && parentUser.UserName != ""
+
+	if strings.TrimSpace(msg.Content) == "" {
+		if isBotParent {
+			msg.Content = fmt.Sprintf("@%s Selected: %s", parentUser.UserName, labelSummary)
+		} else {
+			msg.Content = fmt.Sprintf("Selected: %s", labelSummary)
+		}
+	} else if isBotParent && !slices.Contains(content.ExtractMentions(msg.Content), parentUser.UserName) {
+		msg.Content = fmt.Sprintf("@%s %s", parentUser.UserName, msg.Content)
+	}
+
+	return nil
 }
 
 func (h *Hub) Dispatch(userID string, msg models.ClientMessage, senderCh chan models.ServerMessage) {
@@ -1085,6 +1275,8 @@ func (h *Hub) handleRecordCallback(receiverID string, chatID string, record chat
 			if body == "" {
 				if record.Type == models.MessageTypeProgress && record.Progress != nil && record.Progress.Title != "" {
 					body = record.Progress.Title
+				} else if record.UI != nil {
+					body = "Sent an interactive prompt"
 				} else if len(record.Attachments) > 0 {
 					body = "Sent an attachment"
 				} else {
@@ -1126,6 +1318,8 @@ func mapRecordsToMessages(records []chat.ChatRecord) []models.Message {
 			Attachments: r.Attachments,
 			Type:        r.Type,
 			Progress:    r.Progress,
+			UI:          r.UI,
+			UIResponse:  r.UIResponse,
 		}
 	}
 	return messages

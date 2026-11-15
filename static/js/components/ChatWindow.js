@@ -312,6 +312,216 @@ export function createChatWindow(container) {
         }
     };
 
+    const getUserDisplayName = (userId, state) => {
+        if (!userId) return '';
+        if (state.currentUser && state.currentUser.id === userId) {
+            return state.currentUser.displayName || state.currentUser.userName || 'You';
+        }
+        const user = state.users?.find(u => u.id === userId);
+        return user ? (user.displayName || user.userName || userId) : userId;
+    };
+
+    const createInteractiveUIElement = (msg, state) => {
+        const ui = msg.ui;
+        const container = document.createElement('div');
+        const answered = Boolean(ui.answered);
+        const selectedSet = new Set(Array.isArray(ui.selectedIds) ? ui.selectedIds : []);
+        const elementsList = Array.isArray(ui.elements) ? ui.elements : [];
+
+        container.className = 'message-ui';
+        container.dataset.answered = answered ? 'true' : 'false';
+        container.dataset.selectedIds = [...selectedSet].join(',');
+        container.dataset.responderId = ui.responderId || '';
+
+        const optionElements = elementsList.filter(el => el.type === 'checkbox' || el.type === 'radio');
+        const buttonElements = elementsList.filter(el => el.type === 'button');
+        const hasCheckbox = optionElements.some(el => el.type === 'checkbox');
+        const hasRadio = optionElements.some(el => el.type === 'radio');
+        const hasExplicitButtons = buttonElements.length > 0;
+        const canSubmit = !answered && state.currentUser?.type !== 'bot';
+
+        const collectSelectedIds = () => {
+            const ids = [];
+            container.querySelectorAll('.message-ui-input:checked').forEach(input => {
+                if (input.dataset.elementId) {
+                    ids.push(input.dataset.elementId);
+                }
+            });
+            return ids;
+        };
+
+        let autoSubmitBtn = null;
+        const syncAutoSubmitState = () => {
+            if (!autoSubmitBtn || answered || container.dataset.submitting === 'true') return;
+            if (!canSubmit) {
+                autoSubmitBtn.disabled = true;
+                return;
+            }
+            if (hasRadio && !hasCheckbox) {
+                const ids = collectSelectedIds();
+                autoSubmitBtn.disabled = ids.length === 0;
+            } else {
+                autoSubmitBtn.disabled = false;
+            }
+        };
+
+        const submitInteraction = (clickedButtonEl = null) => {
+            if (container.dataset.answered === 'true' || container.dataset.submitting === 'true' || !canSubmit) {
+                return;
+            }
+            const ids = collectSelectedIds();
+            if (clickedButtonEl) {
+                ids.push(clickedButtonEl.id);
+            }
+            const sent = store.sendUIResponse(lastChatId, msg.seq, ids, '');
+            if (!sent) {
+                return;
+            }
+            container.dataset.submitting = 'true';
+            const submitSet = new Set(ids);
+            container.querySelectorAll('.message-ui-input').forEach(input => {
+                input.disabled = true;
+            });
+            container.querySelectorAll('.message-ui-option').forEach(row => {
+                row.classList.toggle('is-selected', submitSet.has(row.dataset.elementId));
+            });
+            container.querySelectorAll('.message-ui-btn').forEach(btn => {
+                btn.disabled = true;
+                if (submitSet.has(btn.dataset.elementId)) {
+                    btn.classList.add('is-selected');
+                }
+            });
+        };
+
+        if (optionElements.length > 0) {
+            const optionsDiv = document.createElement('div');
+            optionsDiv.className = 'message-ui-options';
+
+            for (const el of optionElements) {
+                const isSelected = answered ? selectedSet.has(el.id) : Boolean(el.default);
+                const row = document.createElement('div');
+                row.className = `message-ui-option${answered && isSelected ? ' is-selected' : ''}`;
+                row.dataset.elementId = el.id;
+
+                const label = document.createElement('label');
+                label.className = 'message-ui-option-label';
+
+                const input = document.createElement('input');
+                input.type = el.type === 'radio' ? 'radio' : 'checkbox';
+                input.className = 'message-ui-input';
+                input.dataset.elementId = el.id;
+                input.dataset.label = el.label;
+                if (el.type === 'radio') {
+                    input.name = `ui-radio-${msg.seq}`;
+                }
+                input.checked = isSelected;
+                input.disabled = !canSubmit;
+                input.addEventListener('change', syncAutoSubmitState);
+                label.appendChild(input);
+
+                const bodySpan = document.createElement('span');
+                bodySpan.className = 'message-ui-option-body';
+
+                const titleSpan = document.createElement('span');
+                titleSpan.className = 'message-ui-option-title';
+                titleSpan.textContent = el.label;
+                bodySpan.appendChild(titleSpan);
+
+                if (el.description) {
+                    const descSpan = document.createElement('span');
+                    descSpan.className = 'message-ui-option-desc';
+                    descSpan.textContent = el.description;
+                    bodySpan.appendChild(descSpan);
+                }
+
+                label.appendChild(bodySpan);
+                row.appendChild(label);
+                optionsDiv.appendChild(row);
+            }
+            container.appendChild(optionsDiv);
+        }
+
+        if (hasExplicitButtons || (!answered && optionElements.length > 0)) {
+            const actionsDiv = document.createElement('div');
+            actionsDiv.className = 'message-ui-actions';
+
+            if (hasExplicitButtons) {
+                for (const el of buttonElements) {
+                    const itemDiv = document.createElement('div');
+                    itemDiv.className = 'message-ui-btn-item';
+
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    const styleClass = el.style === 'primary' || el.style === 'danger' ? `style-${el.style}` : 'style-default';
+                    const selectedClass = answered && selectedSet.has(el.id) ? ' is-selected' : '';
+                    btn.className = `message-ui-btn ${styleClass}${selectedClass}`;
+                    btn.dataset.elementId = el.id;
+                    btn.textContent = el.label;
+                    btn.disabled = !canSubmit;
+                    btn.addEventListener('click', () => submitInteraction(el));
+                    itemDiv.appendChild(btn);
+
+                    if (el.description) {
+                        const desc = document.createElement('span');
+                        desc.className = 'message-ui-btn-desc';
+                        desc.textContent = el.description;
+                        itemDiv.appendChild(desc);
+                    }
+                    actionsDiv.appendChild(itemDiv);
+                }
+            } else if (!answered) {
+                autoSubmitBtn = document.createElement('button');
+                autoSubmitBtn.type = 'button';
+                autoSubmitBtn.className = 'message-ui-btn style-primary message-ui-submit-btn';
+                autoSubmitBtn.textContent = 'Submit';
+                autoSubmitBtn.addEventListener('click', () => submitInteraction(null));
+                syncAutoSubmitState();
+                actionsDiv.appendChild(autoSubmitBtn);
+            }
+
+            container.appendChild(actionsDiv);
+        }
+
+        if (answered && ui.responderId) {
+            const statusDiv = document.createElement('div');
+            statusDiv.className = 'message-ui-status';
+            statusDiv.textContent = `Answered by ${getUserDisplayName(ui.responderId, state)}`;
+            container.appendChild(statusDiv);
+        }
+
+        return container;
+    };
+
+    const updateInteractiveUIElement = (messageLineEl, msg, state) => {
+        if (!msg.ui || !Array.isArray(msg.ui.elements) || msg.ui.elements.length === 0) return;
+        const existingUI = messageLineEl.querySelector('.message-ui');
+        if (!existingUI) {
+            const attachmentsEl = messageLineEl.querySelector('.message-attachment, .message-attachment-file');
+            const newUI = createInteractiveUIElement(msg, state);
+            if (attachmentsEl) {
+                attachmentsEl.before(newUI);
+            } else {
+                messageLineEl.appendChild(newUI);
+            }
+            return;
+        }
+        const nextAnswered = msg.ui.answered ? 'true' : 'false';
+        const nextSelected = (msg.ui.selectedIds || []).join(',');
+        const nextResponder = msg.ui.responderId || '';
+        if (
+            existingUI.dataset.answered === nextAnswered &&
+            existingUI.dataset.selectedIds === nextSelected &&
+            existingUI.dataset.responderId === nextResponder
+        ) {
+            return;
+        }
+        if (existingUI.dataset.answered === 'false' && nextAnswered === 'false') {
+            return;
+        }
+        const newUI = createInteractiveUIElement(msg, state);
+        existingUI.replaceWith(newUI);
+    };
+
     const enhanceCodeBlocks = (rootEl) => {
         rootEl.querySelectorAll('.message-content pre').forEach(pre => {
             const codeEl = pre.querySelector('code');
@@ -587,6 +797,10 @@ export function createChatWindow(container) {
         decorateMentions(contentSpan, state.users, store.getCurrentUserName());
         div.appendChild(contentSpan);
 
+        if (msg.ui && Array.isArray(msg.ui.elements) && msg.ui.elements.length > 0) {
+            div.appendChild(createInteractiveUIElement(msg, state));
+        }
+
         div.appendChild(attachmentsFragment);
 
         // Handle Image Clicks
@@ -733,18 +947,25 @@ export function createChatWindow(container) {
                     elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
                 }
             } else {
-                // In-place update of rendered progress cards
-                let progressCardUpdated = false;
+                // In-place update of rendered progress cards and interactive UIs
+                let inPlaceUpdated = false;
                 for (const msg of messages) {
                     if (msg.type === 'progress') {
                         const existingCard = elements.messagesContainer.querySelector(`.message-line[data-seq="${msg.seq}"]`);
                         if (existingCard) {
                             updateProgressCardElement(existingCard, msg);
-                            progressCardUpdated = true;
+                            inPlaceUpdated = true;
+                        }
+                    }
+                    if (msg.ui && Array.isArray(msg.ui.elements) && msg.ui.elements.length > 0) {
+                        const existingLine = elements.messagesContainer.querySelector(`.message-line[data-seq="${msg.seq}"]`);
+                        if (existingLine) {
+                            updateInteractiveUIElement(existingLine, msg, state);
+                            inPlaceUpdated = true;
                         }
                     }
                 }
-                if (progressCardUpdated && scrollState.wasAtBottom) {
+                if (inPlaceUpdated && scrollState.wasAtBottom) {
                     elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
                 }
 

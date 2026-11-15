@@ -458,10 +458,12 @@ func (a *API) SendMessageHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Content     string               `json:"content"`
-		Type        models.MessageType   `json:"type"`
-		MessageType models.MessageType   `json:"messageType"`
-		Progress    *models.ProgressData `json:"progress"`
+		Content     string                 `json:"content"`
+		Type        models.MessageType     `json:"type"`
+		MessageType models.MessageType     `json:"messageType"`
+		Progress    *models.ProgressData   `json:"progress"`
+		UI          *models.UIData         `json:"ui"`
+		UIResponse  *models.UIResponseData `json:"uiResponse"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -480,16 +482,25 @@ func (a *API) SendMessageHandler(w http.ResponseWriter, r *http.Request) {
 	if msgType == "" {
 		msgType = models.MessageTypeText
 	}
-	if msgType != models.MessageTypeText && msgType != models.MessageTypeProgress {
+	if msgType != models.MessageTypeText && msgType != models.MessageTypeProgress && msgType != models.MessageTypeUIResponse {
 		http.Error(w, "unknown message type", http.StatusBadRequest)
 		return
 	}
-	if msgType == models.MessageTypeText && req.Progress != nil {
-		http.Error(w, "progress data not allowed for text messages", http.StatusBadRequest)
+	if msgType != models.MessageTypeProgress && req.Progress != nil {
+		http.Error(w, "progress data not allowed for "+string(msgType)+" messages", http.StatusBadRequest)
+		return
+	}
+	if msgType != models.MessageTypeText && req.UI != nil {
+		http.Error(w, "ui data not allowed for "+string(msgType)+" messages", http.StatusBadRequest)
+		return
+	}
+	if msgType != models.MessageTypeUIResponse && req.UIResponse != nil {
+		http.Error(w, "uiResponse data not allowed for "+string(msgType)+" messages", http.StatusBadRequest)
 		return
 	}
 
-	if msgType == models.MessageTypeProgress {
+	switch msgType {
+	case models.MessageTypeProgress:
 		if user.Type != models.UserTypeBot {
 			http.Error(w, "Only bots can send progress messages", http.StatusForbidden)
 			return
@@ -498,9 +509,24 @@ func (a *API) SendMessageHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Missing progress data", http.StatusBadRequest)
 			return
 		}
-	} else if strings.TrimSpace(req.Content) == "" {
-		http.Error(w, "Message content cannot be empty", http.StatusBadRequest)
-		return
+	case models.MessageTypeUIResponse:
+		if user.Type != models.UserTypeHuman {
+			http.Error(w, "Only human users can send ui_response messages", http.StatusForbidden)
+			return
+		}
+		if req.UIResponse == nil {
+			http.Error(w, "Missing uiResponse data", http.StatusBadRequest)
+			return
+		}
+	default:
+		if req.UI != nil && user.Type != models.UserTypeBot {
+			http.Error(w, "Only bots can send interactive UI messages", http.StatusForbidden)
+			return
+		}
+		if req.UI == nil && strings.TrimSpace(req.Content) == "" {
+			http.Error(w, "Message content cannot be empty", http.StatusBadRequest)
+			return
+		}
 	}
 
 	created, err := a.hub.SendMessage(user.ID, models.ClientMessage{
@@ -509,10 +535,16 @@ func (a *API) SendMessageHandler(w http.ResponseWriter, r *http.Request) {
 		Content:     req.Content,
 		MessageType: msgType,
 		Progress:    req.Progress,
+		UI:          req.UI,
+		UIResponse:  req.UIResponse,
 	}, nil)
 	if err != nil {
 		errMsg := err.Error()
-		if strings.Contains(errMsg, "cannot update") || strings.Contains(errMsg, "only bots") || strings.Contains(errMsg, "not authorized") || strings.Contains(errMsg, "write permission") || strings.Contains(errMsg, "access denied") {
+		if strings.Contains(errMsg, "already answered") {
+			http.Error(w, errMsg, http.StatusConflict)
+			return
+		}
+		if strings.Contains(errMsg, "cannot update") || strings.Contains(errMsg, "only bots") || strings.Contains(errMsg, "only human") || strings.Contains(errMsg, "not authorized") || strings.Contains(errMsg, "write permission") || strings.Contains(errMsg, "access denied") {
 			http.Error(w, errMsg, http.StatusForbidden)
 			return
 		}
@@ -520,7 +552,7 @@ func (a *API) SendMessageHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, errMsg, http.StatusNotFound)
 			return
 		}
-		if strings.Contains(errMsg, "invalid") || strings.Contains(errMsg, "cannot be empty") || strings.Contains(errMsg, "must have") || strings.Contains(errMsg, "missing") || strings.Contains(errMsg, "not allowed") || strings.Contains(errMsg, "unknown") || strings.Contains(errMsg, "not a root") || strings.Contains(errMsg, "conflicting") || strings.Contains(errMsg, "limit") {
+		if strings.Contains(errMsg, "invalid") || strings.Contains(errMsg, "cannot") || strings.Contains(errMsg, "must have") || strings.Contains(errMsg, "missing") || strings.Contains(errMsg, "not allowed") || strings.Contains(errMsg, "unknown") || strings.Contains(errMsg, "not a root") || strings.Contains(errMsg, "conflicting") || strings.Contains(errMsg, "limit") || strings.Contains(errMsg, "duplicate") || strings.Contains(errMsg, "only allowed") || strings.Contains(errMsg, "does not have") || strings.Contains(errMsg, "at most one") {
 			http.Error(w, errMsg, http.StatusBadRequest)
 			return
 		}

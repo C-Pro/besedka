@@ -501,6 +501,35 @@ func (s *BboltStorage) UpsertMessage(message models.Message) error {
 				}
 			}
 		}
+		if message.UI != nil {
+			dbUI := &DBUIData{
+				Answered:    message.UI.Answered,
+				ResponderID: message.UI.ResponderID,
+			}
+			if len(message.UI.Elements) > 0 {
+				dbUI.Elements = make([]DBUIElement, len(message.UI.Elements))
+				for i, el := range message.UI.Elements {
+					dbUI.Elements[i] = DBUIElement{
+						ID:          el.ID,
+						Type:        string(el.Type),
+						Label:       el.Label,
+						Description: el.Description,
+						Style:       string(el.Style),
+						Default:     el.Default,
+					}
+				}
+			}
+			if len(message.UI.SelectedIDs) > 0 {
+				dbUI.SelectedIDs = append([]string(nil), message.UI.SelectedIDs...)
+			}
+			dbMessage.UI = dbUI
+		}
+		if message.UIResponse != nil {
+			dbMessage.UIResponse = &DBUIResponseData{
+				ParentSeq:   message.UIResponse.ParentSeq,
+				SelectedIDs: append([]string(nil), message.UIResponse.SelectedIDs...),
+			}
+		}
 
 		data, err := dbMessage.MarshalBinary()
 		if err != nil {
@@ -572,6 +601,29 @@ func (s *BboltStorage) UpsertMessage(message models.Message) error {
 								parentDBMsg.Progress.Steps = append(parentDBMsg.Progress.Steps, newStep)
 							}
 						}
+						if parentBytes, err := parentDBMsg.MarshalBinary(); err == nil {
+							if parentEncrypted, err := s.crypter.Encrypt(parentBytes); err == nil {
+								_ = dirtyPut(tx, chatBucket, [][]byte{bucketMessages, []byte(message.ChatID)}, parentDBMsg.Key(), parentEncrypted)
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// Lock parent interactive UI snapshot when a ui_response is saved
+		if message.Type == models.MessageTypeUIResponse && message.UIResponse != nil && message.UIResponse.ParentSeq > 0 {
+			parentKey := make([]byte, 8)
+			binary.BigEndian.PutUint64(parentKey, uint64(message.UIResponse.ParentSeq))
+			parentData := chatBucket.Get(parentKey)
+			if parentData != nil {
+				parentDecrypted, err := s.crypter.Decrypt(parentData)
+				if err == nil {
+					var parentDBMsg DBMessage
+					if err := parentDBMsg.UnmarshalBinary(parentDecrypted); err == nil && parentDBMsg.UI != nil {
+						parentDBMsg.UI.Answered = true
+						parentDBMsg.UI.SelectedIDs = append([]string(nil), message.UIResponse.SelectedIDs...)
+						parentDBMsg.UI.ResponderID = message.UserID
 						if parentBytes, err := parentDBMsg.MarshalBinary(); err == nil {
 							if parentEncrypted, err := s.crypter.Encrypt(parentBytes); err == nil {
 								_ = dirtyPut(tx, chatBucket, [][]byte{bucketMessages, []byte(message.ChatID)}, parentDBMsg.Key(), parentEncrypted)
@@ -687,6 +739,35 @@ func (s *BboltStorage) ListMessages(chatID string, from, to int64) ([]models.Mes
 					}
 				}
 				msg.Progress = p
+			}
+			if dbMsg.UI != nil {
+				ui := &models.UIData{
+					Answered:    dbMsg.UI.Answered,
+					ResponderID: dbMsg.UI.ResponderID,
+				}
+				if len(dbMsg.UI.Elements) > 0 {
+					ui.Elements = make([]models.UIElement, len(dbMsg.UI.Elements))
+					for i, el := range dbMsg.UI.Elements {
+						ui.Elements[i] = models.UIElement{
+							ID:          el.ID,
+							Type:        models.UIElementType(el.Type),
+							Label:       el.Label,
+							Description: el.Description,
+							Style:       models.UIElementStyle(el.Style),
+							Default:     el.Default,
+						}
+					}
+				}
+				if len(dbMsg.UI.SelectedIDs) > 0 {
+					ui.SelectedIDs = append([]string(nil), dbMsg.UI.SelectedIDs...)
+				}
+				msg.UI = ui
+			}
+			if dbMsg.UIResponse != nil {
+				msg.UIResponse = &models.UIResponseData{
+					ParentSeq:   dbMsg.UIResponse.ParentSeq,
+					SelectedIDs: append([]string(nil), dbMsg.UIResponse.SelectedIDs...),
+				}
 			}
 			messages = append(messages, msg)
 		}

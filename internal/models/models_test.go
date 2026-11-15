@@ -264,3 +264,110 @@ func TestProgressMessageJSONSerialization(t *testing.T) {
 		t.Errorf("unexpected progress payload: %+v", decodedClient.Progress)
 	}
 }
+
+func TestUIMessageJSONSerialization(t *testing.T) {
+	// Legacy message should omit ui and uiResponse
+	legacyMsg := Message{
+		Seq:       1,
+		Timestamp: 1700000000,
+		ChatID:    "townhall",
+		UserID:    "alice",
+		Content:   "Hello world",
+	}
+	data, err := json.Marshal(legacyMsg)
+	if err != nil {
+		t.Fatalf("unexpected marshal error: %v", err)
+	}
+	str := string(data)
+	if strings.Contains(str, `"ui"`) || strings.Contains(str, `"uiResponse"`) {
+		t.Errorf("expected ui and uiResponse to be omitted, got: %s", str)
+	}
+
+	// Message with interactive UI
+	uiMsg := Message{
+		Seq:       20,
+		Timestamp: 1700000020,
+		ChatID:    "townhall",
+		UserID:    "helperbot",
+		Content:   "<p>Approve action?</p>\n",
+		Type:      MessageTypeText,
+		UI: &UIData{
+			Elements: []UIElement{
+				{
+					ID:          "env_prod",
+					Type:        UIElementTypeRadio,
+					Label:       "Production",
+					Description: "Deploy to prod cluster",
+					Default:     true,
+				},
+				{
+					ID:    "approve",
+					Type:  UIElementTypeButton,
+					Label: "Approve",
+					Style: UIElementStylePrimary,
+				},
+				{
+					ID:    "deny",
+					Type:  UIElementTypeButton,
+					Label: "Deny",
+					Style: UIElementStyleDanger,
+				},
+			},
+			Answered:    true,
+			SelectedIDs: []string{"env_prod", "approve"},
+			ResponderID: "alice",
+		},
+	}
+
+	data, err = json.Marshal(uiMsg)
+	if err != nil {
+		t.Fatalf("unexpected marshal error: %v", err)
+	}
+
+	var decodedMsg Message
+	if err := json.Unmarshal(data, &decodedMsg); err != nil {
+		t.Fatalf("unexpected unmarshal error: %v", err)
+	}
+	if decodedMsg.UI == nil || len(decodedMsg.UI.Elements) != 3 {
+		t.Fatalf("expected 3 UI elements, got %+v", decodedMsg.UI)
+	}
+	if !decodedMsg.UI.Answered || decodedMsg.UI.ResponderID != "alice" {
+		t.Errorf("expected answered state and responderId alice, got %+v", decodedMsg.UI)
+	}
+	if len(decodedMsg.UI.SelectedIDs) != 2 || decodedMsg.UI.SelectedIDs[0] != "env_prod" || decodedMsg.UI.SelectedIDs[1] != "approve" {
+		t.Errorf("unexpected selectedIds: %+v", decodedMsg.UI.SelectedIDs)
+	}
+	if decodedMsg.UI.Elements[1].Style != UIElementStylePrimary {
+		t.Errorf("expected primary style, got %q", decodedMsg.UI.Elements[1].Style)
+	}
+
+	// ClientMessage with ui_response
+	clientResp := ClientMessage{
+		Type:        ClientMessageTypeSend,
+		ChatID:      "townhall",
+		MessageType: MessageTypeUIResponse,
+		Content:     "@helperbot Selected: Production, Approve",
+		UIResponse: &UIResponseData{
+			ParentSeq:   20,
+			SelectedIDs: []string{"env_prod", "approve"},
+		},
+	}
+	data, err = json.Marshal(clientResp)
+	if err != nil {
+		t.Fatalf("unexpected marshal error: %v", err)
+	}
+
+	var decodedClient ClientMessage
+	if err := json.Unmarshal(data, &decodedClient); err != nil {
+		t.Fatalf("unexpected unmarshal error: %v", err)
+	}
+	if decodedClient.MessageType != MessageTypeUIResponse {
+		t.Errorf("expected messageType %q, got %q", MessageTypeUIResponse, decodedClient.MessageType)
+	}
+	if decodedClient.UIResponse == nil || decodedClient.UIResponse.ParentSeq != 20 {
+		t.Errorf("unexpected uiResponse payload: %+v", decodedClient.UIResponse)
+	}
+	if len(decodedClient.UIResponse.SelectedIDs) != 2 || decodedClient.UIResponse.SelectedIDs[1] != "approve" {
+		t.Errorf("unexpected uiResponse selectedIds: %+v", decodedClient.UIResponse.SelectedIDs)
+	}
+}
