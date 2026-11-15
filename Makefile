@@ -14,7 +14,7 @@ lint-go:
 		-v $(HOME)/.cache/golangci-lint:/root/.cache/golangci-lint \
 		-w /app \
 		-e GOFLAGS="-mod=vendor" \
-		golangci/golangci-lint:v2.13.2 \
+		golangci/golangci-lint:v2.15.0 \
 		golangci-lint run
 
 
