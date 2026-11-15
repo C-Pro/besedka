@@ -27,20 +27,20 @@ import (
 type wsReader struct {
 	conn *websocket.Conn
 	ch   chan models.ServerMessage
-	err  chan error
+	done chan struct{}
 }
 
 func newWSReader(conn *websocket.Conn) *wsReader {
 	r := &wsReader{
 		conn: conn,
 		ch:   make(chan models.ServerMessage, 100),
-		err:  make(chan error, 1),
+		done: make(chan struct{}),
 	}
 	go func() {
 		for {
 			var msg models.ServerMessage
 			if err := conn.ReadJSON(&msg); err != nil {
-				r.err <- err
+				close(r.done)
 				return
 			}
 			r.ch <- msg
@@ -63,7 +63,7 @@ func (r *wsReader) waitForMessage(timeout time.Duration, predicate func(m models
 			}
 		case <-deadline:
 			return false
-		case <-r.err:
+		case <-r.done:
 			return false
 		}
 	}

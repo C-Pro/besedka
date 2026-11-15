@@ -1,2 +1,3 @@
 static/js/qrcode.min.js
 static/js/app.test.js
+static/js/highlighter.test.js

@@ -14,17 +14,20 @@ lint-go:
 		-v $(HOME)/.cache/golangci-lint:/root/.cache/golangci-lint \
 		-w /app \
 		-e GOFLAGS="-mod=vendor" \
-		golangci/golangci-lint:v2.13.2 \
+		golangci/golangci-lint:v2.15.0 \
 		golangci-lint run
 
 
 lint-js:
 	docker run --rm -w /app -v $(PWD)/static:/app/static:ro -v $(PWD)/biome.json:/app/biome.json:ro -v $(PWD)/.biomeignore:/app/.biomeignore:ro ghcr.io/biomejs/biome:2.3.13 lint static
 
-test: test-go
+test: test-go test-js
 
 test-go:
 	go test -v -covermode=atomic -coverprofile=coverage.out -race ./...
+
+test-js:
+	docker run --rm -w /app -v $(PWD)/static:/app/static:ro oven/bun:1-alpine bun test static/js/highlighter.test.js
 
 e2e:
 	go test -v -tags e2e ./e2e/...

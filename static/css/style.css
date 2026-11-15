@@ -55,6 +55,16 @@
     --user-color-7: #1de9b6;
     --bot-color: #64b5f6;
     --webhook-color: #ffb74d;
+    --hl-comment: #8b949e;
+    --hl-string: #a5d6ff;
+    --hl-number: #79c0ff;
+    --hl-keyword: #ff7b72;
+    --hl-operator: #d2a8ff;
+    --hl-bracket-0: #ffa657;
+    --hl-bracket-1: #7ee787;
+    --hl-bracket-2: #d2a8ff;
+    --hl-bracket-active-bg: rgba(255, 191, 36, 0.28);
+    --hl-bracket-active-outline: #fbbf24;
 
     /* Aliases for components */
     --surface-bg: var(--bg-panel);
@@ -151,6 +161,16 @@
     --user-color-7: #1a7f37;
     --bot-color: #0550ae;
     --webhook-color: #9a6700;
+    --hl-comment: #57606a;
+    --hl-string: #0a3069;
+    --hl-number: #0550ae;
+    --hl-keyword: #cf222e;
+    --hl-operator: #8250df;
+    --hl-bracket-0: #953800;
+    --hl-bracket-1: #116329;
+    --hl-bracket-2: #6639ba;
+    --hl-bracket-active-bg: rgba(191, 135, 0, 0.25);
+    --hl-bracket-active-outline: #9a6700;
 
     --surface-bg: var(--bg-panel);
     --bg-primary: var(--bg-app);
