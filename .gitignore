@@ -7,3 +7,4 @@ _data
 conductor
 .env
 deploy/
+test_users.json

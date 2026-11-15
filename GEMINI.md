@@ -43,6 +43,7 @@ When defining HTTP handlers always use Go 1.22+ style: `mux.HandleFunc("POST /ad
 * Once started, server will serve admin api on port 8081. Use it to register new users.
 * To generate a TOTP key use `go run ./cmd/totp/main.go <base32 secret>`.
 * Totp is needed both for the registration and login.
+* Pre-registered local test accounts are stored in the gitignored `test_users.json` file (bot `bob` with API key, and human users `alice`, `charlie`, `dana` with passwords and base32 `totpSecret` values). For MCP/browser testing, skip registration and sign in directly at `http://localhost:8080/login.html` using credentials from `test_users.json` and a code from `go run ./cmd/totp/main.go <totpSecret>`.
 
 # Temporary files
 
