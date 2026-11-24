@@ -7,7 +7,7 @@ require (
 	github.com/c-pro/geche v1.6.0
 	github.com/go-webauthn/webauthn v0.17.4
 	github.com/google/uuid v1.6.0
-	github.com/gorilla/websocket v1.5.3
+	github.com/gorilla/websocket v1.5.4-0.20240701034025-d67f41855da4
 	github.com/h2non/filetype v1.1.3
 	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/mxschmitt/playwright-go v0.6100.0
@@ -15,9 +15,9 @@ require (
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 	github.com/yuin/goldmark v1.8.2
 	go.etcd.io/bbolt v1.4.3
-	golang.org/x/crypto v0.56.0
+	golang.org/x/crypto v0.59.0
 	golang.org/x/image v0.43.0
-	golang.org/x/sync v0.22.0
+	golang.org/x/sync v0.25.0
 )
 
 require (
@@ -38,8 +38,8 @@ require (
 	github.com/tinylib/msgp v1.6.4 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
-	golang.org/x/net v0.58.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.41.0 // indirect
+	golang.org/x/net v0.63.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
